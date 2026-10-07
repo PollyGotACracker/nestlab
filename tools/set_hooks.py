@@ -19,6 +19,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# sub_check·sub_codex가 쓰는 tomllib는 Python 3.11부터 있다.
+if sys.version_info < (3, 11):
+    sys.exit("Python 3.11 이상이 필요합니다.")
+
 # 같은 이름 폴더의 모듈을 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "set_hooks"))
 

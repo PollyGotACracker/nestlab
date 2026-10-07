@@ -33,6 +33,8 @@ director(rio)는 사용자 메시지의 마지막 줄이 승인 명령으로 끝
 ## 전역 설정 설치
 
 저장소 루트에서 실행한다.
+Python 3.11 이상이 필요하다.
+macOS에서는 `python` 대신 `python3`를 쓴다.
 
 ```sh
 python -B tools/set_hooks.py install --dry-run
@@ -84,7 +86,8 @@ python -B tools/set_agents.py unlink
 claude --agent rio
 ```
 
-Git Bash에서는 다음 명령도 사용할 수 있다.
+bash에서는 다음 명령도 사용할 수 있다.
+macOS에서 bash를 기본 셸로 쓰면 `~/.bash_profile`에 `source ~/.bashrc`를 추가한다.
 
 ```sh
 claude agent rio

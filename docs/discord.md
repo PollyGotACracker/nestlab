@@ -97,26 +97,6 @@ SOUL.md 를 참고해서 캐릭터 성격과 어울리는 화풍을 고민해서
 
 프로젝트 루트에서 `discord/config.example.json`을 `discord/config.json`으로 복사한다.
 
-### Windows PowerShell
-
-```powershell
-Copy-Item discord/config.example.json discord/config.json
-```
-
-### Windows 명령 프롬프트
-
-```cmd
-copy discord\config.example.json discord\config.json
-```
-
-### Windows Git Bash
-
-```bash
-cp discord/config.example.json discord/config.json
-```
-
-### macOS 또는 Linux
-
 ```bash
 cp discord/config.example.json discord/config.json
 ```
@@ -576,21 +556,7 @@ git status --short discord/config.json
 
 프로젝트 루트에서 가상환경을 만든다.
 
-### Windows PowerShell
-
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-### Windows 명령 프롬프트
-
-```cmd
-python -m venv .venv
-.venv\Scripts\activate.bat
-```
-
-### Git Bash
+### Windows Git Bash
 
 ```bash
 python -m venv .venv

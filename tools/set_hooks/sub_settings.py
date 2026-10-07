@@ -3,6 +3,8 @@
 install은 이 파일의 리터럴만 사용자 전역 파일에 반영한다.
 값을 바꾼 뒤 install을 다시 실행하면 기존 설치에도 바뀐 값이 재반영된다.
 <BRAINSTACK>은 install이 이 저장소의 실제 경로로 바꾼다.
+<PYTHON>은 install을 실행한 Python 경로로 바꾼다.
+경로는 bash에서 실행되도록 슬래시로 쓴다.
 """
 
 # Claude 전역 설정의 단일 값이다.
@@ -14,7 +16,7 @@ CLAUDE_SETTINGS = {
     },
     "statusLine": {
         "type": "command",
-        "command": "python \"<BRAINSTACK>\\hooks\\add_statusline.py\"",
+        "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/add_statusline.py\"",
         "padding": 0,
         "statusMessage": "Brainstack 에이전트 상태줄 이름 표시"
     }
@@ -131,7 +133,7 @@ CLAUDE_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\load_agent.py\" --default-role buddy",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\" --default-role buddy",
                     "statusMessage": "Brainstack 메인 에이전트 역할 및 공통 지침"
                 }
             ]
@@ -142,7 +144,7 @@ CLAUDE_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\load_agent.py\"",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\"",
                     "statusMessage": "Brainstack 서브 에이전트 역할 및 공통 지침"
                 }
             ]
@@ -154,7 +156,7 @@ CLAUDE_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_tool_use.py\" --runner claude",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_tool_use.py\" --runner claude",
                     "timeout": 10,
                     "statusMessage": "Brainstack 승인·입력·쓰기 범위 검사"
                 }
@@ -166,13 +168,13 @@ CLAUDE_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_refute_verdict.py\"",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_refute_verdict.py\"",
                     "timeout": 10,
                     "statusMessage": "Brainstack 반증 판정 검사"
                 },
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\save_agent_result.py\" --runner claude",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/save_agent_result.py\" --runner claude",
                     "timeout": 10,
                     "statusMessage": "Brainstack 결과 원문 저장"
                 }
@@ -185,7 +187,7 @@ CLAUDE_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\tools\\check_doc_rule.py\" --hook",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/tools/check_doc_rule.py\" --hook",
                     "timeout": 30,
                     "statusMessage": "Brainstack 지침 검사"
                 }
@@ -197,7 +199,7 @@ CLAUDE_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\record_incident.py\" --runner claude",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/record_incident.py\" --runner claude",
                     "timeout": 10,
                     "statusMessage": "Brainstack 사건 감지"
                 }
@@ -213,8 +215,8 @@ CODEX_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\load_agent.py\" --include-role --default-role buddy",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\load_agent.py\" --include-role --default-role buddy",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\" --include-role --default-role buddy",
+                    "commandWindows": "py \"<BRAINSTACK>/hooks/load_agent.py\" --include-role --default-role buddy",
                     "additionalContextLimit": 10000,
                     "statusMessage": "Brainstack 메인 에이전트 역할 및 공통 지침"
                 }
@@ -226,8 +228,8 @@ CODEX_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\load_agent.py\" --include-role",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\load_agent.py\" --include-role",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\" --include-role",
+                    "commandWindows": "py \"<BRAINSTACK>/hooks/load_agent.py\" --include-role",
                     "additionalContextLimit": 10000,
                     "statusMessage": "Brainstack 서브 에이전트 역할 및 공통 지침"
                 }
@@ -240,8 +242,8 @@ CODEX_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_tool_use.py\" --runner codex",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\check_tool_use.py\" --runner codex",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_tool_use.py\" --runner codex",
+                    "commandWindows": "py \"<BRAINSTACK>/hooks/check_tool_use.py\" --runner codex",
                     "timeout": 10,
                     "statusMessage": "Brainstack 승인·입력·쓰기 범위 검사"
                 }
@@ -253,15 +255,15 @@ CODEX_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_refute_verdict.py\"",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\check_refute_verdict.py\"",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_refute_verdict.py\"",
+                    "commandWindows": "py \"<BRAINSTACK>/hooks/check_refute_verdict.py\"",
                     "timeout": 10,
                     "statusMessage": "Brainstack 반증 판정 검사"
                 },
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\save_agent_result.py\" --runner codex",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\save_agent_result.py\" --runner codex",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/save_agent_result.py\" --runner codex",
+                    "commandWindows": "py \"<BRAINSTACK>/hooks/save_agent_result.py\" --runner codex",
                     "timeout": 10,
                     "statusMessage": "Brainstack 결과 원문 저장"
                 }
@@ -274,8 +276,8 @@ CODEX_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\tools\\check_doc_rule.py\" --hook",
-                    "commandWindows": "py \"<BRAINSTACK>\\tools\\check_doc_rule.py\" --hook",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/tools/check_doc_rule.py\" --hook",
+                    "commandWindows": "py \"<BRAINSTACK>/tools/check_doc_rule.py\" --hook",
                     "timeout": 30,
                     "statusMessage": "Brainstack 지침 검사"
                 }
@@ -287,8 +289,8 @@ CODEX_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\record_incident.py\" --runner codex",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\record_incident.py\" --runner codex",
+                    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/record_incident.py\" --runner codex",
+                    "commandWindows": "py \"<BRAINSTACK>/hooks/record_incident.py\" --runner codex",
                     "timeout": 10,
                     "statusMessage": "Brainstack 사건 감지"
                 }

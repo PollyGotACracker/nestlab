@@ -6,12 +6,14 @@ entry가 없으면 신규 설치와 같이 병합한다.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import sub_settings
 from sub_paths import ROOT
 
 PLACEHOLDER = "<BRAINSTACK>"
+PYTHON = "<PYTHON>"
 MARK_BEGIN = "# >>> brainstack >>>"
 MARK_END = "# <<< brainstack <<<"
 
@@ -54,10 +56,10 @@ def dump_json(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 
-# 문자열 안의 <BRAINSTACK>을 path_text로 바꾼다.
+# 문자열 안의 <BRAINSTACK>을 path_text로, <PYTHON>을 실행 중인 Python 경로로 바꾼다.
 def fill(value, path_text: str):
     if isinstance(value, str):
-        return value.replace(PLACEHOLDER, path_text)
+        return value.replace(PLACEHOLDER, path_text).replace(PYTHON, Path(sys.executable).as_posix())
     if isinstance(value, list):
         return [fill(v, path_text) for v in value]
     if isinstance(value, dict):
@@ -72,12 +74,12 @@ def checked_block(block: str) -> str:
 
 # settings 원본을 읽고 자리표시를 실제 경로로 바꾼다.
 def load_sources() -> dict:
-    claude = fill(sub_settings.CLAUDE_SETTINGS, str(ROOT))
-    claude["permissions"] = fill(sub_settings.CLAUDE_PERMISSION_RULES, str(ROOT))
-    claude["hooks"] = fill(sub_settings.CLAUDE_HOOK_RULES, str(ROOT))
+    claude = fill(sub_settings.CLAUDE_SETTINGS, ROOT.as_posix())
+    claude["permissions"] = fill(sub_settings.CLAUDE_PERMISSION_RULES, ROOT.as_posix())
+    claude["hooks"] = fill(sub_settings.CLAUDE_HOOK_RULES, ROOT.as_posix())
     return {
         "claude": claude,
-        "codex_hooks": {"hooks": fill(sub_settings.CODEX_HOOK_RULES, str(ROOT))},
+        "codex_hooks": {"hooks": fill(sub_settings.CODEX_HOOK_RULES, ROOT.as_posix())},
         "claude_md": sub_settings.CLAUDE_IMPORT_LINE.strip().replace(PLACEHOLDER, ROOT.as_posix()),
         "codex_rules": checked_block(sub_settings.CODEX_RULES_BLOCK),
         "bashrc": checked_block(sub_settings.BASHRC_BLOCK),
