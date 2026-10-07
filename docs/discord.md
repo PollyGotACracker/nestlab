@@ -303,56 +303,28 @@ Bot이 시작할 때 해당 ID가 접근 가능한 ForumChannel인지 확인한�
 
 ### 원본 연결
 
-지식 절차의 원본은 이 저장소의 `archive/schema/ingest.md`, `query.md`, `lint.md`이다.
-로컬은 `shared/skills/wiki/SKILL.md`를 통해 현재 파일을 읽고, Discord는 전용 도구로 설정된 GitHub 저장소의 원본을 읽는다.
-Discord의 이 연결은 로컬 Skill 자동 로딩에 의존하지 않는다.
 사용자는 “이 자료를 위키에 정리해줘”, “위키에서 찾아줘”, “위키 점검해줘”처럼 요청하며 schema 경로를 지정할 필요가 없다.
 
 Discord에서 사용하려면 설정된 원격 저장소의 대상 브랜치에 `archive/AGENTS.md`와 해당 `archive/schema/` 파일이 있어야 한다.
 로컬 schema를 수정하거나 VM에 파일을 복사하는 것만으로 원격 원본이 갱신되지는 않는다.
 원격 반영은 별도의 승인된 저장소 변경 절차로 수행한다.
 
-### 절차 조회
-
-archive thread의 documenter는 `archive_workflow_open`으로 자료 편입(`ingest`), 위키 조회(`query`), 위키 점검(`lint`) 절차를 먼저 연다.
-브랜치를 생략하면 `master`를 사용한다.
-호출마다 branch를 commit SHA로 확정하고 같은 commit의 `archive/AGENTS.md`와 `archive/schema/<operation>.md` 전체, 원본 경로, blob SHA와 기준 디렉터리를 반환한다.
-원본이 누락되면 누락 경로를 오류로 반환한다.
-schema의 `raw/`와 `wiki/`는 `archive/` 기준이고 `.github/` 템플릿은 저장소 루트 기준이다.
-
-`archive_list`는 반환된 commit SHA의 archive 하위 파일을 페이지당 최대 100개 열거한다.
-`archive_search`는 같은 commit의 `archive/wiki`를 파일 페이지당 최대 20개, 일치 결과 최대 100개로 검색한다.
-결과에는 경로, 행 번호, 일치 본문, 검색 범위와 잘림 여부가 포함된다.
-파일당 UTF-8 텍스트 읽기 한도는 1,000,000 bytes이며 일치 본문은 최대 2,000자이다.
-읽지 못한 파일, GitHub tree 잘림과 결과 생략을 표시하므로 일부 결과를 전체 검색으로 판단하지 않는다.
-파일 페이지의 `next_page`가 있으면 같은 commit SHA로 다음 페이지를 확인한다.
-개별 파일은 기존 `archive_read`의 `branch`에 같은 commit SHA를 넣어 읽는다.
-`archive_history`는 archive 경로의 commit 이력을 최신순으로 반환한다.
-기준은 commit SHA나 브랜치이다.
-조회나 점검만 요청한 경우에는 아래 변경 승인 절차를 자동으로 시작하지 않는다.
-
-원본 내용은 절차를 열 때마다 읽으므로 원격 브랜치에 반영된 schema 변경은 다음 `archive_workflow_open` 호출에서 읽는다.
-한 작업의 후속 조회는 반환된 commit SHA를 유지해 중간 갱신과 섞이지 않게 한다.
-
 ### 변경 승인
 
 일반 채널에서 시작한 조회·점검 요청에도 아래 1~2단계의 thread 이동은 적용한다.
 3단계 이후는 변경 작업에 적용한다.
 
-1. 일반 에이전트 채널에서 저장소 작업을 요청하면 documenter가 `archive_thread_start`로 archive forum에 작업 게시글을 만든다.
+1. 일반 에이전트 채널에서 저장소 작업을 요청하면 documenter가 archive forum에 작업 게시글을 만든다.
 2. 게시글의 첫 글에는 최초 사용자 요청을 넣는다. 요청에 첨부가 있으면 같은 archive thread에 복사한다.
-3. documenter가 원격 `master`의 Issue 템플릿을 읽고 Issue 제목, 본문, label 전체를 보여 준 뒤 `archive_issue_stage`로 승인 대기에 보관한다.
-4. 요청자가 archive thread에 `승인`을 입력하면 Python이 템플릿 SHA를 다시 확인하고 Issue와 `<타입>/<이슈번호>` 작업 브랜치를 만든다. `취소`를 입력하면 pending만 취소한다.
-5. documenter가 생성·수정·삭제할 전체 파일, 실제 내용, 커밋 메시지를 보여 준 뒤 `archive_stage`로 변경 세트 하나를 승인 대기에 보관한다.
-6. 요청자가 승인하면 Python이 기준 commit SHA와 기존 파일 SHA를 확인하고 변경 세트 전체를 커밋 하나로 적용한다.
-7. PR이 필요하면 원격 PR 템플릿으로 제목과 본문을 만든 뒤 `archive_pr_stage`에서 별도 승인을 기다린다.
+3. documenter가 원격 `master`의 Issue 템플릿을 읽고 Issue 제목, 본문, label 전체를 보여 준 뒤 승인 대기에 보관한다.
+4. 요청자가 archive thread에 `승인`을 입력하면 Issue와 `<타입>/<이슈번호>` 작업 브랜치를 만든다. `취소`를 입력하면 pending만 취소한다.
+5. documenter가 생성·수정·삭제할 전체 파일, 실제 내용, 커밋 메시지를 보여 준 뒤 변경 세트 하나를 승인 대기에 보관한다.
+6. 요청자가 승인하면 변경 세트 전체를 커밋 하나로 적용한다.
+7. PR이 필요하면 원격 PR 템플릿으로 제목과 본문을 만든 뒤 별도 승인을 기다린다.
 8. PR 병합과 브랜치 삭제는 사용자가 GitHub에서 한다.
 
-- 일반 `forum_post`는 archive forum을 게시 대상으로 선택할 수 없다.
-- 저장소 조회와 Stage 도구는 설정된 archive forum 아래의 thread에서만 제공된다.
 - pending을 만든 사용자만 해당 pending을 승인하거나 취소할 수 있다.
 - Issue, 변경 세트, PR의 승인은 서로 별개다.
-- 승인 상태는 `discord/bot/archive_workflow.json`에 원자 저장되어 재시작 뒤에도 유지된다.
 - 외부 API 결과가 불명확한 실패는 자동 재시도하지 않고 실패 상태로 남긴다.
 - 저장소 Settings → General → Pull Requests에서 Automatically delete head branches를 켜면 병합한 작업 브랜치가 자동으로 지워진다.
 
@@ -477,11 +449,6 @@ schema의 `raw/`와 `wiki/`는 `archive/` 기준이고 `.github/` 템플릿은 �
 
 - 채널과 스레드마다 대화 기록을 따로 유지한다. 포럼 게시글마다 기록이 분리된다.
 - 대화 기록과 채널 요약문은 `discord/bot/chat_state/<채널 ID>.json`에 저장되고 재시작 후에도 다시 불러온다.
-- 기록 한 줄에는 Discord 메시지 ID가 함께 들어간다. 스레드 만들기와 메시지 고정에 쓰는 값이다.
-- 분할 전송한 발언은 첫 조각 ID로 기록하고 전체 조각 ID를 `message_groups`에 저장한다.
-  어느 조각을 삭제해도 해당 발언의 기록과 연결된 기억을 정리한다.
-- 같은 상태 파일에 사용자 판단 대기(`user_wait`)도 저장한다.
-- 캐릭터는 매 턴 새 Claude Agent SDK 세션에서 이전 대화 요약과 원문 기록을 보고 말한다.
 - 최근 `summary.raw_hours`시간의 대화는 원문으로 보낸다.
   - 그보다 오래된 줄과 `chat.history_max_lines`를 넘친 줄은 요약 대상이다.
   - 요약 대상 줄은 요약에 성공할 때까지 원문으로 남아 원문과 요약 사이에 빠지는 대화가 없다.
@@ -490,14 +457,8 @@ schema의 `raw/`와 `wiki/`는 `archive/` 기준이고 `.github/` 템플릿은 �
   - 기존 요약문과 대상 줄을 합쳐 `summary.max_chars`자 이하의 새 요약문을 만들고 대상 줄을 기록에서 지운다.
   - `summary.max_attempts`번 모두 실패하면 요약에 반영하지 않고 대상 줄을 지운다.
   - 요약이 계속 실패해도 `chat.history_hours`가 지난 기록은 지운다.
-- SDK의 실제 도구 호출과 결과에서 도구 이름과 URL을 수집해 `[이번 턴 도구·출처 기록]` 줄로 기록한다.
-  성공한 `WebFetch`와 URL은 `확인`, 오류 결과는 `실패·미확인`, 그 밖의 결과는 `결과`로 구분한다.
-  `확인`은 도구 결과의 오류 판정과 URL 유무에 따른 분류이며 전문 열람이나 사실 검증을 보장하지 않는다.
-  이 기록은 도구 결과 원문 전체나 새 사실 확인을 대신하지 않는다.
-- 도구·출처 기록 줄은 최근 `summary.raw_hours`시간 것만 보내고 요약 입력에서 뺀다.
 - 메시지를 지우면 기록의 해당 줄은 지우지만 이미 만든 요약문은 바꾸지 않는다.
 - 채팅 턴과 요약 호출마다 사용량(`usage`)과 비용(`total_cost_usd`)을 `token usage` 로그 한 줄로 남긴다.
-- SDK 세션 기록 파일은 쓰지 않는다(`CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`).
 - 오래 이어지는 논의의 결정 사항은 장기기억으로 저장하거나 documenter에게 지식 저장소에 기록하게 한다.
 
 ### 기억 전체 삭제
@@ -514,21 +475,17 @@ schema의 `raw/`와 `wiki/`는 `archive/` 기준이고 `.github/` 템플릿은 �
 - 기억은 `discord/bot/memory.sqlite3`에 저장되어 재시작 후에도 유지된다.
 - 저장 대상은 다음과 같다.
   - archive forum 스레드의 모든 메시지(허용 사용자와 캐릭터 Bot 작성). 첨부는 파일명만 저장한다.
-  - 사용자가 기억하라고 한 내용(`memory_save`)
+  - 사용자가 기억하라고 한 내용
   - 캐릭터 기억: 캐릭터가 대화에서 겪은 일과 사용자가 그 캐릭터에게 정해 준 설정
 - archive 메시지 수정은 기억에 반영한다. 시작할 때 archive forum 전체(보관 스레드 포함)를 한 번 다시 맞춘다.
 - 캐릭터가 겪은 일은 요약 호출이 함께 추출한다. 요약을 포기하면 그 묶음의 추출도 버린다.
 - 기억은 원본 메시지에 묶여 있다.
 - 기억 삭제는 `기억 삭제 방법` 절을 따른다.
-- 매 턴 프롬프트에 최근 대화와 낱말이 맞는 장기기억과 캐릭터 기억이 붙는다. 캐릭터 설정은 시스템 프롬프트 끝에 최신 순으로 붙는다.
 - 캐릭터에게 기억을 보여 달라고 하면 자기 기억을 보여 주고 채널당 1건의 업로드 대기를 만든다.
-  - 기억을 요청한 사용자가 정확히 `승인`이라고 보내면 Python이 `.claude/agents/<role>/MEMORY.md`를 새 브랜치에 커밋하고 PR을 만든다. `master` 병합은 사용자가 한다.
+  - 기억을 요청한 사용자가 정확히 `승인`이라고 보내면 `.claude/agents/<role>/MEMORY.md`를 새 브랜치에 커밋하고 PR을 만든다. `master` 병합은 사용자가 한다.
   - `취소`라고 보내면 대기를 지운다. 다른 메시지와 다른 사용자의 `승인`은 무시한다.
-  - 모델은 업로드 도구를 갖지 않는다.
   - 올린 기억의 원본 메시지가 지워지면 캐릭터별 갱신 필요 표시만 남기고, 다음 `승인` 때 `MEMORY.md`에 함께 반영한다.
   - archive thread에서 같은 사용자의 저장소 작업 대기와 업로드 대기가 함께 있으면 `승인`은 둘 다 실행하지 않고, `취소`는 둘 다 취소한다.
-  - 대기와 갱신 필요 표시는 `discord/bot/memory_approval.json`에 원자 저장되어 재시작 뒤에도 유지된다. 실행 중에 끊긴 대기는 실패로 남긴다.
-- 로컬 `.claude/agents/<role>/MEMORY.md`가 있으면 시스템 프롬프트의 Persona 뒤에 `# Character memory` 절로 넣는다.
   - `archive_repository`의 token을 쓴다.
 
 ### 기억 확인 방법
@@ -582,103 +539,13 @@ python -c "import sqlite3;c=sqlite3.connect('file:<프로젝트 경로>/discord/
 - 저장 파일의 행을 직접 지우는 방법은 이 문서에서 안내하지 않는다.
   - 직접 지운 기억이 다시 생기는지는 미확인이다.
 
-### 프롬프트 구성
-
-채팅 프롬프트는 다음 순서로 조립된다.
-
-```text
-/AGENTS.md
-+
-/.claude/agents/<role>/SOUL.md
-+
-Discord 채팅 런타임 규칙
-```
-
-역할 지침은 프롬프트에 넣지 않고 캐릭터 이름을 읽는 데만 쓴다. 캐릭터는 채팅과 대상이 불분명한 발화에 Persona로 답한다. 할 수 있는 일은 사용자가 직접 물을 때만 Discord 담당 기준으로 말한다.
-
-매 턴 프롬프트에는 현재 채널 이름과 서버 이름, 이전 대화 요약, 관련 장기기억, 캐릭터 기억이 들어간다. assistant 역할에는 알림 시각 계산용으로 `reminders.timezone_offset_hours` 기준 현재 시각도 들어간다.
-
-본문에서는 `korean_name`을 사용하고 `buddy`, `jelly` 같은 영어 이름은 내부 화자 제어 ID로만 사용한다.
-
 ## 역할별 도구
 
-- `server_channels`
-  - 대상: 모든 역할
-  - 동작:
-    - 서버에서 볼 수 있는 채널 목록을 카테고리별로 조회한다.
-    - 포럼은 태그 목록도 보여 준다.
-    - 최대 `tools.server_channels_max`개
-- `forum_post`
-  - 대상: 모든 역할
-  - 동작:
-    - 에이전트 채널로 등록된 일반 포럼에 태그 1~5개를 붙여 글을 올린다.
-    - archive forum은 제외한다.
-- `memory_search`
-  - 대상: 모든 역할
-  - 동작: 이 서버의 장기기억을 낱말로 찾는다. 최대 `memory.search_max_results`개
-- `memory_save`
-  - 대상: 모든 역할
-  - 동작:
-    - 사용자가 기억하라고 한 내용을 서버 공용(`guild`), 자기 설정(`self`), 다른 캐릭터 설정(캐릭터 내부 ID) 중 하나로 저장한다.
-    - 사용자 메시지로 시작한 대화에서만 쓸 수 있고, 현재 채널 대화의 메시지 ID만 받는다.
-- `persona_memory_list`
-  - 대상: 모든 역할
-  - 동작:
-    - 이 서버에서 자기 캐릭터가 가진 기억을 보여 준다.
-    - 사용자 메시지로 시작한 대화이면 요청자의 `승인`·`취소`를 기다리는 업로드 대기를 만든다.
-- `poll_create`
-  - 대상: director
-  - 동작:
-    - 투표를 올린다.
-    - 선택지 2~10개, 선택지 55자, 질문 300자, 기간 1~768시간
-- `thread_create`
-  - 대상: director
-  - 동작:
-    - 현재 채널에 공개 스레드를 만든다.
-    - 메시지 ID를 주면 그 메시지에서 시작한다.
-    - 첫 글을 주면 스레드에 올린다.
-- `message_pin`
-  - 대상: director
-  - 동작: 현재 채널의 메시지를 고정한다.
-- `channel_history`
-  - 대상: reviewer
-  - 동작: 채널의 실제 메시지를 최근 `tools.channel_history_max`개까지 다시 읽는다.
-- `reminder_set`
-  - 대상: assistant
-  - 동작: 1분~`reminders.max_days`일 뒤에 채널로 알림을 한 번 보낸다.
-- `reminder_repeat`
-  - 대상: assistant
-  - 동작: 매일, 평일, 주말 또는 지정한 요일의 정해진 시각(`reminders.timezone_offset_hours` 기준)마다 알림을 보낸다.
-- `reminder_list`
-  - 대상: assistant
-  - 동작: 현재 시각과 현재 채널의 알림 목록을 번호와 함께 보여 준다.
-- `reminder_cancel`
-  - 대상: assistant
-  - 동작: 현재 채널의 알림을 번호로 취소한다.
-- `archive_thread_start`
-  - 대상: documenter
-  - 동작: 일반 채널의 최초 사용자 요청과 첨부를 설정된 archive forum의 새 thread로 옮긴다.
-- `archive_read`, `archive_branch`
-  - 대상: documenter
-  - 동작: archive thread에서 저장소 파일과 브랜치 SHA를 조회한다.
-- `archive_workflow_open`
-  - 대상: documenter
-  - 동작: 같은 commit의 archive 원칙과 작업 종류별 schema 원본을 연다.
-- `archive_list`, `archive_search`
-  - 대상: documenter
-  - 동작: 고정 commit의 archive 파일 열거와 archive/wiki 텍스트 검색을 수행한다.
-- `archive_history`
-  - 대상: documenter
-  - 동작: archive 경로의 commit 이력을 최신순으로 조회한다.
-- `archive_issue_stage`
-  - 대상: documenter
-  - 동작: Issue 미리보기와 원격 템플릿 정보를 승인 대기로 보관한다.
-- `archive_stage`
-  - 대상: documenter
-  - 동작: 전체 파일 작업과 커밋 메시지를 변경 세트 하나로 승인 대기에 보관한다.
-- `archive_pr_stage`
-  - 대상: documenter
-  - 동작: PR 제목과 본문 및 원격 템플릿 정보를 별도 승인 대기로 보관한다.
+- 모든 역할: 서버 채널 목록 조회, 일반 포럼 글쓰기(태그 1~5개), 장기기억 검색·저장, 자기 기억 확인과 업로드 요청
+- director: 투표 만들기(선택지 2~10개, 기간 1~768시간), 공개 스레드 만들기, 메시지 고정
+- reviewer: 채널 메시지 다시 읽기(최근 `tools.channel_history_max`개)
+- assistant: 한 번 알림, 반복 알림, 알림 목록, 알림 취소
+- documenter: 지식 저장소 작업 게시글 만들기, 저장소 파일 조회·검색·이력, Issue·변경·PR 승인 대기 등록
 
 올린 투표는 질문, 선택지, 기간이 대화 기록에 남아 다른 캐릭터도 안다.
 투표가 끝나면 Discord가 올리는 결과 메시지를 director 봇이 받아 질문, 1위, 득표 수를 기록하고, director 캐릭터가 결과에 반응한다.
@@ -687,11 +554,7 @@ Discord 채팅 런타임 규칙
 알림은 `discord/bot/reminders.json`에 저장되어 재시작해도 유지된다.
 알림 메시지는 `allowed_user_ids`의 사용자를 멘션해 푸시 알림이 가게 한다. 봇이 꺼져 있어 놓친 한 번짜리 알림은 재시작 직후 늦은 알림으로 보내고, 놓친 반복 알림 회차는 건너뛴다.
 
-`poll_create`는 discord.py에 `Poll`이 있을 때만 붙는다.
-장기기억 도구는 서버 채널에서만 붙는다.
-지식 저장소 조회와 Stage 도구는 `archive_repository`를 설정하고 현재 채널이 archive thread일 때만 붙는다. `archive_thread_start`는 `archive_forum_id`를 설정한 documenter에게만 붙는다.
-
-역할 목록에는 각 캐릭터의 담당과 전용 도구가 함께 표시된다. 캐릭터는 자기 담당이 아닌 요청을 담당 캐릭터에게 넘긴다.
+캐릭터는 자기 담당이 아닌 요청을 담당 캐릭터에게 넘긴다.
 
 ## 설정 파일 보호
 
@@ -807,69 +670,6 @@ python discord/bot/bot.py
 여기 어디야?
 리오, 점심 메뉴 투표 올려줘.
 ```
-
-## 도구 승인 정책
-
-- `Read`
-  - 에이전트 루트의 `.discord_attachments/` 안의 파일만 읽을 수 있다.
-  - 그 밖의 경로는 훅이 거부한다.
-- `WebSearch`, `WebFetch`
-  - 바로 실행한다.
-- `archive_read`, `archive_branch`
-  - archive thread에서 조회만 수행한다.
-- `archive_workflow_open`, `archive_list`, `archive_search`
-  - archive thread에서 commit을 고정한 읽기만 수행한다.
-- `archive_history`
-  - archive thread에서 commit 이력 읽기만 수행한다.
-- `archive_issue_stage`, `archive_stage`, `archive_pr_stage`
-  - 외부 객체를 만들지 않고 요청자 소유 pending을 저장한다.
-- archive thread의 `승인`, `취소`
-  - 모델을 거치지 않고 Python이 요청자와 pending을 대조한다.
-  - 승인 단계에 해당하는 외부 작업만 실행한다.
-- 그 밖의 역할 전용 도구
-  - 바로 실행한다.
-
-`Read` 제한은 `discord/config.json` 같은 설정 파일과 인증 정보가 채팅에 노출되지 않게 하는 장치다. 작업 디렉터리 안의 파일 읽기는 권한 규칙 없이 승인되므로 `PreToolUse` 훅으로 막는다.
-
-에이전트 채널에서는 파일 수정, 명령 실행, 로컬 저장소 조작 도구를 제공하지 않는다.
-
-## 규칙과 설정 상속
-
-Discord 런타임은 다음 파일을 직접 사용한다.
-
-```text
-/AGENTS.md
-/.claude/agents/<role>/AGENTS.md
-/.claude/agents/<role>/SOUL.md
-```
-
-프롬프트는 채널 종류에 따라 다르게 구성한다.
-
-- 요청 채널(`request_channels`): `/AGENTS.md`, `SOUL.md`와 `discord/prompts/RUNTIME.md`로 작업 프롬프트를 만든다.
-  Claude Code preset 뒤에 붙인다.
-- 채팅 채널(`chat_channels`): `/AGENTS.md`, `SOUL.md`, `discord/prompts/CHAT.md`와 `RUNTIME.md`의 `Response control` 절로 채팅 프롬프트를 만든다.
-  Claude Code preset 없이 이 문자열만 시스템 프롬프트로 쓴다.
-- 스레드와 포럼 게시글은 부모 채널의 종류를 따른다.
-- `RUNTIME.md`와 `TURN.md`의 `{{request:...}}`·`{{chat:...}}` 표식은 채널 종류에 맞는 내용만 남긴다.
-- 로컬 `.claude/agents/<role>/MEMORY.md`가 있으면 두 프롬프트 모두 Persona 뒤에 `# Character memory` 절로 넣는다.
-
-명단에는 다른 캐릭터 `SOUL.md`의 종·MBTI를 넣는다.
-역할 지침 `AGENTS.md`는 캐릭터 이름을 읽는 데 쓴다.
-documenter의 지식 안내는 `discord/prompts/ARCHIVE.md`에서 읽는다.
-이 파일들과 `TURN.md`, `CHAT.md`, `MEMORY.md`의 수정 시각이나 크기가 바뀌면 다음 발언에서 해당 역할의 프롬프트를 다시 만든다.
-
-지식 원본을 조회하는 코드도 봇 코드 파일이므로 다른 봇 코드 파일과 같은 방식으로 배포한다.
-원격 `archive/schema/`는 프롬프트 변경 감지 대상이 아니라 `archive_workflow_open` 호출 시점의 조회 대상이다.
-
-`.claude/settings.json`은 Discord 런타임에 자동 상속하지 않는다.
-
-현재 코드에서 Claude Agent SDK는 다음 설정을 사용한다.
-
-```text
-setting_sources=[]
-```
-
-따라서 파일시스템의 Claude Code 설정과 Discord Bot 런타임 설정을 분리한다.
 
 ## 문제 해결
 

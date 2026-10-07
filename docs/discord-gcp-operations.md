@@ -88,12 +88,9 @@ sudo systemctl status discord-bot
 ### 지식 원본 갱신
 
 1. 원격 저장소의 대상 브랜치에 `archive/AGENTS.md`와 해당 `archive/schema/` 변경을 승인된 저장소 절차로 반영한다.
-2. 다음 `archive_workflow_open` 호출에서 반환된 commit SHA와 원본 경로를 확인한다.
-3. 같은 작업의 목록·검색·개별 파일 열람에는 반환된 SHA를 유지한다.
 
 원격 schema 변경은 다음 절차 로딩 호출에서 읽으므로 그 변경만으로 봇을 재시작할 필요는 없다.
 로컬 파일 편집이나 VM 업로드만으로 GitHub 원본이 바뀌지는 않는다.
-원본 누락 오류는 해당 commit의 실제 경로로 확인하고, 검색의 누락·잘림은 후속 페이지나 개별 파일로 확인한다.
 
 ## 설정 변경
 

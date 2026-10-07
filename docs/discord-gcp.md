@@ -261,18 +261,6 @@ cd ~/brainstack/discord
 .venv/bin/python bot/run_gcp.py
 ```
 
-`run_gcp.py` 실행 흐름:
-
-```text
-Secret Manager에서 DISCORD_BOT_CONFIG 읽기
-    ↓
-/dev/shm에 임시 설정 파일 생성
-    ↓
-discord/config.json 심볼릭 링크 생성
-    ↓
-bot.py 실행
-```
-
 Discord에서 봇이 접속했는지 확인하고 `Ctrl+C`로 종료한다.
 
 ## systemd 상시 실행
