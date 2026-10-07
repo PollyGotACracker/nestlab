@@ -154,20 +154,9 @@ CLAUDE_HOOK_RULES = {
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_write_scope.py\" --runner claude",
+                    "command": "python \"<BRAINSTACK>\\hooks\\check_tool_use.py\" --runner claude",
                     "timeout": 10,
-                    "statusMessage": "Brainstack 승인·쓰기 범위 검사"
-                }
-            ]
-        },
-        {
-            "matcher": "Agent",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_agent_input.py\" --runner claude",
-                    "timeout": 10,
-                    "statusMessage": "Brainstack 서브 에이전트 입력 검사"
+                    "statusMessage": "Brainstack 승인·입력·쓰기 범위 검사"
                 }
             ]
         }
@@ -247,26 +236,14 @@ CODEX_HOOK_RULES = {
     ],
     "PreToolUse": [
         {
-            "matcher": "apply_patch|Bash",
+            "matcher": "apply_patch|Bash|spawn_agent",
             "hooks": [
                 {
                     "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_write_scope.py\" --runner codex",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\check_write_scope.py\" --runner codex",
+                    "command": "python \"<BRAINSTACK>\\hooks\\check_tool_use.py\" --runner codex",
+                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\check_tool_use.py\" --runner codex",
                     "timeout": 10,
-                    "statusMessage": "Brainstack 승인·쓰기 범위 검사"
-                }
-            ]
-        },
-        {
-            "matcher": "spawn_agent",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": "python \"<BRAINSTACK>\\hooks\\check_agent_input.py\" --runner codex",
-                    "commandWindows": "py \"<BRAINSTACK>\\hooks\\check_agent_input.py\" --runner codex",
-                    "timeout": 10,
-                    "statusMessage": "Brainstack 서브 에이전트 입력 검사"
+                    "statusMessage": "Brainstack 승인·입력·쓰기 범위 검사"
                 }
             ]
         }

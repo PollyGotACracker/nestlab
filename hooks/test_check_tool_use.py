@@ -1,13 +1,21 @@
-"""check_write_scope.py 동작 테스트"""
+"""check_tool_use.py 동작 테스트"""
+import io
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import check_write_scope as hook
+import check_tool_use as hook
+import sub_approval
+import sub_call
 import sub_docs
+import sub_input
 import sub_role
+import sub_scope
 
 RESEARCH = """# 조사 문서: t
 
@@ -92,7 +100,7 @@ class WriteScope(unittest.TestCase):
         self.state.mkdir(parents=True)
         self.sessions = self.root / "sessions"
         self.sessions.mkdir()
-        self.patches = [patch.object(hook, "ROOT", self.root), patch.object(hook, "ACTIVE", self.state / ".active"),
+        self.patches = [patch.object(sub_scope, "ROOT", self.root), patch.object(sub_approval, "ACTIVE", self.state / ".active"),
                         patch.object(sub_docs, "STATE", self.state), patch.object(sub_role, "CODEX_SESSIONS", self.sessions)]
         for p in self.patches:
             p.start()
@@ -214,9 +222,9 @@ class WriteScope(unittest.TestCase):
         denied = ("진행 안 해", "구현하지 마", "승인 안 함", "1", "그러든지.", "반응",
                   "진행해\n근데 잠깐", "", "안 그래", "안  그래", "못 해", "안 진행해")
         for text in allowed:
-            self.assertTrue(hook.approved(text), text)
+            self.assertTrue(sub_approval.approved(text), text)
         for text in denied:
-            self.assertFalse(hook.approved(text), text)
+            self.assertFalse(sub_approval.approved(text), text)
 
     def test_buddy_agent_call_not_checked(self):
         data = {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore", "prompt": "x"},
@@ -241,6 +249,154 @@ class WriteScope(unittest.TestCase):
         self.assertIsNotNone(hook.check(data, "codex"))
         parent.write_text("\n".join([codex_meta(), codex_msg("user", "승인")]) + "\n", encoding="utf-8")
         self.assertIsNone(hook.check(data, "codex"))
+
+
+# 하위 에이전트 입력 형식
+STATE_IN = "상태 문서: log/state/20261006-0555-x.md\n절: 요구사항 목록"
+RESEARCH_IN = "작업 종류: 조사\n조사 문서: log/state/20261006-0555-x-research.md"
+INPUT_IN = "입력 문서: log/state/20261006-0555-x-input.md"
+REFUTE = "작업 종류: 반증\n주장: 1. 변경이 요구를 충족한다.\n증거: 코드 발췌\n출처: hooks/a.py:12\n판정 기준: 요구 충족\n원문 발췌: 확인할 원문"
+
+
+def claude(target, prompt, sub=False):
+    d = {"tool_name": "Agent", "tool_input": {"subagent_type": target, "prompt": prompt}}
+    return {**d, "agent_id": "a1"} if sub else d
+
+
+def codex(target, prompt):
+    return {"tool_name": "spawn_agent", "tool_input": {"agent_type": target, "message": prompt}}
+
+
+def run_utf8(data, *args, cwd=None):
+    env = {**os.environ, "PYTHONIOENCODING": "", "PYTHONUTF8": "0"}
+    return subprocess.run([sys.executable, "-B", hook.__file__, *args], env=env, capture_output=True, check=True,
+                          input=json.dumps(data, ensure_ascii=False).encode("utf-8"), cwd=cwd).stdout.decode("utf-8")
+
+
+class AgentInput(unittest.TestCase):
+    check = staticmethod(sub_input.check_input)
+
+    def test_free_text_denied(self):
+        for runner, make in (("claude", claude), ("codex", codex)):
+            with self.subTest(runner=runner):
+                self.assertIsNotNone(self.check(make("jelly", "이전 대화 요약: ..."), runner))
+                self.assertIsNotNone(self.check(make("jelly", INPUT_IN + "\n추가 설명"), runner))
+                self.assertIsNone(self.check(make("jelly", INPUT_IN), runner))
+                self.assertIsNone(self.check(make("nico", RESEARCH_IN), runner))
+
+    def test_worker_reviewer_take_input_doc_only(self):
+        for target in ("jelly", "worker", "ricky", "reviewer"):
+            self.assertIsNotNone(self.check(claude(target, STATE_IN), "claude"))
+            self.assertIsNone(self.check(claude(target, INPUT_IN), "claude"))
+
+    def test_researcher_takes_research_doc_only(self):
+        self.assertIsNotNone(self.check(claude("researcher", INPUT_IN), "claude"))
+        self.assertIsNotNone(self.check(claude("researcher", STATE_IN), "claude"))
+        self.assertIsNotNone(self.check(claude("researcher", RESEARCH_IN + "\n추가 설명"), "claude"))
+        self.assertIsNone(self.check(claude("researcher", RESEARCH_IN), "claude"))
+
+    def test_documenter_record_request_left_to_other_hook(self):
+        self.assertIsNone(self.check(claude("pepper", "기록 문구"), "claude"))
+        self.assertIsNotNone(self.check(claude("pepper", INPUT_IN), "claude"))
+
+    def test_documenter_takes_state_and_input_doc(self):
+        both = STATE_IN + "\n" + INPUT_IN
+        self.assertIsNone(self.check(claude("pepper", both), "claude"))
+        self.assertIsNone(self.check(claude("documenter", STATE_IN), "claude"))
+        self.assertIsNotNone(self.check(claude("pepper", both + "\n입력 문서: log/state/a-input.md"), "claude"))
+
+    def test_caller_detection(self):
+        self.assertIsNone(self.check(claude("jelly", "자유 문장", sub=True), "claude"))  # Claude 서브에이전트
+        self.assertIsNotNone(self.check(codex("nico", "자유 문장"), "codex"))  # director의 researcher 호출
+        self.assertIsNotNone(self.check(codex("jelly", "자유 문장"), "codex"))
+
+    def test_other_tools_ignored(self):
+        self.assertIsNone(self.check({"tool_name": "Bash", "tool_input": {"command": "ls"}}, "claude"))
+
+    def test_registered_roles_and_unrelated_agents(self):
+        for runner, make in (("claude", claude), ("codex", codex)):
+            for target in ("Explore", "general-purpose", "custom-agent", "director", "rio", "assistant", "buddy"):
+                with self.subTest(runner=runner, target=target):
+                    self.assertIsNone(self.check(make(target, "자유 형식 입력"), runner))
+            for target in sub_call.ROLES - sub_call.DOCUMENTER - sub_call.RESEARCHER:
+                with self.subTest(runner=runner, target=target):
+                    good = INPUT_IN if target in sub_call.WORKER_REVIEWER else STATE_IN
+                    self.assertIsNone(self.check(make(target, good), runner))
+                    self.assertIsNotNone(self.check(make(target, "자유 형식 입력"), runner))
+            for target in sub_call.RESEARCHER:
+                self.assertIsNone(self.check(make(target, RESEARCH_IN), runner))
+                self.assertIsNotNone(self.check(make(target, "자유 형식 입력"), runner))
+
+    def test_reviewer_explicit_refutation_mode(self):
+        invalid = (REFUTE + "\n작업 종류: 반증", REFUTE.replace("반증", "검수", 1),
+                   REFUTE + "\n" + INPUT_IN, REFUTE + "\n" + STATE_IN,
+                   REFUTE + "\n전체 대화: 이전 대화", REFUTE + "\n도구 출력: 로그",
+                   REFUTE + "\n중간 설명: 작업 설명", REFUTE + "\n추론: 사고 과정",
+                   REFUTE + "\n이전 대화 요약", REFUTE.replace("작업 종류: 반증\n", ""),
+                   "작업 종류: 반증", "작업 종류: 반증\n주장: ")
+        for runner, make in (("claude", claude), ("codex", codex)):
+            for target in sub_call.REVIEWER:
+                with self.subTest(runner=runner, target=target):
+                    self.assertIsNone(self.check(make(target, REFUTE), runner))
+                    self.assertIsNone(self.check(make(target, INPUT_IN), runner))
+                    for prompt in invalid:
+                        self.assertIsNotNone(self.check(make(target, prompt), runner), prompt)
+        self.assertIsNone(self.check(claude("ricky", REFUTE, sub=True), "claude"))
+        self.assertIsNotNone(self.check(claude("ricky", REFUTE + "\n전체 대화: 로그", sub=True), "claude"))
+
+    def test_general_review_and_worker_allow_path_only(self):
+        for runner, make in (("claude", claude), ("codex", codex)):
+            for target in sub_call.WORKER_REVIEWER:
+                for prompt in (INPUT_IN + "\n절: 검수", INPUT_IN + "\n항목: 1", REFUTE if target not in sub_call.REVIEWER else STATE_IN):
+                    self.assertIsNotNone(self.check(make(target, prompt), runner))
+
+
+# 진입 스크립트: 호출 승인과 입력 형식을 한 번에 판정한다.
+class Entry(unittest.TestCase):
+    def test_root_and_subdirectory_have_same_decisions(self):
+        root = Path(hook.__file__).resolve().parents[1]
+        for runner, make in (("claude", claude), ("codex", codex)):
+            for cwd in (root, root / "hooks"):
+                for target, prompt, denied in (("jelly", INPUT_IN, False), ("ricky", STATE_IN, True),
+                                               ("pepper", STATE_IN, False), ("nico", RESEARCH_IN, False),
+                                               ("ricky", REFUTE, False), ("Explore", "자유 입력", False),
+                                               ("director", "자유 입력", False), ("rio", "자유 입력", False),
+                                               ("assistant", "자유 입력", False), ("buddy", "자유 입력", False)):
+                    with self.subTest(runner=runner, cwd=cwd, target=target):
+                        data = {**make(target, prompt), "agent_type": "buddy"}
+                        output = run_utf8(data, "--runner", runner, cwd=cwd)
+                        self.assertEqual(bool(output), denied)
+                        if denied:
+                            self.assertEqual(json.loads(output)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_director_call_needs_approval_and_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.jsonl"
+            for user, prompt, denied in (("승인", INPUT_IN, False), ("승인", "자유 입력", True),
+                                         ("다시 생각해", INPUT_IN, True)):
+                with self.subTest(user=user, prompt=prompt):
+                    path.write_text("\n".join(claude_line(r, t) for r, t in (("assistant", "계획"), ("user", user))) + "\n",
+                                    encoding="utf-8")
+                    data = {**claude("jelly", prompt), "agent_type": "rio", "transcript_path": str(path)}
+                    with patch.object(sub_approval, "ACTIVE", Path(tmp) / ".active"):
+                        self.assertEqual(hook.check(data, "claude") is not None, denied)
+
+    def test_deny_output_shape(self):
+        out = hook.deny("x")["hookSpecificOutput"]
+        self.assertEqual((out["hookEventName"], out["permissionDecision"]), ("PreToolUse", "deny"))
+
+    def test_stringio_main_preserves_protocol(self):
+        data = codex("reviewer", REFUTE + "\n전체 대화: 로그")
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["check_tool_use.py", "--runner", "codex"]), \
+             patch.object(sys, "stdin", io.StringIO(json.dumps(data))), patch.object(sys, "stdout", output):
+            self.assertEqual(hook.main(), 0)
+        self.assertEqual(json.loads(output.getvalue())["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_utf8_stdin_stdout(self):
+        out = run_utf8({**claude("jelly", "이전 대화 요약"), "agent_type": "buddy"}, "--runner", "claude")
+        self.assertIn("입력 문서", json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertEqual(run_utf8({**claude("jelly", INPUT_IN), "agent_type": "buddy"}, "--runner", "claude"), "")
 
 
 if __name__ == "__main__":

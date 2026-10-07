@@ -18,7 +18,7 @@
 - Windows Orca: 기존 상태줄 스크립트가 있으면 상태 입력 전달
 
 Hook 실행 오류 시 검사는 통과한다.
-원본 구현은 `hooks/check_write_scope.py`, `hooks/check_agent_input.py`, `hooks/check_refute_verdict.py`, `hooks/save_agent_result.py`, `tools/check_doc_rule.py`에서 확인한다.
+원본 구현은 `hooks/check_tool_use.py`(기능별 모듈은 `hooks/check_tool_use/`), `hooks/check_refute_verdict.py`, `hooks/save_agent_result.py`, `tools/check_doc_rule.py`에서 확인한다.
 director(rio)는 사용자 마지막 메시지에 `승인`이 있을 때만 하위 에이전트를 호출할 수 있다. 실행 승인된 작업의 `작업 종류: 재작업` 호출은 예외이다.
 director의 파일 쓰기는 `log/state/`·`log/incident/`로 한정하고, researcher·reviewer는 쓰기를 막는다.
 

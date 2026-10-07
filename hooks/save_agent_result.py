@@ -16,7 +16,7 @@ import json
 import re
 import sys
 
-from check_agent_input import refute_mode
+from sub_call import refute_mode
 from check_refute_verdict import VERDICT
 from sub_docs import ACTIVE, doc, task_id
 from sub_role import codex_rollout, first_prompt, parent_thread, resolve_role

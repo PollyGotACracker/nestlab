@@ -30,7 +30,7 @@ import json
 import re
 import sys
 
-from check_agent_input import REVIEWER, PROMPT_KEYS, refute_mode
+from sub_call import PROMPT_KEYS, REVIEWER, refute_mode
 from sub_session import read_session, session_path
 
 VERDICT = re.compile(r"^[\s\-*]*주장\s*(\d+)\s*[:：]\s*(지지|반증|미확인)\s*\|\s*출처\s*[:：]\s*(.+?)[\s*]*$")

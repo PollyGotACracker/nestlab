@@ -55,7 +55,7 @@ def hook_main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     try:
         sys.path.insert(0, str(HOOKS))
-        from check_write_scope import targets as write_targets
+        from sub_write import targets as write_targets
         data = json.load(sys.stdin)
         paths = write_targets(data) or []
         wanted, _ = find_targets()

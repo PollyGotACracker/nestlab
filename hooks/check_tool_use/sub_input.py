@@ -1,8 +1,4 @@
-"""PreToolUse hook: 메인 에이전트의 서브에이전트 호출 입력을 문서 경로와 식별자로 제한한다.
-
-사용: python check_agent_input.py --runner <claude|codex>
-hook 입력 JSON을 stdin으로 받는다. 위반이면 permissionDecision deny를 출력하고 나머지는 아무것도 출력하지 않는다.
-오류는 통과한다(fail-open).
+"""하위 에이전트 호출 입력을 문서 경로와 식별자로 제한한다.
 
 문서 입력 형식 (documenter는 상태 문서 1개와 입력 문서 0개 또는 1개를 받는다)
     입력 문서: log/state/<작업-id>-input.md   (worker·reviewer 대상, documenter 대상은 0개 또는 1개)
@@ -29,37 +25,17 @@ hook 입력 필드 확인 상태
 """
 from __future__ import annotations
 
-import argparse
-import json
 import re
-import sys
+
+from sub_call import DOCUMENTER, REFUTE_MARKER, RESEARCHER, REVIEWER, ROLES, WORKER_REVIEWER, call_info, refute_mode
 from sub_role import resolve_role
 
-SPAWN_TOOLS = {"Agent", "spawn_agent"}
-DOCUMENTER = {"documenter", "pepper"}
-RESEARCHER = {"researcher", "nico"}
-REVIEWER = {"reviewer", "ricky"}
-WORKER_REVIEWER = {"worker", "jelly"} | REVIEWER
-ROLES = DOCUMENTER | RESEARCHER | WORKER_REVIEWER
-
-TARGET_KEYS = ("subagent_type", "agent_type", "agent_role", "role")
-PROMPT_KEYS = ("prompt", "message")
 INPUT_LINE = re.compile(r"^입력 문서: log/state/[\w.\-]+-input\.md$")
 STATE_LINE = re.compile(r"^상태 문서: log/state/[\w.\-]+(?<!-input)\.md$")
 RESEARCH_LINE = re.compile(r"^조사 문서: log/state/[\w.\-]+-research\.md$")
 ID_LINE = re.compile(r"^(절|항목): .+$")
-REFUTE_MARKER = "작업 종류: 반증"
 KIND_LINE = re.compile(r"^작업 종류: .+$")
 REFUTE_LINE = re.compile(r"^(주장|증거|출처|판정 기준|원문 발췌): \S.*$")
-
-
-def call_info(data: dict) -> tuple[str, str]:
-    """서브에이전트 호출의 (대상, 입력 본문)을 반환한다. 서브에이전트 호출이 아니면 빈 값이다."""
-    if data.get("tool_name") not in SPAWN_TOOLS:
-        return "", ""
-    tin = data.get("tool_input") or {}
-    pick = lambda keys: next((tin[k] for k in keys if isinstance(tin.get(k), str)), "")
-    return pick(TARGET_KEYS), pick(PROMPT_KEYS)
 
 
 def is_main(data: dict, target: str, runner: str) -> bool:
@@ -87,23 +63,13 @@ def is_format(prompt: str, target: str = "") -> bool:
     return n_in + n_st >= 1 if not target else (n_in, n_st) == (0, 1)
 
 
-def refute_mode(prompt: str) -> bool:
-    """정확한 요청 표식이 한 번 있을 때만 반증 mode이다."""
-    return sum(line.strip() == REFUTE_MARKER for line in prompt.splitlines()) == 1
-
-
 def is_refute_format(prompt: str) -> bool:
     lines = [line.strip() for line in prompt.splitlines() if line.strip()]
     return (refute_mode(prompt) and any(line.startswith("주장: ") for line in lines)
             and all(line == REFUTE_MARKER or REFUTE_LINE.fullmatch(line) for line in lines))
 
 
-def deny(reason: str) -> dict:
-    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                   "permissionDecisionReason": reason}}
-
-
-def check(data: dict, runner: str) -> str | None:
+def check_input(data: dict, runner: str) -> str | None:
     """위반 사유를 반환한다. 통과면 None이다."""
     target, prompt = call_info(data)
     if target not in ROLES:
@@ -121,23 +87,3 @@ def check(data: dict, runner: str) -> str | None:
     if target in RESEARCHER:
         return "researcher 조사 입력은 `조사 문서: log/state/<작업-id>-research.md` 한 줄만 허용합니다."
     return "서브에이전트 입력은 `상태 문서: log/state/<작업-id>.md`와 `절:`·`항목:` 줄만 허용합니다."
-
-
-def main() -> int:
-    for stream in (sys.stdin, sys.stdout):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--runner", choices=("claude", "codex"), required=True)
-    runner = parser.parse_args().runner
-    try:
-        reason = check(json.load(sys.stdin), runner)
-    except Exception:
-        return 0
-    if reason:
-        json.dump(deny(reason), sys.stdout, ensure_ascii=False)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
