@@ -17,6 +17,8 @@ hook 입력 JSON을 stdin으로 받는다. 위반이면 permissionDecision deny�
 2. Codex 하위 thread의 도구 호출: 부모 director 승인
 3. director Bash: 허용 목록
 4. 쓰기 도구: 역할별 쓰기 범위
+
+공용 모듈(common/): sub_call, sub_docs, sub_role, sub_session, sub_write
 """
 from __future__ import annotations
 
@@ -25,7 +27,8 @@ import json
 import sys
 from pathlib import Path
 
-# 같은 이름 폴더의 모듈을 불러온다.
+# 같은 이름 폴더의 모듈과 공용 모듈 폴더를 불러온다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "check_tool_use"))
 
 from sub_approval import check_agent_call, check_codex_child

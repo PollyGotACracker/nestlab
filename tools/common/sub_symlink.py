@@ -1,11 +1,13 @@
-"""링크(symlink·junction)의 판별, 생성, 삭제와 원본 없는 링크 탐색이다."""
+"""링크(symlink·junction)의 판별, 생성, 삭제이다.
+
+사용: set_skills.py, set_agents.py
+"""
 from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
 
-from sub_config import SOURCE
 
 
 # 링크(symlink 또는 junction)인지 확인한다.
@@ -42,15 +44,3 @@ def remove_link(path: Path) -> None:
         os.rmdir(path)
     else:
         os.unlink(path)
-
-
-# 공용 skill 원본을 가리키지만 원본이 없어진 링크를 찾는다.
-def stale_links(folder: Path) -> list[Path]:
-    if not folder.is_dir():
-        return []
-    result = []
-    for entry in folder.iterdir():
-        target = link_target(entry)
-        if target is not None and target.parent == SOURCE and not target.exists():
-            result.append(entry)
-    return result

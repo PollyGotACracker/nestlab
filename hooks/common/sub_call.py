@@ -1,8 +1,12 @@
 """하위 에이전트 호출 입력의 공용 정의이다.
 
 대상 역할 이름 묶음, 호출 대상·본문 추출, 반증 요청 표식 판별을 여러 hook이 함께 쓴다.
+
+사용: check_refute_verdict.py, check_tool_use.py, save_agent_result.py
 """
 from __future__ import annotations
+
+import re
 
 SPAWN_TOOLS = {"Agent", "spawn_agent"}
 DOCUMENTER = {"documenter", "pepper"}
@@ -14,6 +18,8 @@ ROLES = DOCUMENTER | RESEARCHER | WORKER_REVIEWER
 TARGET_KEYS = ("subagent_type", "agent_type", "agent_role", "role")
 PROMPT_KEYS = ("prompt", "message")
 REFUTE_MARKER = "작업 종류: 반증"
+# reviewer 반증 판정 줄 형식이다.
+VERDICT = re.compile(r"^[\s\-*]*주장\s*(\d+)\s*[:：]\s*(지지|반증|미확인)\s*\|\s*출처\s*[:：]\s*(.+?)[\s*]*$")
 
 
 def call_info(data: dict) -> tuple[str, str]:

@@ -6,13 +6,16 @@ link는 비어 있는 경로에 연결을 만든다.
 unlink는 이 저장소 원본을 가리키는 링크만 지운다.
 원본 폴더가 없어진 링크도 지운다.
 기존 파일, 실제 폴더, 다른 원본을 가리키는 링크는 변경하지 않는다.
+
+공용 모듈(common/): sub_symlink
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "set_skills"))
+# 공용 모듈 폴더를 불러온다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 from sub_symlink import link_target, make_link, remove_link
 
 ROOT = Path(__file__).resolve().parent.parent

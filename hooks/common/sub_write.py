@@ -1,4 +1,7 @@
-"""hook 입력에서 쓰기 대상 경로와 새로 들어가는 내용을 읽는 공용 함수이다."""
+"""hook 입력에서 쓰기 대상 경로와 새로 들어가는 내용을 읽는 공용 함수이다.
+
+사용: check_tool_use.py, tools/check_doc_rule.py
+"""
 from __future__ import annotations
 
 import re

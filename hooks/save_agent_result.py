@@ -8,6 +8,8 @@
 - 작업 ID는 하위 기록 첫 요청의 `입력 문서:`·`상태 문서:` 줄에서 읽는다.
   반증 요청처럼 문서 줄이 없으면 Claude는 ACTIVE의 researcher 값, Codex는 부모 thread 첫 요청에서 찾는다.
 - 조사 문서가 없으면 아무것도 하지 않는다. 출력은 없다. 오류는 통과한다(fail-open).
+
+공용 모듈(common/): sub_call, sub_docs, sub_role
 """
 from __future__ import annotations
 
@@ -15,9 +17,12 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 
-from sub_call import refute_mode
-from check_refute_verdict import VERDICT
+# 공용 모듈 폴더를 불러온다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
+
+from sub_call import VERDICT, refute_mode
 from sub_docs import ACTIVE, doc, task_id
 from sub_role import codex_rollout, first_prompt, parent_thread, resolve_role
 

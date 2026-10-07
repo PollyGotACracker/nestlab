@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from config import (
+from sub_config import (
     DIRECT_PATH_ROOTS,
     FILE_EXT,
     LINE_SUFFIX,

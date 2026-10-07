@@ -45,3 +45,15 @@ def entry_state(entry: Path, skill: Path) -> str:
         same = "shared와 내용 같음" if entry.is_dir() and same_tree(entry, skill) else "shared와 내용 다름"
         return f"중복 (실제 폴더, {same})"
     return "없음"
+
+
+# 공용 skill 원본을 가리키지만 원본이 없어진 링크를 찾는다.
+def stale_links(folder: Path) -> list[Path]:
+    if not folder.is_dir():
+        return []
+    result = []
+    for entry in folder.iterdir():
+        target = link_target(entry)
+        if target is not None and target.parent == SOURCE and not target.exists():
+            result.append(entry)
+    return result

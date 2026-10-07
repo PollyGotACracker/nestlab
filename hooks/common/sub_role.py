@@ -1,11 +1,14 @@
-"""hook 입력에서 역할을 판별하고 대화 기록 위치를 찾는다. 판별 실패는 None이다."""
+"""hook 입력에서 역할을 판별하고 대화 기록 위치를 찾는다. 판별 실패는 None이다.
+
+사용: check_tool_use.py, record_incident.py, save_agent_result.py
+"""
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
 
-from load_agent import discover_agents, read_folder_agent
+from sub_agents import discover_agents, read_folder_agent
 from sub_docs import ROOT
 from sub_session import CODEX_SESSIONS, read_session
 

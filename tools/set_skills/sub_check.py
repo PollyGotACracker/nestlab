@@ -4,8 +4,8 @@ skill별 연결 상태, 중복, Hermes 설정을 출력하고 파일을 바꾸�
 from __future__ import annotations
 
 from sub_config import DUPLICATE_DIRS, HERMES_CONFIG, HERMES_LINE, LINK_DIRS
-from sub_symlink import is_link, stale_links
-from sub_status import entry_state, read_skills
+from sub_status import entry_state, read_skills, stale_links
+from sub_symlink import is_link
 
 
 # skill마다 연결 상태, 중복, Hermes 설정을 출력한다.

@@ -6,6 +6,8 @@
   파일이 없으면 사건 양식의 머리 항목으로 만들고 조치 상태는 `미착수`로 둔다.
 - 하위 에이전트 응답(Claude agent_id, Codex 하위 rollout)은 검사하지 않는다.
 - 출력은 없다. 대화에 아무것도 넣지 않는다. 오류는 통과한다(fail-open).
+
+공용 모듈(common/): sub_docs, sub_role, sub_session
 """
 from __future__ import annotations
 
@@ -13,7 +15,11 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 from datetime import datetime
+
+# 공용 모듈 폴더를 불러온다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
 from sub_docs import ROOT
 from sub_role import first_line, resolve_role

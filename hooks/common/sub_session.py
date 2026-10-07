@@ -3,6 +3,8 @@
 기록은 read_session이 [{"role", "text", "calls": [(도구, 입력)]}] 순서 목록으로 읽는다.
 - Claude: hook 입력의 transcript_path.
 - Codex: ~/.codex/sessions/**/rollout-*-<session_id>.jsonl (CODEX_HOME이 있으면 그 아래).
+
+사용: check_refute_verdict.py, check_tool_use.py, record_incident.py
 """
 from __future__ import annotations
 

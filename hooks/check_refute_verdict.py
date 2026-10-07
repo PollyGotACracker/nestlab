@@ -23,17 +23,22 @@ hook 입력 필드 확인 상태
 - tool_input 전달과 agent_transcript_path·transcript_path·Codex session_id의 하위 기록 지정은 fixture 가정이다.
   실제 통합 관측 전에는 확인된 필드로 취급하지 않는다.
 - 요청 본문을 얻지 못하면 기존 fail-open을 적용하며 역할명만으로 mode를 추정하지 않는다.
+
+공용 모듈(common/): sub_call, sub_session
 """
 from __future__ import annotations
 
 import json
 import re
 import sys
+from pathlib import Path
 
-from sub_call import PROMPT_KEYS, REVIEWER, refute_mode
+# 공용 모듈 폴더를 불러온다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
+
+from sub_call import PROMPT_KEYS, REVIEWER, VERDICT, refute_mode
 from sub_session import read_session, session_path
 
-VERDICT = re.compile(r"^[\s\-*]*주장\s*(\d+)\s*[:：]\s*(지지|반증|미확인)\s*\|\s*출처\s*[:：]\s*(.+?)[\s*]*$")
 EVIDENCE = re.compile(r"https?://\S+|[\w./\\-]+\.\w+:\d+")
 
 

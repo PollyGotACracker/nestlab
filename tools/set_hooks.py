@@ -10,6 +10,9 @@ install:           settings 원본을 전역 파일에 반영하고 설치 기�
 install --dry-run: 전역 파일에 추가·교체·삭제할 내용만 출력한다. 파일을 바꾸지 않는다.
 check:             전역 파일의 항목별 반영 여부를 출력한다. 파일을 바꾸지 않는다.
 uninstall:         설치 기록에 있는 항목만 제거한다.
+
+모듈(set_hooks/): sub_settings 설정 원본, sub_install 설치·제거, sub_check 반영 확인, sub_claude·sub_codex 도구별 반영, sub_merge 병합, sub_paths 경로
+테스트: tools/tests/test_set_hooks.py
 """
 from __future__ import annotations
 
@@ -19,8 +22,8 @@ from pathlib import Path
 # 같은 이름 폴더의 모듈을 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "set_hooks"))
 
-from check import check
-from install import install, uninstall
+from sub_check import check
+from sub_install import install, uninstall
 
 
 # 명령줄 인자로 install, check, uninstall을 실행한다.

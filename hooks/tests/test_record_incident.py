@@ -1,4 +1,11 @@
-"""record_incident.py 동작 테스트. 실행: python hooks/test_record_incident.py"""
+"""record_incident.py 동작 테스트. 실행: python hooks/tests/test_record_incident.py"""
+import sys
+from pathlib import Path
+
+# 진입 스크립트, 공용 모듈, check_tool_use 모듈 폴더를 불러온다.
+HOOKS = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(HOOKS), str(HOOKS / "common"), str(HOOKS / "check_tool_use")]
+
 import tempfile
 import unittest
 from pathlib import Path

@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from check import check
+from sub_check import check
 from sub_claude import sync_claude_import, sync_claude_settings, uninstall_claude_md, uninstall_claude_settings
 from sub_codex import (make_agents_link, sync_codex_agents, sync_codex_config, sync_codex_hooks,
                    uninstall_codex_agents, uninstall_codex_config, uninstall_codex_hooks)

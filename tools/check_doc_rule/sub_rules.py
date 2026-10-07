@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from config import (
+from sub_config import (
     FENCE,
     HEADING,
     INLINE_CODE,
@@ -23,7 +23,7 @@ from config import (
     SECTION_REF,
     TARGET_PATTERNS,
 )
-from paths import as_repo_path, direct_path_root, path_exists
+from sub_paths import as_repo_path, direct_path_root, path_exists
 from sub_sections import read_headings, section_targets
 
 

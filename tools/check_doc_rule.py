@@ -29,6 +29,9 @@
 위반이나 없는 대상 파일이 하나라도 있으면 종료 코드 1을 반환한다.
 
 설정과 패턴은 같은 폴더의 config.py에 있다.
+
+모듈(check_doc_rule/): sub_config 설정·경로 값, sub_paths 경로 판정, sub_rules 지침 검사, sub_sections 절 읽기
+공용 모듈: hooks/common/sub_write (hook 입력의 쓰기 대상 경로)
 """
 from __future__ import annotations
 
@@ -40,12 +43,12 @@ from pathlib import Path
 # 같은 이름 폴더의 모듈을 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "check_doc_rule"))
 
-from rules import check_file, find_targets
-from config import KINDS
-from paths import build_name_index
-from config import ROOT
+from sub_rules import check_file, find_targets
+from sub_config import KINDS
+from sub_paths import build_name_index
+from sub_config import ROOT
 
-HOOKS = Path(__file__).resolve().parent.parent / "hooks"
+HOOKS = Path(__file__).resolve().parent.parent / "hooks" / "common"
 
 
 # PostToolUse hook 입력의 변경 파일 중 검사 대상만 검사한다.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """임시 bundle·HOME에서만 설치 도구의 설치·재설치·복구 동작을 검증한다.
 
-실행: python -B tools/set_hooks/sub_tests.py
+실행: python -B tools/tests/test_set_hooks.py
 실제 사용자 HOME이나 저장소 정책 파일은 install 대상으로 사용하지 않는다.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HOOKS_DIR = Path(__file__).resolve().parent
+HOOKS_DIR = Path(__file__).resolve().parents[1] / "set_hooks"
 LEGACY_PROJECT_POLICY = """# Project Claude ask/deny commands mapped to Codex execution-policy rules.
 # These rules govern execution policy; they do not reproduce all Claude tool permissions.
 # Exact allow commands are not expanded into broader prefix allow rules.
@@ -131,7 +131,7 @@ class InstallTest(unittest.TestCase):
         self.bundle = self.temp / "bundle"
         self.home = self.temp / "home"
         self.tool = self.bundle / "tools" / "set_hooks"
-        shutil.copytree(HOOKS_DIR, self.tool, ignore=shutil.ignore_patterns("sub_tests.py", "__pycache__"))
+        shutil.copytree(HOOKS_DIR, self.tool, ignore=shutil.ignore_patterns("__pycache__"))
         self.entry = self.bundle / "tools" / "set_hooks.py"
         shutil.copy2(HOOKS_DIR.parent / "set_hooks.py", self.entry)
         self.home.mkdir()
@@ -155,7 +155,7 @@ class InstallTest(unittest.TestCase):
         if failure is None:
             command = [sys.executable, "-B", str(self.entry), *args]
         else:
-            driver = f"import sys; sys.path.insert(0, {str(self.tool)!r})\nimport install, sub_paths\n"
+            driver = f"import sys; sys.path.insert(0, {str(self.tool)!r})\nimport sub_install as install, sub_paths\n"
             driver += "original=install.write_text\ndef fail(path,text):\n if path == sub_paths." + failure + ": raise OSError('injected write failure')\n return original(path,text)\n"
             driver += "install.write_text=fail\n"
             driver += "raise SystemExit(install.install(False))\n"

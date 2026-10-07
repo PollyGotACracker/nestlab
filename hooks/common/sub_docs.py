@@ -1,13 +1,15 @@
 """hook이 쓰는 작업 문서 경로와 문서 절 읽기 함수이다.
 
 경로 값은 공통 지침 `경로 목록`의 상태·입력·조사 문서 행과 같다.
+
+사용: check_tool_use.py, record_incident.py, save_agent_result.py
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "log" / "state"
 ACTIVE = STATE / ".active"
 SUFFIX = {"state": "", "input": "-input", "research": "-research"}

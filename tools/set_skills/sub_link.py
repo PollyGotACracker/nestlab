@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 from sub_config import LINK_DIRS
-from sub_symlink import make_link, remove_link, stale_links
-from sub_status import entry_state, read_skills
+from sub_status import entry_state, read_skills, stale_links
+from sub_symlink import make_link, remove_link
 
 
 # 빈 자리에 링크를 만들고 원본이 없어진 링크를 정리한다.

@@ -15,6 +15,8 @@ hook 입력 JSON을 stdin으로 받고 hookSpecificOutput JSON을 stdout으로 �
 
 --include-role: 역할 지침 AGENTS.md도 SOUL.md 앞에 함께 넣는다.
 --default-role: 위 1~3에서 에이전트가 정해지지 않을 때 쓸 에이전트 이름이나 역할이다.
+
+공용 모듈(common/): sub_agents
 """
 from __future__ import annotations
 import argparse
@@ -23,34 +25,13 @@ import os
 import sys
 from pathlib import Path
 
+# 공용 모듈 폴더를 불러온다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
+
+from sub_agents import discover_agents, read_folder_agent
+
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
-
-
-# 역할 지침 frontmatter의 name 값을 읽는다.
-# 값이 없으면 None이다.
-def read_agent_name(agents_file: Path) -> str | None:
-    text = agents_file.read_text(encoding="utf-8")
-    if not text.startswith("---"):
-        return None
-    parts = text.split("---", 2)
-    if len(parts) != 3:
-        return None
-    for line in parts[1].splitlines():
-        if line.startswith("name:"):
-            return line.split(":", 1)[1].strip() or None
-    return None
-
-
-# 역할 지침 폴더마다 {역할: 에이전트 이름}을 만든다.
-def discover_agents(root: Path) -> dict[str, str]:
-    agents: dict[str, str] = {}
-    for role_dir in sorted((root / ".claude" / "agents").iterdir()):
-        agents_file = role_dir / "AGENTS.md"
-        if not role_dir.is_dir() or not agents_file.is_file():
-            continue
-        agents[role_dir.name] = read_agent_name(agents_file) or role_dir.name
-    return agents
 
 
 # frontmatter를 뺀 본문을 반환한다.
@@ -69,21 +50,6 @@ def find_bundle_root() -> Path:
     if not (root / ".claude" / "agents").is_dir():
         raise FileNotFoundError(f"에이전트 원본 폴더가 없습니다: {root}")
     return root
-
-
-# cwd 폴더 자체의 Claude 프로젝트 설정에서 agent 값을 읽는다.
-# 상위 폴더는 탐색하지 않는다.
-# 파일이 없거나 읽을 수 없거나 값이 없으면 None이다.
-def read_folder_agent(cwd: Path) -> str | None:
-    settings_file = cwd / ".claude" / "settings.json"
-    if not settings_file.is_file():
-        return None
-    try:
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    agent = settings.get("agent") if isinstance(settings, dict) else None
-    return agent if isinstance(agent, str) and agent else None
 
 
 # hook 입력과 실행 환경에서 에이전트 이름이나 역할을 정한다.
