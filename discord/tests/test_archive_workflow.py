@@ -95,7 +95,7 @@ class WorkflowStoreTests(unittest.TestCase):
             {"type": "update", "path": "b.md", "content": "b", "expected_sha": "old"},
             {"type": "delete", "path": "c.md", "expected_sha": "gone"},
         ]
-        message = "#docs: 지식 문서 정리\n\n본문\n\nResolves: #7\nSee also: None"
+        message = "docs: 지식 문서 정리\n\n본문\n\nResolves: #7\nSee also: None"
         pending = self.store.stage("change", 10, 20, {
             "operations": operations,
             "commit_message": message,
@@ -104,6 +104,44 @@ class WorkflowStoreTests(unittest.TestCase):
         self.assertEqual(pending.data["operations"], operations)
         self.assertEqual(pending.data["commit_message"], message)
         self.assertEqual(pending.data["branch"], "docs/7")
+
+    def test_change_message_has_no_fixed_format_constraints(self) -> None:
+        """접두사, 제목 길이, Resolves 없이도 메시지를 그대로 보관한다."""
+        workflow = self.store.thread(10)
+        workflow.issue_number = 7
+        workflow.issue_type = "bug"
+        workflow.branch = "bug/7"
+        for message in ("fix: 오류 수정", "docs: " + "가" * 41, "docs: 문서 정리\n\n본문"):
+            with self.subTest(message=message):
+                pending = self.store.stage("change", 10, 20, {
+                    "operations": [{"type": "create", "path": "a.md", "content": "a"}],
+                    "commit_message": message,
+                    "source_commit_sha": "base",
+                })
+                self.assertEqual(pending.data["commit_message"], message)
+
+    def test_change_requires_message_operations_and_source_sha(self) -> None:
+        """형식 검사를 없애도 필수 입력의 누락과 빈 값을 거부한다."""
+        workflow = self.store.thread(10)
+        workflow.issue_number = 7
+        workflow.issue_type = "docs"
+        workflow.branch = "docs/7"
+        valid = {
+            "operations": [{"type": "create", "path": "a.md", "content": "a"}],
+            "commit_message": "docs: 문서 정리",
+            "source_commit_sha": "base",
+        }
+        for key, empty in (("commit_message", ""), ("operations", []), ("source_commit_sha", "")):
+            for missing in (True, False):
+                with self.subTest(key=key, missing=missing):
+                    data = dict(valid)
+                    if missing:
+                        del data[key]
+                    else:
+                        data[key] = empty
+                    with self.assertRaisesRegex(ValueError, "전체 변경 작업"):
+                        self.store.stage("change", 10, 20, data)
+                    self.assertIsNone(workflow.pending)
 
 
 class ArchiveThreadSourceTests(unittest.TestCase):

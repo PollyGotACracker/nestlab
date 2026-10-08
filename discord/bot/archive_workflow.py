@@ -141,15 +141,6 @@ class ArchiveWorkflowStore:
                 if operation_type in {"update", "delete"} and not operation.get("expected_sha"):
                     raise ValueError(f"{path}의 기존 blob SHA가 없습니다.")
                 paths.add(path)
-            first_line = str(data["commit_message"]).splitlines()[0]
-            expected_prefix = f"#{workflow.issue_type}: "
-            if (
-                not first_line.startswith(expected_prefix)
-                or len(first_line.removeprefix(expected_prefix)) > 40
-            ):
-                raise ValueError("커밋 제목이 저장소의 타입 또는 40자 제한과 맞지 않습니다.")
-            if f"Resolves: #{workflow.issue_number}" not in str(data["commit_message"]):
-                raise ValueError("커밋 본문에 현재 Issue의 Resolves 항목이 없습니다.")
             data = {
                 **data,
                 "branch": workflow.branch,
