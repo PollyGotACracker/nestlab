@@ -1,0 +1,80 @@
+# Codex 전역 설정 `~/.codex/config.toml`에 반영하는 brainstack 항목이다.
+# `<BRAINSTACK>`은 이 저장소 경로, `<PYTHON>`은 Python 실행 파일 경로로 바꾼다.
+# 명령 허용·승인 요청·금지 규칙은 `rules/default.rules`에 있다.
+# 이 파일의 권한 항목
+#   금지: 보안 문서 읽기·쓰기, 세션 경로 밖 접근, ~/.claude·~/.codex 쓰기 (hooks/check_tool_use.py)
+# 보안 문서 목록은 `~/.claude/settings.json`의 `permissions.deny` `Read(...)` 항목을 hook이 읽는다.
+
+# sandbox를 쓰지 않아 rules가 모든 명령에 적용된다.
+# `approvals_reviewer = "auto_review"`는 승인 요청을 사용자 대신 처리하므로 쓰지 않는다.
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
+
+[features]
+hooks = true
+
+# hook 구성: 역할 주입(SessionStart·SubagentStart), 승인·입력·쓰기 범위·경로 검사(PreToolUse),
+# 반증 판정 검사·결과 저장(SubagentStop), 지침 검사(PostToolUse), 사건 감지(Stop)
+
+[[hooks.SessionStart]]
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = '"<PYTHON>" "<BRAINSTACK>/hooks/load_agent.py" --include-role --default-role buddy'
+commandWindows = '& "<PYTHON>" "<BRAINSTACK>/hooks/load_agent.py" --include-role --default-role buddy'
+additionalContextLimit = 10000
+statusMessage = "Brainstack 메인 에이전트 역할 및 공통 지침"
+
+[[hooks.SubagentStart]]
+
+[[hooks.SubagentStart.hooks]]
+type = "command"
+command = '"<PYTHON>" "<BRAINSTACK>/hooks/load_agent.py" --include-role'
+commandWindows = '& "<PYTHON>" "<BRAINSTACK>/hooks/load_agent.py" --include-role'
+additionalContextLimit = 10000
+statusMessage = "Brainstack 서브 에이전트 역할 및 공통 지침"
+
+[[hooks.PreToolUse]]
+matcher = "apply_patch|Bash|spawn_agent"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = '"<PYTHON>" "<BRAINSTACK>/hooks/check_tool_use.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<BRAINSTACK>/hooks/check_tool_use.py" --runner codex'
+timeout = 10
+statusMessage = "Brainstack 승인·입력·쓰기 범위 검사"
+
+[[hooks.SubagentStop]]
+
+[[hooks.SubagentStop.hooks]]
+type = "command"
+command = '"<PYTHON>" "<BRAINSTACK>/hooks/check_refute_verdict.py"'
+commandWindows = '& "<PYTHON>" "<BRAINSTACK>/hooks/check_refute_verdict.py"'
+timeout = 10
+statusMessage = "Brainstack 반증 판정 검사"
+
+[[hooks.SubagentStop.hooks]]
+type = "command"
+command = '"<PYTHON>" "<BRAINSTACK>/hooks/save_agent_result.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<BRAINSTACK>/hooks/save_agent_result.py" --runner codex'
+timeout = 10
+statusMessage = "Brainstack 결과 원문 저장"
+
+[[hooks.PostToolUse]]
+matcher = "apply_patch"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = '"<PYTHON>" "<BRAINSTACK>/tools/check_doc_rule.py" --hook'
+commandWindows = '& "<PYTHON>" "<BRAINSTACK>/tools/check_doc_rule.py" --hook'
+timeout = 30
+statusMessage = "Brainstack 지침 검사"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = '"<PYTHON>" "<BRAINSTACK>/hooks/record_incident.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<BRAINSTACK>/hooks/record_incident.py" --runner codex'
+timeout = 10
+statusMessage = "Brainstack 사건 감지"

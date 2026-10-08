@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "agent": "buddy",
+  "env": {
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/add_statusline.py\"",
+    "padding": 0,
+    "statusMessage": "Brainstack 에이전트 상태줄 이름 표시"
+  },
+  "permissions": {
+    "additionalDirectories": ["~/.claude", "~/.codex"],
+    "allow": [
+      "WebSearch",
+      "WebFetch",
+      "Read(~/.claude/**)",
+      "Read(~/.codex/**)",
+      "Edit(./**)",
+      "Bash(git branch)",
+      "Bash(git branch --show-current)",
+      "Bash(git branch --list *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git rev-parse *)",
+      "Bash(git blame *)",
+      "Bash(git ls-files *)",
+      "Bash(git grep *)",
+      "Bash(git describe *)",
+      "Bash(stat *)",
+      "Bash(date *)",
+      "Bash(wc *)",
+      "Bash(python -m unittest *)",
+      "Bash(python3 -m unittest *)",
+      "Bash(py -m unittest *)",
+      "Bash(python hooks/tests/test_*.py)",
+      "Bash(python -B tools/tests/test_set_hooks.py)",
+      "Bash(python tools/check_doc_rule.py)",
+      "Bash(python tools/set_skills.py check)",
+      "Bash(python ../tools/check_doc_rule.py)",
+      "Bash(python ../tools/set_skills.py check)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git rm *)",
+      "Bash(git mv *)",
+      "Bash(rm *)",
+      "Bash(rmdir *)"
+    ],
+    "deny": [
+      "Agent(fork)",
+      "Bash(git add *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git restore *)",
+      "Bash(git stash *)",
+      "Bash(git tag *)",
+      "Bash(git merge *)",
+      "Bash(git rebase *)",
+      "Bash(git reset *)",
+      "Bash(git revert *)",
+      "Bash(git cherry-pick *)",
+      "Bash(git clean *)",
+      "Bash(git pull *)",
+      "Bash(git fetch *)",
+      "Bash(git apply *)",
+      "Bash(git am *)",
+      "Bash(git init *)",
+      "Bash(git clone *)",
+      "Bash(git submodule *)",
+      "Bash(git worktree *)",
+      "Bash(git gc *)",
+      "Bash(git prune *)",
+      "Bash(git branch -d *)",
+      "Bash(git branch -D *)",
+      "Bash(git branch -m *)",
+      "Bash(git branch -M *)",
+      "Bash(git branch -c *)",
+      "Bash(git branch -C *)",
+      "Bash(git branch --delete *)",
+      "Bash(git branch --move *)",
+      "Bash(git branch --copy *)",
+      "Bash(git branch --force *)",
+      "Bash(git branch --set-upstream-to *)",
+      "Bash(git branch --unset-upstream *)",
+      "Bash(git remote add *)",
+      "Bash(git remote remove *)",
+      "Bash(git remote rename *)",
+      "Bash(git remote set-url *)",
+      "Read(//**/.env)",
+      "Read(//**/.env.*)",
+      "Read(//**/secrets/**)",
+      "Read(//**/*.pem)",
+      "Read(//**/*.key)",
+      "Read(//**/id_rsa*)",
+      "Read(//**/id_ed25519*)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.codex/auth.json)",
+      "Read(~/.codex/auth.json.bak)",
+      "Edit(~/.claude/**)",
+      "Edit(~/.codex/**)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\" --default-role buddy",
+            "statusMessage": "Brainstack 메인 에이전트 역할 및 공통 지침"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\"",
+            "statusMessage": "Brainstack 서브 에이전트 역할 및 공통 지침"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Edit|Write|NotebookEdit|Bash|Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_tool_use.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Brainstack 승인·입력·쓰기 범위 검사"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_refute_verdict.py\"",
+            "timeout": 10,
+            "statusMessage": "Brainstack 반증 판정 검사"
+          },
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/save_agent_result.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Brainstack 결과 원문 저장"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<BRAINSTACK>/tools/check_doc_rule.py\" --hook",
+            "timeout": 30,
+            "statusMessage": "Brainstack 지침 검사"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/record_incident.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Brainstack 사건 감지"
+          }
+        ]
+      }
+    ]
+  }
+}

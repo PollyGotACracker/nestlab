@@ -55,6 +55,17 @@ class RefuteVerdict(unittest.TestCase):
                 self.assertIsNone(stop("검수 PASS", role=role, key=key, prompt="표식 없음"))
                 self.assertIsNone(stop("검수 PASS", role=role, key=key, prompt=REFUTE + "\n작업 종류: 반증"))
 
+    def test_handback_report_checked_instead_of_last_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "child.jsonl"
+            for report, blocked in (("주장 1: 지지 | 출처: https://a.b", False), ("결론만", True)):
+                rows = [{"type": "user", "message": {"content": REFUTE}},
+                        {"type": "assistant", "message": {"content": [
+                            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": report}}]}}]
+                path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+                d = {"agent_type": "ricky", "agent_transcript_path": str(path), "last_assistant_message": ""}
+                self.assertEqual(hook.check(d) is not None, blocked)
+
     def test_block_ignores_stop_hook_active(self):
         d = {"agent_type": "ricky", "tool_input": {"prompt": REFUTE}, "stop_hook_active": True, "last_assistant_message": "주장 1: 반증 | 출처: 없음"}
         self.assertIsNotNone(hook.check(d))

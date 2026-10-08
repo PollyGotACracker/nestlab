@@ -70,6 +70,12 @@ def read_session(path: str) -> list[dict]:
     return entries
 
 
+def handback_report(path: str) -> str:
+    """하위 에이전트가 마지막으로 SubagentHandback에 넘긴 보고이다. SubagentStop의 last_assistant_message에는 이 보고가 없다."""
+    calls = [c for e in read_session(path) for c in e["calls"] if c[0] == "SubagentHandback"]
+    return str(calls[-1][1].get("message") or "").strip() if calls else ""
+
+
 # Claude Code가 사용자 메시지 자리에 넣는 하네스 알림이다. 사용자 발화로 보지 않는다.
 HARNESS = ("<task-notification>", "<local-command-", "<command-name>")
 

@@ -8,14 +8,15 @@ hook 입력 JSON을 stdin으로 받는다. 위반이면 permissionDecision deny�
 검사는 같은 이름 폴더의 기능별 모듈이 맡는다.
 - sub_approval: 하위 에이전트 호출 승인, 승인 명령 판정
 - sub_input: 하위 에이전트 입력 형식
-- sub_scope: 역할별 쓰기 범위, director Bash 허용 목록
+- sub_scope: 역할별 쓰기 범위, director 쓰기 승인
+- sub_path: 보안 문서·세션 경로 밖 접근(읽기·쓰기, Read·Grep·Glob 포함), OS 임시 폴더 허용
 - sub_plan: 실행 승인 전 입력 문서 계획
 - sub_research: 조사 문서 원문 보존, 조사 결과 없는 확정 결정 차단
 
 검사 순서
 1. 하위 에이전트 호출(Agent·spawn_agent): 호출 승인(Claude Agent만) → 입력 형식
-2. Codex 하위 thread의 도구 호출: 부모 director 승인
-3. director Bash: 허용 목록
+2. 경로: 보안 문서·세션 경로 밖
+3. Codex 하위 thread의 도구 호출: 부모 director 승인
 4. 쓰기 도구: 역할별 쓰기 범위
 
 공용 모듈(common/): sub_call, sub_docs, sub_role, sub_session, sub_write
@@ -35,7 +36,8 @@ from sub_approval import check_agent_call, check_codex_child
 from sub_call import SPAWN_TOOLS
 from sub_input import check_input
 from sub_role import resolve_role
-from sub_scope import check_director_bash, check_write
+from sub_path import check_paths
+from sub_scope import check_write
 from sub_write import targets
 
 
@@ -50,12 +52,11 @@ def check(data: dict, runner: str) -> str | None:
         reason = check_agent_call(data) if data.get("tool_name") == "Agent" else None
         return reason or check_input(data, runner)
     role = resolve_role(data)
+    reason = check_paths(data, runner)
+    if reason:
+        return reason
     if runner == "codex" and role not in (None, "director", "assistant"):
         reason = check_codex_child(data)
-        if reason:
-            return reason
-    if role == "director" and data.get("tool_name") == "Bash":
-        reason = check_director_bash(data)
         if reason:
             return reason
     paths = targets(data)

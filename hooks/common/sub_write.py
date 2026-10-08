@@ -8,9 +8,15 @@ import re
 from pathlib import Path
 
 # ponytail: Bash 쓰기 판정은 패턴 기반이다. 우회는 sandbox_mode·readonly가 2차로 막는다.
+# 따옴표 안 문자열은 지우고 본다. 리다이렉트 대상이 &(2>&1)·null 장치(/dev/null, $null, NUL)면 쓰기로 보지 않는다.
+QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
 WRITE_BASH = re.compile(r"(^|[;&|]\s*)(rm|mv|cp|mkdir|touch|tee|Set-Content|Out-File|New-Item|Remove-Item)\b"
-                        r"|\bsed\s+-i\b|(?<![0-9&>])>{1,2}\s*[^&\s>]")
+                        r"|\bsed\s+-i\b|(?<![&>])>{1,2}\s*(?!&|/dev/null\b|\$null\b|NUL\b)[^\s>]", re.I)
 PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
+
+
+def is_write_bash(command: str) -> bool:
+    return bool(WRITE_BASH.search(QUOTED.sub('""', command)))
 
 
 def strings(value):
@@ -42,7 +48,7 @@ def targets(data: dict) -> list[Path] | None:
     if name == "apply_patch":
         return [cwd / (a or b).strip() for s in strings(tin) for a, b in PATCH_FILE.findall(s)]
     if name == "Bash":
-        return [] if WRITE_BASH.search(bash_command(data)) else None
+        return [] if is_write_bash(bash_command(data)) else None
     return None
 
 

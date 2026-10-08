@@ -2,15 +2,9 @@
 
 ## 구성된 설정
 
-설정 원본은 `tools/set_hooks/sub_settings.py`이다.
-
-| 항목                     | 반영 위치                 |
-| ------------------------ | ------------------------- |
-| 기본 에이전트·env·상태줄 | `~/.claude/settings.json` |
-| 권한·hooks               | `~/.claude/settings.json` |
-| 공통 지침 import         | `~/.claude/CLAUDE.md`     |
-| 에이전트 정의 연결       | `~/.claude/agents`        |
-| Git Bash 실행 함수       | `~/.bashrc`               |
+설정 원본과 권한 안내는 [shared/settings/claude/](/shared/settings/claude/)이다.
+사용자가 `settings.example.json`으로 만든 `settings.json`을 `~/.claude/settings.json`에 직접 반영한다.
+공통 지침은 `~/.claude/CLAUDE.md`의 import로, 에이전트 정의는 `~/.claude/agents`로 연결한다.
 
 ### hooks와 상태줄
 
@@ -26,34 +20,14 @@ director(rio)는 사용자 메시지의 마지막 줄이 승인 명령으로 끝
 
 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`는 `2`이다.
 
-### 권한
-
-- [관련 파일 참고](/tools/set_hooks/sub_settings.py)
-
 ## 전역 설정 설치
 
 저장소 루트에서 실행한다.
-Python 3.11 이상이 필요하다.
-macOS에서는 `python` 대신 `python3`를 쓴다.
 
 ```sh
-python -B tools/set_hooks.py install --dry-run
-python -B tools/set_hooks.py install
-python -B tools/set_hooks.py check
+# ~/.bashrc에 claude agent 함수 블록을 추가하고, 설정 예제의 <BRAINSTACK>·<PYTHON>을 채워 settings.json을 만든다.
+python tools/set_hooks.py install
 ```
-
-설정 원본을 수정한 뒤 같은 install 명령으로 재반영한다.
-관리 밖 사용자 설정과 Orca hook은 보존한다.
-설치 기록과 백업 경로는 `~/.brainstack/install-record.json`에 남는다.
-
-제거 명령:
-
-```sh
-python -B tools/set_hooks.py uninstall
-```
-
-설치 기록의 관리 항목을 제거한다.
-관리한 agent·env·statusLine 값은 제거하며 이전 값을 복원하지 않는다.
 
 ## 에이전트 전역 연결
 

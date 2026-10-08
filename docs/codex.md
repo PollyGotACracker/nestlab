@@ -2,38 +2,8 @@
 
 ## 구성된 설정
 
-전역 설치 원본은 `tools/set_hooks/sub_settings.py`이다.
-
-| 항목               | 반영 위치                      |
-| ------------------ | ------------------------------ |
-| hooks              | `~/.codex/hooks.json`          |
-| hooks 활성화       | `~/.codex/config.toml`         |
-| 실행 권한          | `~/.codex/rules/default.rules` |
-| 공통 지침 연결     | `~/.codex/AGENTS.md`           |
-| 에이전트 정의 연결 | `~/.codex/agents`              |
-| Git Bash 실행 함수 | `~/.bashrc`                    |
-
-### 승인과 실행 정책
-
-이 저장소의 `.codex/config.toml` 설정:
-
-```toml
-approval_policy = "on-request"
-approvals_reviewer = "auto_review"
-
-[features]
-hooks = true
-```
-
-전역 실행 권한:
-
-- 승인 요청:
-  `git checkout`, `git switch`, `git restore`, `git stash`, `git tag`, `rm`, `rmdir`
-- 금지:
-  `git commit`, `git push`, `git merge`, `git rebase`, `git reset`,
-  `git revert`, `git cherry-pick`, `git clean`
-
-이 실행 규칙은 샌드박스 밖에서 실행하는 명령에 적용한다.
+설정 원본과 권한 안내는 [shared/settings/codex/](/shared/settings/codex/)이다.
+사용자가 `config.example.toml`로 만든 `config.toml`과 `rules/default.rules`를 `~/.codex/`에 직접 반영한다.
 
 ### hooks와 에이전트
 
@@ -50,31 +20,11 @@ director(rio)는 사용자 메시지의 마지막 줄이 승인 명령으로 끝
 ## 전역 설정 설치
 
 저장소 루트에서 실행한다.
-Python 3.11 이상이 필요하다.
-macOS에서는 `python` 대신 `python3`를 쓴다.
 
 ```sh
-python -B tools/set_hooks.py install --dry-run
-python -B tools/set_hooks.py install
-python -B tools/set_hooks.py check
+# ~/.bashrc에 codex agent 함수 블록을 추가하고, 설정 예제의 <BRAINSTACK>·<PYTHON>을 채워 config.toml을 만든다.
+python tools/set_hooks.py install
 ```
-
-설정 원본을 수정한 뒤 같은 install 명령으로 재반영한다.
-관리 밖 사용자 설정과 Orca hook은 보존한다.
-설치 기록과 백업 경로는 `~/.brainstack/install-record.json`에 남는다.
-
-전역 `[features] hooks` 키가 없으면 install이 `true`를 추가한다.
-기존 값이 `false`이면 직접 `true`로 바꿔야 Role·Persona hook이 실행된다.
-`~/.codex/AGENTS.override.md`가 있으면 install이 중단된다.
-
-제거 명령:
-
-```sh
-python -B tools/set_hooks.py uninstall
-```
-
-설치 기록의 관리 항목을 제거한다.
-설치 전 파일은 기록 폴더의 백업에 남는다.
 
 ## 에이전트 전역 연결
 

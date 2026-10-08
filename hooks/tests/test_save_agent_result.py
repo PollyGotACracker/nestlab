@@ -86,6 +86,41 @@ class SaveResult(unittest.TestCase):
         self.assertNotIn("x = 1", text)
         self.assertNotIn("끝", text)
 
+    def stop_with_handback(self, role, prompt, handback, message):
+        """SubagentHandback 호출이 기록된 하위 기록으로 SubagentStop을 넣는다."""
+        path = self.root / f"{role}-hb.jsonl"
+        rows = [{"type": "user", "message": {"content": prompt}}]
+        if handback:
+            rows.append({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "SubagentHandback", "input": {"message": handback}}]}})
+        path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+        hook.save({"agent_type": role, "agent_transcript_path": str(path), "session_id": "s1",
+                   "last_assistant_message": message}, "claude")
+        return self.doc.read_text(encoding="utf-8")
+
+    def test_followup_does_not_overwrite_report(self):
+        ask = "작업 종류: 조사\n조사 문서: log/state/t-research.md"
+        text = self.stop_with_handback("nico", ask, "조사 보고 원문", "")
+        self.assertIn("```\n조사 보고 원문\n```", text)
+        text = self.stop_with_handback("nico", ask, "조사 보고 원문", "이번 알림에서 새로 처리할 내용은 없습니다.")
+        self.assertIn("```\n조사 보고 원문\n```", text)
+        self.assertNotIn("새로 처리할", text)
+        text = self.stop_with_handback("nico", ask, "재조사 보고", "후속 응답")
+        self.assertIn("```\n재조사 보고\n```", text)
+        self.assertNotIn("조사 보고 원문", text)
+
+    def test_refute_blocked_then_rewritten_saves_once(self):
+        (self.state / ".active").mkdir()
+        (self.state / ".active" / "s1.json").write_text('{"researcher": "t"}', encoding="utf-8")
+        ask = "작업 종류: 반증\n주장: x"
+        self.assertEqual(self.stop_with_handback("ricky", ask, "", "결론만"), RESEARCH)
+        good = "- 주장 1: 지지 | 출처: https://a.example"
+        self.stop_with_handback("ricky", ask, good, "")
+        text = self.stop_with_handback("ricky", ask, good, "후속")
+        self.assertEqual(text.count("| 1 | 0 |"), 1)
+        self.assertEqual(text.count("회차 반증 요청"), 1)
+        self.assertEqual(text.count("회차 반증 원문"), 1)
+
     def test_review_not_saved(self):
         text = self.stop("ricky", "작업 종류: 검수\n입력 문서: log/state/t-input.md", "PASS")
         self.assertEqual(text, RESEARCH)

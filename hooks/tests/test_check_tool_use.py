@@ -22,6 +22,7 @@ import sub_call
 import sub_docs
 import sub_input
 import sub_role
+import sub_path
 import sub_scope
 
 RESEARCH = """# 조사 문서: t
@@ -130,28 +131,25 @@ class WriteScope(unittest.TestCase):
 
     # director 쓰기 범위
     def test_director_scope(self):
-        self.assertIsNone(self.write("log/state/x.md", "- 진행"))
-        self.assertIsNotNone(self.write("log/incident/a.md", "# 사건"))
-        self.assertIsNotNone(self.write("hooks/a.py", "x"))
+        no = self.transcript(("assistant", "계획"), ("user", "다시 생각해"))
+        self.assertIsNone(self.write("log/state/x.md", "- 진행", transcript=no))
+        self.assertIsNone(self.write("log/incident/a.md", "# 사건", transcript=no))
+        self.assertIsNotNone(self.write("hooks/a.py", "x", transcript=no))
+        self.assertIsNone(self.write("hooks/a.py", "x"))
         self.assertIsNotNone(self.write("log/state/.active/a.json", "{}"))
 
-    def test_director_bash_write_denied(self):
-        data = {"tool_name": "Bash", "tool_input": {"command": "echo a > f.txt"}, "agent_type": "rio"}
-        self.assertIsNotNone(hook.check(data, "claude"))
-        data["tool_input"]["command"] = "git status"
-        self.assertIsNone(hook.check(data, "claude"))
-
-    def test_director_bash_allowlist(self):
-        allowed = ("git status", "git log -1 --format=%h", "git diff HEAD~1", "git show HEAD:AGENTS.md",
-                   "git branch --show-current", "date", 'date "+%Y-%m-%d %H:%M"')
-        denied = ("ls", "cat AGENTS.md", "git log && rm x", "git log | head", "git log --output=a.txt",
-                  "git branch -D x", "git -c core.pager=x log", "date -s 2020", "echo $(git log)", "git push")
-        for cmd in allowed:
-            data = {"tool_name": "Bash", "tool_input": {"command": cmd}, "agent_type": "rio"}
-            self.assertIsNone(hook.check(data, "claude"), cmd)
-        for cmd in denied:
-            data = {"tool_name": "Bash", "tool_input": {"command": cmd}, "agent_type": "rio"}
-            self.assertIsNotNone(hook.check(data, "claude"), cmd)
+    def test_director_bash(self):
+        no = self.transcript(("assistant", "계획"), ("user", "다시 생각해"))
+        def bash(cmd, transcript=no):
+            return hook.check({"tool_name": "Bash", "tool_input": {"command": cmd}, "agent_type": "rio",
+                               "transcript_path": transcript}, "claude")
+        for cmd in ("git status", "rg -n 'a|b' AGENTS.md", "Get-Content AGENTS.md", "rg -e foo", "ls | head", "date",
+                    'rg -n "a => b" AGENTS.md', "rg -n 'x>y' f", "cmd 2>/dev/null", "cmd >/dev/null 2>&1", "cmd > $null",
+                    "cmd >NUL"):
+            self.assertIsNone(bash(cmd), cmd)
+        for cmd in ("echo a > f.txt", "echo x > out.txt", "cmd >> f", "Set-Content f x"):
+            self.assertIsNotNone(bash(cmd), cmd)
+        self.assertIsNone(bash("echo a > f.txt", self.transcript(("assistant", "계획"), ("user", "승인"))))
 
     def test_execution_approval_needs_filled_plan(self):
         self.assertIsNone(self.write("log/state/t-input.md", PLAN_OK))
@@ -201,14 +199,10 @@ class WriteScope(unittest.TestCase):
         self.assertIsNotNone(self.write("log/state/x.md", "x", role="ricky"))
         self.assertIsNone(self.write("src/a.py", "x", role="jelly"))
 
-    # assistant 쓰기 승인
-    def test_assistant_write_needs_approval(self):
+    # assistant 쓰기: 승인 검사 없음
+    def test_assistant_write_unchecked(self):
         no = self.transcript(("assistant", "diff"), ("user", "고쳐"))
-        self.assertIsNotNone(self.write("src/a.py", "x", role="buddy", transcript=no))
-        self.assertIsNone(self.write("src/a.py", "x", role="buddy"))
-        data = {"tool_name": "Write", "tool_input": {"file_path": str(self.root / "a.py"), "content": "x"},
-                "agent_type": "buddy", "agent_id": "sub-1", "transcript_path": no}
-        self.assertIsNone(hook.check(data, "claude"))
+        self.assertIsNone(self.write("src/a.py", "x", role="buddy", transcript=no))
 
     # 하위 에이전트 호출 승인 (Claude)
     def agent(self, prompt, user, **extra):
@@ -256,6 +250,103 @@ class WriteScope(unittest.TestCase):
         self.assertIsNotNone(hook.check(data, "codex"))
         parent.write_text("\n".join([codex_meta(), codex_msg("user", "승인")]) + "\n", encoding="utf-8")
         self.assertIsNone(hook.check(data, "codex"))
+
+
+class CodexPath(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cwd = Path(self.tmp.name) / "work"
+        self.home = Path(self.tmp.name) / "home"
+        (self.home / ".claude").mkdir(parents=True)
+        settings = self.home / ".claude" / "settings.json"
+        settings.write_text(json.dumps({"permissions": {"deny": [
+            "Read(//**/.env)", "Read(//**/.env.*)", "Read(//**/secrets/**)", "Read(//**/*.pem)",
+            "Read(~/.codex/auth.json)", "Edit(~/.codex/**)"]}}), encoding="utf-8")
+        glob = (self.home / ".claude", self.home / ".codex")
+        self.patches = [patch.object(sub_path, "HOME", self.home), patch.object(sub_path, "SETTINGS", settings),
+                        patch.object(sub_path, "GLOBAL", glob)]
+        self.temp = Path(self.tmp.name) / "ostemp"
+        self.temp.mkdir()
+        self.patches.append(patch.object(sub_path, "TEMP", self.temp))
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def bash(self, cmd):
+        return hook.check({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(self.cwd),
+                           "agent_type": "buddy"}, "codex")
+
+    def test_session_path_and_read_commands(self):
+        for cmd in ("rg -n 'a|b' AGENTS.md", "Get-Content hooks/a.py", "cat ./x", "git log --oneline", "rg -e foo",
+                    f"cat {self.home}/.claude/CLAUDE.md", f"ls {self.home}/.codex", "echo hi > out.txt", "curl https://a.b/c",
+                    'rg -n "a => b" AGENTS.md', "rg -n 'x>y' f", "cmd 2>/dev/null", "cmd > $null", "cmd >NUL"):
+            self.assertIsNone(self.bash(cmd), cmd)
+
+    def test_secret_denied(self):
+        for cmd in ("cat .env", "cat .env.local", "cat sub/secrets/a", "cat ./a.pem", f"cat {self.home}/.codex/auth.json",
+                    "echo x > .env"):
+            self.assertIsNotNone(self.bash(cmd), cmd)
+
+    def test_outside_session_denied(self):
+        for cmd in (f"cat {self.home}/notes.txt", "cat ../x", "cat ~/x", f"echo a > {self.home}/.claude/x",
+                    f"rm {self.home}/.codex/x"):
+            self.assertIsNotNone(self.bash(cmd), cmd)
+
+    def test_apply_patch(self):
+        def patch_(path):
+            text = chr(10).join(["*** Begin Patch", f"*** Add File: {path}", "+x", "*** End Patch"])
+            return hook.check({"tool_name": "apply_patch", "tool_input": {"command": text}, "cwd": str(self.cwd),
+                               "agent_type": "buddy"}, "codex")
+        self.assertIsNone(patch_("src/a.py"))
+        self.assertIsNotNone(patch_(".env"))
+        self.assertIsNotNone(patch_("../a.py"))
+        self.assertIsNotNone(patch_(f"{self.home}/.claude/a.md"))
+
+    def claude(self, name, tin, runner="claude"):
+        return hook.check({"tool_name": name, "tool_input": tin, "cwd": str(self.cwd), "agent_type": "buddy"}, runner)
+
+    def test_claude_runner_checks_reads_and_writes(self):
+        run = self.claude
+        for name, tin in (("Bash", {"command": "cat .env"}), ("Bash", {"command": f"cat {self.home}/notes.txt"}),
+                          ("Read", {"file_path": ".env"}), ("Read", {"file_path": f"{self.home}/notes.txt"}),
+                          ("Grep", {"pattern": "x", "path": str(self.home)}), ("Glob", {"pattern": "*", "path": "../x"}),
+                          ("Bash", {"command": f"echo a > {self.home}/notes.txt"}),
+                          ("Bash", {"command": f"rm {self.home}/.claude/x"}),
+                          ("Write", {"file_path": f"{self.home}/notes.txt", "content": "x"}),
+                          ("Edit", {"file_path": f"{self.home}/.codex/a.md", "old_string": "a", "new_string": "b"}),
+                          ("Write", {"file_path": ".env", "content": "x"})):
+            self.assertIsNotNone(run(name, tin), (name, tin))
+        self.assertIn(str(self.home), run("Read", {"file_path": f"{self.home}/notes.txt"}))
+        for name, tin in (("Bash", {"command": "cat ./x"}), ("Bash", {"command": "echo hi > out.txt"}),
+                          ("Read", {"file_path": "AGENTS.md"}), ("Read", {"file_path": f"{self.home}/.claude/CLAUDE.md"}),
+                          ("Grep", {"pattern": "x"}), ("Glob", {"pattern": "*"}),
+                          ("Write", {"file_path": "src/a.py", "content": "x"})):
+            self.assertIsNone(run(name, tin), (name, tin))
+
+    def short(self, path):
+        """Windows 8.3 짧은 이름 표기이다. 다른 OS는 그대로 쓴다."""
+        if os.name != "nt":
+            return str(path)
+        import ctypes
+        buf = ctypes.create_unicode_buffer(1024)
+        ctypes.windll.kernel32.GetShortPathNameW(str(path), buf, 1024)
+        return buf.value or str(path)
+
+    def test_temp_allowed_both_runners(self):
+        (self.temp / "a").write_text("x", encoding="utf-8")
+        for base in (str(self.temp), self.short(self.temp), str(self.temp).replace("\\", "/")):
+            for runner in ("claude", "codex"):
+                run = lambda cmd: self.claude("Bash", {"command": cmd}, runner)
+                self.assertIsNone(run(f"cat {base}/a"), (base, runner))
+                self.assertIsNone(run(f"echo x > {base}/new"), (base, runner))
+                self.assertIsNotNone(run(f"cat {base}/.env"), (base, runner))
+            self.assertIsNone(self.claude("Read", {"file_path": f"{base}/a"}), base)
+            self.assertIsNone(self.claude("Write", {"file_path": f"{base}/new", "content": "x"}), base)
+            self.assertIsNotNone(self.claude("Read", {"file_path": f"{base}/.env"}), base)
 
 
 # 하위 에이전트 입력 형식

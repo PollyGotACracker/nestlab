@@ -15,6 +15,7 @@ hook 입력 JSON을 stdin으로 받는다. 위반이면 {"decision": "block", "r
     - 주장 2: 반증 | 출처: https://example.com/a, https://example.com/b
     - 주장 3: 미확인 | 출처: 없음
 
+검사 대상은 SubagentHandback에 넘긴 마지막 보고이다. 없으면 last_assistant_message이다.
 루프 횟수·정지는 이 hook이 관리하지 않는다. researcher 지침이 정한다.
 
 hook 입력 필드 확인 상태
@@ -29,17 +30,14 @@ hook 입력 필드 확인 상태
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
 # 공용 모듈 폴더를 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
-from sub_call import PROMPT_KEYS, REVIEWER, VERDICT, refute_mode
-from sub_session import read_session, session_path
-
-EVIDENCE = re.compile(r"https?://\S+|[\w./\\-]+\.\w+:\d+")
+from sub_call import PROMPT_KEYS, REVIEWER, refute_mode, verdict_problem
+from sub_session import handback_report, read_session, session_path
 
 
 def request_prompt(data: dict) -> str:
@@ -56,11 +54,10 @@ def check(data: dict) -> str | None:
     """위반 사유를 반환한다. 통과면 None이다."""
     if (data.get("agent_type") or data.get("agent_role")) not in REVIEWER or not refute_mode(request_prompt(data)):
         return None
-    found = [(m.group(2), m.group(3)) for m in map(VERDICT.match, (data.get("last_assistant_message") or "").splitlines()) if m]
-    bad = [v for v, src in found if v != "미확인" and not EVIDENCE.search(src)]
-    if found and not bad:
+    path = data.get("agent_transcript_path") or session_path(data, "codex")
+    why = verdict_problem(handback_report(path) or data.get("last_assistant_message") or "")
+    if not why:
         return None
-    why = "판정 줄이 없습니다." if not found else "근거(URL 또는 파일:행)가 없는 지지·반증이 있습니다."
     return f"{why} `주장 <번호>: <지지|반증|미확인> | 출처: <URL 또는 파일:행>` 형식으로 다시 쓰십시오."
 
 

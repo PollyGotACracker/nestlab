@@ -1,7 +1,7 @@
 """SubagentStop hook: researcher 최종 결과와 reviewer 반증 결과를 조사 문서의 기존 칸에 원문 그대로 쓴다.
 
 사용: python save_agent_result.py --runner <claude|codex>
-- researcher: `최종 조사 원문` 코드 블록 내용을 교체한다.
+- researcher: `최종 조사 원문` 코드 블록 내용을 교체한다. 보고는 SubagentHandback 입력이며 없으면 last_assistant_message이다.
 - reviewer 반증: `조사 단계 원문` 절 끝에 `<n>회차 반증 요청`(반증 요청 본문)과 `<n>회차 반증 원문`을 덧붙이고
   `조사·반증 루프` 표에 회차 행을 추가한다.
 - reviewer 검수는 저장하지 않는다. 판정은 director가 상태 문서 `검수 결과`에 기록한다.
@@ -22,9 +22,10 @@ from pathlib import Path
 # 공용 모듈 폴더를 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
-from sub_call import VERDICT, refute_mode
+from sub_call import VERDICT, refute_mode, verdict_problem
 from sub_docs import ACTIVE, doc, task_id
 from sub_role import codex_rollout, first_prompt, parent_thread, resolve_role
+from sub_session import handback_report
 
 LOOP_ROW = re.compile(r"^\| *(\d+) *\|", re.M)
 MAX_ROUNDS = 2
@@ -96,13 +97,18 @@ def add_loop_row(text: str, message: str) -> str:
 
 def save(data: dict, runner: str) -> None:
     role = resolve_role(data)
-    message = (data.get("last_assistant_message") or "").strip()
-    if role not in ("researcher", "reviewer") or not message:
+    if role not in ("researcher", "reviewer"):
         return
     path = transcript(data, runner)
+    # SubagentHandback으로 넘긴 보고가 최종 결과이다. 뒤따르는 후속 응답으로 덮어쓰지 않는다.
+    message = handback_report(path) or (data.get("last_assistant_message") or "").strip()
+    if not message:
+        return
     prompt = first_prompt(path) or "\n".join(str(v) for v in (data.get("tool_input") or {}).values())
     refute = role == "reviewer" and refute_mode(prompt)
     if role == "reviewer" and not refute:
+        return
+    if refute and verdict_problem(message):  # check_refute_verdict가 차단하는 보고는 다시 쓴 뒤에 저장한다.
         return
     tid = find_task(data, runner, path, prompt)
     target = doc(tid, "research") if tid else None
@@ -110,6 +116,8 @@ def save(data: dict, runner: str) -> None:
         return
     text = target.read_text(encoding="utf-8")
     if refute:
+        if message in text:  # 같은 보고로 다시 멈춘 경우는 이미 기록했다.
+            return
         text = add_loop_row(add_round_blocks(text, prompt, message), message)
     else:
         text = replace_block(text, "최종 조사 원문", message)
