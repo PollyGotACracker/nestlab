@@ -16,7 +16,7 @@
 | director   | rio(리오)    | 프로젝트 작업: 저장소 사전 조사, 판단·승인 조율, 전체 흐름 |
 | researcher | nico(니코)   | 프로젝트 작업: 외부 조사, 비교, 계획 초안                  |
 | worker     | jelly(젤리)  | 프로젝트 작업: 구현                                        |
-| reviewer   | ricky(리키)  | 프로젝트 작업: 독립 반증, 구현·문서 검수                   |
+| reviewer   | ricky(리키)  | 프로젝트 작업: 자료 및 주장 반증, 구현·문서 검수           |
 | documenter | pepper(페퍼) | 프로젝트 작업: 기록, 지침·문서 작성                        |
 
 각 에이전트의 역할과 persona는 .claude/agents/ 폴더를 참고한다.
@@ -110,7 +110,7 @@ Discord 채널의 웹훅 봇 목록
 │   ├── agents/<role>/
 │   │   ├── AGENTS.md              # 에이전트별 지침
 │   │   └── SOUL.md                # 에이전트별 성향
-│   ├── assets/                    # 에이전트 캐릭터 이미지 등 에셋
+│   ├── assets/                    # 에이전트 에셋
 │   └── settings.json              # Claude settings
 ├── .codex/                        # Codex 설정
 │   ├── agents/<name>.toml         # 에이전트별 설정
@@ -128,14 +128,15 @@ Discord 채널의 웹훅 봇 목록
 │   ├── tests/                     # 봇 스크립트 테스트
 │   └── config.example.json        # config.json 예시
 ├── docs/                          # 환경별 연결 문서
-├── hooks/                         # 하네스가 실행하는 스크립트
+├── hooks/                         # 훅 스크립트
 ├── log/                           # 작업 관련 로그
 │   ├── state/                     # 상태 로그
 │   └── incident/                  # 사건 로그
 ├── schema/                        # 문서 작성 절차 및 양식
 ├── shared/
-│   └── skills/<skill>/SKILL.md    # 공용 skill 원본
-├── tools/                         # 직접 실행하는 스크립트
+│   └── settings/                  # 공통 설정(권한 등)
+│   └── skills/<skill>/SKILL.md    # 공통 skill
+├── tools/                         # 직접 실행 스크립트
 │   ├── <script_name>/             # 해당 스크립트의 모듈 폴더
 │   ├── check_doc_rule.py          # 에이전트 문서 지침 준수 확인 도구
 │   ├── set_hooks.py               # 전역 설정 설치 도구
