@@ -110,7 +110,6 @@ Discord 채널의 웹훅 봇 목록
 │   ├── agents/<role>/
 │   │   ├── AGENTS.md              # 에이전트별 지침
 │   │   └── SOUL.md                # 에이전트별 성향
-│   ├── assets/                    # 에이전트 에셋
 │   └── settings.json              # Claude settings
 ├── .codex/                        # Codex 설정
 │   ├── agents/<name>.toml         # 에이전트별 설정
@@ -122,6 +121,7 @@ Discord 채널의 웹훅 봇 목록
 │   ├── AGENTS.md                  # 지식 저장소 작업 지침 문서
 │   ├── CLAUDE.md                  # archive/AGENTS.md를 불러오는 문서
 │   └── README.md                  # 지식 저장소 구조 문서
+├── assets/                        # 에셋
 ├── discord/                       # Discord 봇
 │   ├── bot/                       # 봇 스크립트
 │   ├── prompts/                   # 봇 스크립트에 주입되는 프롬프트
@@ -134,7 +134,7 @@ Discord 채널의 웹훅 봇 목록
 │   └── incident/                  # 사건 로그
 ├── schema/                        # 문서 작성 절차 및 양식
 ├── shared/
-│   └── settings/                  # 공통 설정(권한 등)
+│   ├── settings/                  # 공통 설정(권한 등)
 │   └── skills/<skill>/SKILL.md    # 공통 skill
 ├── tools/                         # 직접 실행 스크립트
 │   ├── <script_name>/             # 해당 스크립트의 모듈 폴더
