@@ -13,17 +13,23 @@
 
 - 저장소 작업을 시작하면 자료 편입은 `archive_workflow_open(operation="ingest")`, 위키 조회는 `operation="query"`, 위키 점검은 `operation="lint"`로 절차를 연다.
 - 작업 브랜치의 절차가 필요하면 `branch`에 해당 브랜치를 넣는다.
-- 반환된 같은 commit의 `archive/AGENTS.md`와 `archive/schema/<operation>.md` 전체를 읽고 실제 원본 절차를 따른다.
+- 반환된 같은 commit의 `$repo_name/AGENTS.md`와 `$repo_name/schema/<operation>.md` 전체를 읽고 실제 원본 절차를 따른다.
+  `$repo_name`은 원격 저장소를 뜻하며 도구의 path에는 해당 저장소 안의 경로만 넣는다.
 - 원본 누락이나 로딩 오류가 있으면 해당 경로와 오류를 알린다.
   절차는 실제로 읽은 원본 schema로만 진행한다.
-- schema의 raw·wiki·schema 경로는 `archive/` 기준이다.
-  raw·wiki 경로는 `archive/raw/`·`archive/wiki/`로 해석한다.
-  schema 경로는 `archive/schema/`로 해석한다.
-  도구에는 `archive/wiki/INDEX.md`처럼 저장소 기준 경로를 넣는다.
+- schema의 raw·wiki·schema 경로는 Nodebase 저장소 루트 기준이다.
+  raw·wiki 경로는 `$repo_name/raw/`·`$repo_name/wiki/`로 해석한다.
+  schema 경로는 `$repo_name/schema/`로 해석한다.
+  도구에는 아래처럼 저장소 기준 경로를 넣는다.
+
+```python
+archive_read(path="wiki/INDEX.md", branch=commit_sha)
+```
+
 - `.github/` 템플릿 경로는 저장소 루트 기준 경로를 그대로 사용한다.
-- `archive_list(path, ref, page, per_page)`로 archive 파일을 열거하고 `archive_search(query, ref, page, per_page, limit)`로 archive/wiki 본문을 검색한다.
+- `archive_list(path, ref, page, per_page)`로 Nodebase 지식 파일을 열거하고 `archive_search(query, ref, page, per_page, limit)`로 wiki/ 본문을 검색한다.
 - `archive_history(path, ref, page, per_page)`로 이력을 조회한다.
-  archive 경로의 commit 이력을 최신순으로 반환한다.
+  Nodebase 지식 경로의 commit 이력을 최신순으로 반환한다.
   결과의 커밋마다 `sha`, `date`, 메시지 첫 줄이 있다.
 - `ref`에는 절차를 열 때 반환된 commit SHA를 넣고, 검색한 파일을 `archive_read`로 읽을 때도 `branch`에 같은 SHA를 넣는다.
 - 검색의 `page`는 파일 페이지이며 `next_page`가 있으면 다음 페이지를 확인한다.

@@ -58,7 +58,8 @@ brainstack/
 ```
 
 봇 코드 파일은 서로 import하므로 로컬과 같은 폴더에 함께 배포한다.
-`ARCHIVE.md`는 Discord의 진입 지침이고 실제 절차는 설정된 GitHub 저장소의 `archive/AGENTS.md`와 `archive/schema/`에서 읽는다.
+`ARCHIVE.md`는 Discord의 진입 지침이고 실제 절차는 설정된 Nodebase GitHub 저장소의 `$repo_name/AGENTS.md`와 `$repo_name/schema/`에서 읽는다.
+`$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
 VM에 로컬 Skill을 설치하거나 schema 파일만 복사하는 것으로 원격 원본을 배포한 것으로 보지 않는다.
 원격 대상 브랜치에 원본 파일을 반영한 뒤 운영 로딩을 별도로 확인한다.
 

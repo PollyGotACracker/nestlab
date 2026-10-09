@@ -263,7 +263,6 @@
 | 입력 문서        | `log/state/<작업-id>-input.md`    |
 | 조사 문서        | `log/state/<작업-id>-research.md` |
 | 사건 문서        | `log/incident/<사건-id>.md`       |
-| 지식 저장소      | `archive/`                        |
 | Skill 원본       | `shared/skills/<name>/SKILL.md`   |
 | Hooks 설치 도구  | `tools/set_hooks.py`              |
 | Skill 연결 도구  | `tools/set_skills.py`             |
@@ -274,14 +273,6 @@
 
 - Skill은 로컬 작업의 절차이다.
 - 작업에 맞는 Skill을 Skill 원본 경로의 description으로 찾아 Read로 읽는다.
-
-### 위키 참고 순서
-
-- 과거 결정·기술 지식·문제 해결 기록이 판단에 필요한 작업에서만 위키를 참고한다.
-
-1. `archive/wiki/INDEX.md`에서 관련 항목을 확인한다.
-2. 관련 항목이 없으면 `archive/raw`에서 키워드가 일치하는 파일 목록만 확인한다.
-3. 목록에서 관련 파일만 연다.
 
 ## Commit
 

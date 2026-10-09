@@ -283,9 +283,9 @@ def build_archive_server(
     async def archive_workflow_open(args: dict[str, Any]) -> dict[str, Any]:
         return await reader_call("workflow_open", operation=args.get("operation"), branch=args.get("branch", BASE_BRANCH))
 
-    # 고정 commit의 archive 하위 파일을 나열한다.
+    # 고정 commit의 Nodebase 지식 파일을 나열한다.
     @tool(
-        "archive_list", "workflow_open의 commit SHA에서 archive 하위 파일을 페이지별로 열거한다.",
+        "archive_list", "workflow_open의 commit SHA에서 AGENTS.md 또는 raw/wiki/schema 파일을 페이지별로 열거한다.",
         {"type": "object", "properties": {
             "path": {"type": "string"}, "ref": {"type": "string"},
             "page": {"type": "integer"}, "per_page": {"type": "integer"},
@@ -295,9 +295,9 @@ def build_archive_server(
         return await reader_call("list_files", path=args.get("path"), ref=args.get("ref"),
                                  page=args.get("page", 1), per_page=args.get("per_page", 50))
 
-    # 고정 commit의 archive/wiki에서 검색한다.
+    # 고정 commit의 wiki에서 검색한다.
     @tool(
-        "archive_search", "같은 commit의 archive/wiki 텍스트를 파일 페이지별로 검색한다. 누락과 잘림을 반환한다.",
+        "archive_search", "같은 commit의 wiki 텍스트를 파일 페이지별로 검색한다. 누락과 잘림을 반환한다.",
         {"type": "object", "properties": {
             "query": {"type": "string"}, "ref": {"type": "string"},
             "page": {"type": "integer"}, "per_page": {"type": "integer"}, "limit": {"type": "integer"},
@@ -309,7 +309,7 @@ def build_archive_server(
 
     # lint가 최근 활동과 최근 ingest 날짜를 커밋 이력으로 확인할 때 쓴다.
     @tool(
-        "archive_history", "archive 하위 경로의 commit 이력을 ref 기준 최신순으로 페이지별 조회한다. sha, 날짜, 메시지 첫 줄을 반환한다.",
+        "archive_history", "AGENTS.md 또는 raw/wiki/schema 경로의 commit 이력을 ref 기준 최신순으로 페이지별 조회한다. sha, 날짜, 메시지 첫 줄을 반환한다.",
         {"type": "object", "properties": {
             "path": {"type": "string"}, "ref": {"type": "string"},
             "page": {"type": "integer"}, "per_page": {"type": "integer"},

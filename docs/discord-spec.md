@@ -85,7 +85,8 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 일반 에이전트 채널에서 저장소 작업 요청을 받으면 `archive_thread_start`로 최초 사용자 메시지와 첨부를 archive forum의 새 thread로 옮긴다.
 - 저장소 조회와 Stage 도구는 `archive_forum_id`가 가리키는 포럼 아래의 thread에서만 사용한다.
 - 자료 편입·위키 조회·위키 점검은 각각 `archive_workflow_open`의 `ingest`·`query`·`lint`로 시작한다.
-- 같은 commit에서 반환된 `archive/AGENTS.md`와 해당 schema의 전체 내용을 읽고 절차를 적용한다.
+- 같은 commit에서 반환된 `$repo_name/AGENTS.md`와 해당 schema의 전체 내용을 읽고 절차를 적용한다.
+  `$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
 - 목록·검색과 후속 파일 읽기는 반환된 commit SHA를 사용한다.
 - 조회·점검만 요청한 경우에는 Issue·변경·PR 승인 작업으로 자동 전환하지 않는다.
 - Issue 템플릿, 변경 세트, PR 템플릿 전체를 각각 보여 준 뒤 해당 Stage 도구로 승인 대기에 보관한다.
@@ -455,7 +456,7 @@ documenter는 `discord/prompts/ARCHIVE.md`도 변경 감지 대상에 포함하�
 
 로컬 Skill은 `shared/skills/wiki/SKILL.md`를 통해 파일 원본에 연결한다.
 Discord는 이 Skill의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 전용 도구로 원격의 같은 schema 경로에 연결한다.
-절차 본문은 `archive/schema/`에만 유지한다.
+절차 본문은 Nodebase 원격 저장소의 `$repo_name/schema/`에만 유지한다.
 
 실행 가능한 에이전트 목록은 `.claude/agents/*/AGENTS.md`의 `name`에서 읽는다. 설정의 `name`이 이 값과 다르면 시작하지 않는다.
 
@@ -547,17 +548,17 @@ Discord는 이 Skill의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 전
   - 제한: archive thread에서 브랜치 commit SHA를 조회한다.
 - `archive_workflow_open`
   - 입력: operation, branch(선택)
-  - 제한: ingest/query/lint만 받으며 기본 master를 commit SHA로 확정하고 같은 commit의 archive 지침과 schema 전체 및 blob SHA를 반환한다.
+  - 제한: ingest/query/lint만 받으며 기본 master를 commit SHA로 확정하고 같은 commit의 Nodebase 지침과 schema 전체 및 blob SHA를 반환한다.
 - `archive_list`
   - 입력: path, ref, page·per_page(선택)
-  - 제한: archive 내부 파일을 commit SHA 기준으로 페이지당 기본 50개, 최대 100개 열거한다.
+  - 제한: AGENTS.md와 raw/wiki/schema 내부 파일을 commit SHA 기준으로 페이지당 기본 50개, 최대 100개 열거한다.
 - `archive_search`
   - 입력: query, ref, page·per_page·limit(선택)
-  - 제한: archive/wiki 본문을 파일 페이지당 최대 20개, 결과 최대 100개로 검색하고 경로·행·본문 일부와 누락·잘림 정보를 반환한다.
+  - 제한: wiki/ 본문을 파일 페이지당 최대 20개, 결과 최대 100개로 검색하고 경로·행·본문 일부와 누락·잘림 정보를 반환한다.
 - `archive_history`
   - 입력: path, ref, page·per_page(선택)
   - 제한:
-    - archive 경로의 commit 이력을 ref(commit SHA 또는 브랜치) 기준 최신순으로 반환한다.
+    - Nodebase 지식 경로의 commit 이력을 ref(commit SHA 또는 브랜치) 기준 최신순으로 반환한다.
     - 페이지당 기본 20개, 최대 100개이다.
     - 커밋마다 sha, 날짜, 메시지 첫 줄을 반환한다.
 - `archive_issue_stage`
@@ -572,10 +573,10 @@ Discord는 이 Skill의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 전
 
 메시지 ID는 JavaScript 정수 범위를 넘으므로 문자열로 받는다.
 
-신규 조회 도구의 path는 저장소 기준 POSIX 경로이며 archive 경계 밖의 경로와 우회 표기를 거부한다.
+신규 조회 도구의 path는 저장소 기준 POSIX 경로이며 AGENTS.md와 raw/wiki/schema 경계 밖의 경로와 우회 표기를 거부한다.
 ref에는 40자리 commit SHA를 사용한다.
 `archive_history`의 ref는 브랜치 이름도 받는다.
-schema의 상대 경로는 archive 기준이고 `.github/` 템플릿은 저장소 루트 기준이다.
+schema의 상대 경로와 `.github/` 템플릿은 Nodebase 저장소 루트 기준이다.
 검색 파일은 UTF-8 텍스트이며 파일당 1,000,000 bytes, 일치 본문은 결과당 2,000자 한도를 적용한다.
 파일 페이지의 `next_page`로 후속 범위를 확인하며 tree 잘림·읽지 못한 파일·결과 생략을 전체 검색으로 표현하지 않는다.
 원본 누락은 경로를 포함한 오류이며 대체 schema를 추정하지 않는다.

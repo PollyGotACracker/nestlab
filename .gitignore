@@ -5,6 +5,7 @@
 !.env.example
 
 ## User-specific paths
+shared/settings/local.json
 shared/settings/claude/settings.json
 shared/settings/codex/config.toml
 
@@ -12,14 +13,6 @@ shared/settings/codex/config.toml
 config.json
 
 # --- Personal data ---
-
-## Project folder
-project/*
-projects/*
-
-## Archive folder
-archive/.*
-!archive/.claude/
 
 ## Discord bot files
 chat_state/

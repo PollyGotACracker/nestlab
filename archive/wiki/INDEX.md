@@ -1,7 +1,0 @@
-# INDEX
-
-## Entities
-
-## Concepts
-
-## Sources

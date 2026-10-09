@@ -63,3 +63,24 @@ python -B tools/set_skills.py unlink
 Hermes 설정은 직접 제거한다.
 
 skill을 추가·삭제·이름 변경하거나 저장소를 이동한 뒤에는 두 명령을 다시 실행한다.
+
+## Nodebase 개인 설정
+
+- 위키 Skill 원본은 brainstack에 유지한다.
+- 기존 전역 링크를 통해 다른 프로젝트에서도 같은 Skill을 사용한다.
+- 로컬 Nodebase 위치는 brainstack의 `shared/settings/local.json`에 작성한다.
+  해당 파일은 Git에서 제외하며 별도 설치나 환경변수 등록 없이 다음 호출부터 읽는다.
+- `nodebase_root`에는 존재하는 Nodebase 저장소의 절대경로를 작성한다.
+  저장소를 옮기면 이 값만 수정한다.
+
+```json
+{
+  "nodebase_root": "C:/workspace/nodebase"
+}
+```
+
+- 설정 파일과 위키 Skill 원본의 외부 접근 예외는 읽기에만 적용한다.
+- 등록된 Nodebase 내부의 파일 작업에는 기존 승인 규칙과 비밀 파일 차단을 적용한다.
+- 설정 누락·손상·잘못된 루트 또는 원본 읽기 실패는 오류로 알린다.
+- Discord는 `archive_repository`의 GitHub API 연결을 사용한다.
+  이 로컬 설정은 Discord 연결을 변경하지 않는다.

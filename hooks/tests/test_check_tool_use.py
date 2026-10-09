@@ -268,6 +268,10 @@ class CodexPath(unittest.TestCase):
         self.temp = Path(self.tmp.name) / "ostemp"
         self.temp.mkdir()
         self.patches.append(patch.object(sub_path, "TEMP", self.temp))
+        self.local_settings = Path(self.tmp.name) / "local.json"
+        self.wiki_skill = Path(self.tmp.name) / "wiki" / "SKILL.md"
+        self.patches.extend([patch.object(sub_path, "LOCAL_SETTINGS", self.local_settings),
+                             patch.object(sub_path, "WIKI_SKILL", self.wiki_skill)])
         for p in self.patches:
             p.start()
 
@@ -347,6 +351,93 @@ class CodexPath(unittest.TestCase):
             self.assertIsNone(self.claude("Read", {"file_path": f"{base}/a"}), base)
             self.assertIsNone(self.claude("Write", {"file_path": f"{base}/new", "content": "x"}), base)
             self.assertIsNotNone(self.claude("Read", {"file_path": f"{base}/.env"}), base)
+
+    def test_nodebase_settings_apply_immediately_from_other_cwd(self):
+        nodebase = Path(self.tmp.name) / "nodebase"
+        nodebase.mkdir()
+        self.local_settings.write_text(json.dumps({"nodebase_root": str(nodebase)}), encoding="utf-8")
+        for runner in ("claude", "codex"):
+            for name, tin in (("Read", {"file_path": str(nodebase / "AGENTS.md")}),
+                              ("Grep", {"path": str(nodebase / "wiki"), "pattern": "x"}),
+                              ("Glob", {"path": str(nodebase), "pattern": "**/*.md"}),
+                              ("Write", {"file_path": str(nodebase / "wiki" / "new.md"), "content": "x"}),
+                              ("Bash", {"command": f"cat {nodebase}/AGENTS.md"}),
+                              ("Bash", {"command": f"echo x > {nodebase}/wiki/new.md"})):
+                self.assertIsNone(self.claude(name, tin, runner), (name, runner))
+            self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase) + "-other/a"}, runner))
+            self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase / ".." / "other")}, runner))
+            self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase / ".env")}, runner))
+            self.assertIsNotNone(self.claude("Write", {"file_path": str(nodebase / "secrets" / "a")}, runner))
+        self.local_settings.write_text("{}", encoding="utf-8")
+        self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase / "AGENTS.md")}))
+        for content in ("invalid", "[]", '{"nodebase_root": "../nodebase"}',
+                        '{"nodebase_root": 42}', '{"nodebase_root": null}',
+                        json.dumps({"nodebase_root": str(nodebase / "missing")}),
+                        json.dumps({"nodebase_root": nodebase.anchor})):
+            self.local_settings.write_text(content, encoding="utf-8")
+            self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase / "AGENTS.md")}), content)
+        self.local_settings.unlink()
+        self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase / "AGENTS.md")}))
+
+    def test_only_skill_and_local_settings_are_readable_outside_session(self):
+        for path in (self.local_settings, self.wiki_skill):
+            self.assertIsNone(self.claude("Read", {"file_path": str(path)}))
+            self.assertIsNone(self.bash(f"cat {path}"))
+            self.assertIsNotNone(self.claude("Write", {"file_path": str(path), "content": "x"}))
+            self.assertIsNotNone(self.bash(f"echo x > {path}"))
+            self.assertIsNotNone(self.claude("Read", {"file_path": str(path.parent / "other.json")}))
+
+    def directory_link(self, link, target):
+        if os.name == "nt":
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                           check=True, capture_output=True)
+        else:
+            link.symlink_to(target, target_is_directory=True)
+
+    def test_short_and_long_nodebase_and_settings_paths_are_equivalent(self):
+        nodebase = Path(self.tmp.name) / "nodebase-long-directory-name"
+        nodebase.mkdir()
+        for setting_root in (str(nodebase), self.short(nodebase)):
+            self.local_settings.write_text(json.dumps({"nodebase_root": setting_root}), encoding="utf-8")
+            for base in (str(nodebase), self.short(nodebase)):
+                for runner in ("claude", "codex"):
+                    self.assertIsNone(self.claude("Read", {"file_path": f"{base}/AGENTS.md"}, runner))
+                    self.assertIsNone(self.claude("Write", {"file_path": f"{base}/new.md"}, runner))
+                    self.assertIsNotNone(self.claude("Read", {"file_path": f"{base}/.env"}, runner))
+                    self.assertIsNotNone(self.claude("Read", {"file_path": f"{base}/../outside"}, runner))
+            self.assertIsNone(self.claude("Read", {"file_path": self.short(self.local_settings)}))
+            self.assertIsNotNone(self.claude("Write", {"file_path": self.short(self.local_settings)}))
+
+    def test_global_wiki_directory_link_reads_only_original_skill(self):
+        self.wiki_skill.parent.mkdir()
+        self.wiki_skill.write_text("skill", encoding="utf-8")
+        link = self.home / ".agents" / "skills" / "wiki"
+        link.parent.mkdir(parents=True)
+        self.directory_link(link, self.wiki_skill.parent)
+        for runner in ("claude", "codex"):
+            self.assertIsNone(self.claude("Read", {"file_path": str(link / "SKILL.md")}, runner))
+            self.assertIsNone(self.claude("Bash", {"command": f"cat {link}/SKILL.md"}, runner))
+            self.assertIsNotNone(self.claude("Write", {"file_path": str(link / "SKILL.md")}, runner))
+            self.assertIsNotNone(self.claude("Read", {"file_path": str(link / "other.md")}, runner))
+
+    def test_nodebase_symlink_escape_and_secret_target_are_denied(self):
+        nodebase = Path(self.tmp.name) / "nodebase"
+        nodebase.mkdir()
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        self.local_settings.write_text(json.dumps({"nodebase_root": str(nodebase)}), encoding="utf-8")
+        (nodebase / "secrets").mkdir()
+        self.directory_link(nodebase / "escape", outside)
+        self.directory_link(nodebase / "secret-link", nodebase / "secrets")
+        for runner in ("claude", "codex"):
+            for name, tin in (("Read", {"file_path": str(nodebase / "escape" / "a")}),
+                              ("Write", {"file_path": str(nodebase / "escape" / "a"), "content": "x"}),
+                              ("Grep", {"path": str(nodebase / "escape"), "pattern": "x"}),
+                              ("Glob", {"path": str(nodebase / "escape"), "pattern": "*"}),
+                              ("Bash", {"command": f"cat {nodebase}/escape/a"}),
+                              ("Read", {"file_path": str(nodebase / "secret-link" / "a")})):
+                self.assertIsNotNone(self.claude(name, tin, runner), (name, runner))
+            self.assertIsNotNone(self.claude("Read", {"file_path": self.short(nodebase) + "/escape/a"}, runner))
 
 
 # 하위 에이전트 입력 형식

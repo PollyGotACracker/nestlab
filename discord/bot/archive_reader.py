@@ -1,4 +1,4 @@
-"""고정 commit의 지식 절차와 archive 파일을 읽는다."""
+"""고정 commit의 Nodebase 지식 절차와 파일을 읽는다."""
 
 from __future__ import annotations
 
@@ -12,13 +12,14 @@ SHA = re.compile(r"[0-9a-fA-F]{40}")
 MAX_FILE_BYTES = 1_000_000
 
 
-# archive 경계 안의 저장소 기준 POSIX 경로인지 검사하고 그대로 반환한다.
+# Nodebase 지식 경계 안의 저장소 기준 POSIX 경로인지 검사한다.
 def archive_path(path: str) -> str:
     if not isinstance(path, str) or not path or any(c in path for c in ("\\", "%", ":")):
-        raise ValueError("path는 인코딩하지 않은 archive 하위 POSIX 경로여야 합니다.")
+        raise ValueError("path는 인코딩하지 않은 Nodebase POSIX 경로여야 합니다.")
     parts = path.split("/")
-    if parts[0] != "archive" or any(p in ("", ".", "..") for p in parts):
-        raise ValueError("path는 archive 경계 안의 저장소 기준 경로여야 합니다.")
+    if (parts[0] not in ("raw", "wiki", "schema") and path != "AGENTS.md"
+            or any(p in ("", ".", "..") for p in parts)):
+        raise ValueError("path는 AGENTS.md 또는 raw/wiki/schema 경계 안의 저장소 기준 경로여야 합니다.")
     if any(ord(c) < 32 or ord(c) == 127 for c in path):
         raise ValueError("path에 제어 문자를 사용할 수 없습니다.")
     return path
@@ -111,14 +112,14 @@ class ArchiveReader:
         if sha is None:
             raise ValueError(f"branch를 찾을 수 없습니다: {branch}")
         ref, entries, truncated = await self.tree(sha)
-        paths = ("archive/AGENTS.md", f"archive/schema/{operation}.md")
+        paths = ("AGENTS.md", f"schema/{operation}.md")
         by_path = {entry["path"]: entry for entry in entries}
         missing = [path for path in paths if path not in by_path]
         if missing:
             reason = "tree가 잘려 존재 확인 불가" if truncated else "원본 누락"
             raise ValueError(f"{reason}: {', '.join(missing)} (commit {ref})")
         sources = [await self.read_entry(by_path[path]) for path in paths]
-        return {"operation": operation, "commit_sha": ref, "base_directory": "archive", "sources": sources}
+        return {"operation": operation, "commit_sha": ref, "base_directory": ".", "sources": sources}
 
     # 고정 commit에서 경로 아래 파일을 페이지 단위로 나열한다.
     async def list_files(self, path: str, ref: str, page: int = 1, per_page: int = 50):
@@ -146,13 +147,13 @@ class ArchiveReader:
                         and (any(entry["path"] == path for entry in entries) or bool(files)),
         }
 
-    # 고정 commit의 archive/wiki 파일에서 검색어가 들어간 줄을 찾는다.
+    # 고정 commit의 wiki 파일에서 검색어가 들어간 줄을 찾는다.
     async def search(self, query: str, ref: str, page: int = 1, per_page: int = 20, limit: int = 100):
         if not isinstance(query, str) or not query.strip() or len(query) > 1000:
             raise ValueError("query는 1~1000자의 비어 있지 않은 문자열이어야 합니다.")
         bounded_number(per_page, "per_page", 20)
         bounded_number(limit, "limit", 100)
-        listing = await self.list_files("archive/wiki", ref, page, per_page)
+        listing = await self.list_files("wiki", ref, page, per_page)
         pattern = re.compile(re.escape(query), re.IGNORECASE)
         matches, skipped = [], []
         matches_truncated = False
@@ -178,7 +179,7 @@ class ArchiveReader:
                 matches.append({"path": entry["path"], "line": number, "text": excerpt,
                                 "text_truncated": len(excerpt) != len(line)})
         return {
-            "commit_sha": listing["commit_sha"], "scope": "archive/wiki", "query": query,
+            "commit_sha": listing["commit_sha"], "scope": "wiki", "query": query,
             "page": page, "per_page": per_page, "limit": limit, "matches": matches,
             "scanned_files": scanned, "skipped_files": skipped, "known_files": listing["known_files"],
             "scope_found": listing["scope_found"], "tree_truncated": listing["tree_truncated"],
@@ -190,7 +191,7 @@ class ArchiveReader:
                         and not any(match["text_truncated"] for match in matches),
         }
 
-    # archive 경로의 commit 이력을 GitHub 기본 순서인 최신순으로 반환한다.
+    # Nodebase 지식 경로의 commit 이력을 GitHub 기본 순서인 최신순으로 반환한다.
     # 응답이 per_page개로 차면 다음 페이지가 있을 수 있어 next_page를 둔다.
     async def history(self, path: str, ref: str, page: int = 1, per_page: int = 20):
         path = archive_path(path)

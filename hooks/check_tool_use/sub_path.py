@@ -3,6 +3,7 @@
 
 - 보안 문서는 읽기·쓰기를 deny한다. 목록은 `~/.claude/settings.json` `permissions.deny`의 `Read(...)` 항목이다.
 - 세션 경로(cwd) 밖 경로는 deny한다. `~/.claude`·`~/.codex`는 읽기만 허용한다.
+- wiki Skill·local.json은 읽기만 허용하고, local.json의 Nodebase 안에는 기존 승인 규칙을 적용한다.
 - OS 임시 폴더(`tempfile.gettempdir()`)는 읽기·쓰기를 허용한다. 보안 문서 deny는 임시 폴더에도 적용한다.
 - 대상은 Bash 명령의 경로 토큰, Read·Grep·Glob 경로, apply_patch 대상이다. 스크립트가 직접 여는 파일은 막지 못한다.
 """
@@ -21,6 +22,9 @@ HOME = Path.home()
 GLOBAL = (HOME / ".claude", HOME / ".codex")
 SETTINGS = HOME / ".claude" / "settings.json"
 TEMP = Path(tempfile.gettempdir())
+ROOT = Path(__file__).resolve().parents[2]
+LOCAL_SETTINGS = ROOT / "shared" / "settings" / "local.json"
+WIKI_SKILL = ROOT / "shared" / "skills" / "wiki" / "SKILL.md"
 READ_RULE = re.compile(r"^Read\((.+)\)$")
 SPLIT = re.compile(r"[\s;&|<>()=]+")
 TOKEN = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s;&|<>()=\"']+")
@@ -33,6 +37,21 @@ def secret_patterns() -> list[str]:
     except (OSError, ValueError, KeyError):
         return []
     return [m.group(1) for rule in deny if (m := READ_RULE.match(rule))]
+
+
+def nodebase_root() -> Path | None:
+    """설정은 매 호출에 읽고 누락·오류에는 외부 접근을 허용하지 않는다."""
+    try:
+        value = json.loads(LOCAL_SETTINGS.read_text(encoding="utf-8"))["nodebase_root"]
+        if not isinstance(value, str) or not value.strip():
+            return None
+        root = Path(value)
+        if not root.is_absolute() or not root.is_dir():
+            return None
+        root = root.resolve()
+        return root if root != Path(root.anchor) else None
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        return None
 
 
 def norm(path: str, cwd: Path) -> str:
@@ -86,6 +105,7 @@ def command_paths(command: str) -> list[tuple[str, bool]]:
 def check_paths(data: dict, runner: str) -> str | None:
     cwd = Path(data.get("cwd") or os.getcwd())
     patterns = secret_patterns()
+    nodebase = nodebase_root()
     name = data.get("tool_name")
     if name == "Bash":
         write = is_write_bash(bash_command(data))
@@ -101,9 +121,20 @@ def check_paths(data: dict, runner: str) -> str | None:
     else:
         return None
     for path, token, looks in items:
-        if is_secret(path, patterns):
+        real = norm(os.path.realpath(path), cwd)
+        if is_secret(path, patterns) or is_secret(real, patterns):
             return f"보안 문서는 읽기·쓰기를 허용하지 않습니다: {token}"
+        # 짧은 루트 표기와 링크 탈출은 실제 상위 경로도 대조한다.
+        if nodebase and (inside(path, nodebase) or inside(real, nodebase)
+                         or any(norm(os.path.realpath(parent), cwd) == norm(str(nodebase), cwd)
+                                for parent in Path(path).parents)):
+            if not inside(real, nodebase):
+                return f"Nodebase 밖 링크 접근은 허용하지 않습니다: {token}"
+            continue
         if not looks or inside(path, cwd):
+            continue
+        if not write and any(real == norm(os.path.realpath(p), cwd)
+                             for p in (LOCAL_SETTINGS, WIKI_SKILL)):
             continue
         if in_temp(path):
             continue

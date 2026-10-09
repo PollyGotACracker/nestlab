@@ -1,10 +1,10 @@
 # BRAINSTACK
 
-에이전트 기반 개발 환경과 관련된 지식 및 운영 자산을 관리하는 저장소이다.
+에이전트 기반 개발 환경과 관련된 지식 및 운영 자산을 관리하는 저장소  
+Obsidian Archive: [Nodebase 저장소](https://github.com/PollyGotACracker/nodebase)
 
 - 에이전트 팀의 규칙 및 페르소나 파일
 - Discord 봇 설정 및 스크립트 파일
-- Obsidian 기반 지식 저장소
 - 도구별 에이전트 설정 및 스킬 연동 문서
 - 공용 스킬 파일
 
@@ -17,7 +17,7 @@
 | researcher | nico(니코)   | 프로젝트 작업: 외부 조사, 비교, 계획 초안                  |
 | worker     | jelly(젤리)  | 프로젝트 작업: 구현                                        |
 | reviewer   | ricky(리키)  | 프로젝트 작업: 자료 및 주장 반증, 구현·문서 검수           |
-| documenter | pepper(페퍼) | 프로젝트 작업: 기록, 지침·문서 작성                        |
+| documenter | pepper(페퍼) | 프로젝트 작업: 기록, 지침·문서 작성, Archive 작업          |
 
 각 에이전트의 역할과 persona는 .claude/agents/ 폴더를 참고한다.
 
@@ -26,9 +26,9 @@
 기본 에이전트는 실행 경로에 따라 다음과 같이 설정된다.
 
 - brainstack/: rio
-- brainstack/archive/: pepper
-- brainstack 외부 경로: buddy
-- brainstack 하위 경로(archive 제외): buddy
+- brainstack 외부 경로(nodebase 제외): buddy
+- brainstack 하위 경로: buddy
+- nodebase/: pepper
 
 에이전트는 Git bash에서 다음과 같이 호출할 수 있다.
 
@@ -115,13 +115,7 @@ Discord 채널의 웹훅 봇 목록
 │   ├── agents/<name>.toml         # 에이전트별 설정
 │   └── config.toml                # 승인 및 hooks 활성화 설정
 ├── .github/                       # Github 저장소 설정 및 workflow
-├── archive/                       # Obsidian 기반 지식 저장소
-│   ├── .claude/settings.json      # Claude settings
-│   ├── <folders>/                 # 하위 폴더. archive/README.md 참고
-│   ├── AGENTS.md                  # 지식 저장소 작업 지침 문서
-│   ├── CLAUDE.md                  # archive/AGENTS.md를 불러오는 문서
-│   └── README.md                  # 지식 저장소 구조 문서
-├── assets/                        # 에셋
+├── assets/                        # 저장소 에셋
 ├── discord/                       # Discord 봇
 │   ├── bot/                       # 봇 스크립트
 │   ├── prompts/                   # 봇 스크립트에 주입되는 프롬프트

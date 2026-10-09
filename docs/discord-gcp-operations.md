@@ -87,7 +87,9 @@ sudo systemctl status discord-bot
 
 ### 지식 원본 갱신
 
-1. 원격 저장소의 대상 브랜치에 `archive/AGENTS.md`와 해당 `archive/schema/` 변경을 승인된 저장소 절차로 반영한다.
+1. Nodebase 원격 저장소의 대상 브랜치에 `$repo_name/AGENTS.md`와 해당 `$repo_name/schema/` 변경을 승인된 저장소 절차로 반영한다.
+
+`$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
 
 원격 schema 변경은 다음 절차 로딩 호출에서 읽으므로 그 변경만으로 봇을 재시작할 필요는 없다.
 로컬 파일 편집이나 VM 업로드만으로 GitHub 원본이 바뀌지는 않는다.

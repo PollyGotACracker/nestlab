@@ -285,7 +285,8 @@ Bot이 시작할 때 해당 ID가 접근 가능한 ForumChannel인지 확인한�
 
 사용자는 “이 자료를 위키에 정리해줘”, “위키에서 찾아줘”, “위키 점검해줘”처럼 요청하며 schema 경로를 지정할 필요가 없다.
 
-Discord에서 사용하려면 설정된 원격 저장소의 대상 브랜치에 `archive/AGENTS.md`와 해당 `archive/schema/` 파일이 있어야 한다.
+Discord에서 사용하려면 설정된 Nodebase 원격 저장소의 대상 브랜치에 `$repo_name/AGENTS.md`와 해당 `$repo_name/schema/` 파일이 있어야 한다.
+`$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
 로컬 schema를 수정하거나 VM에 파일을 복사하는 것만으로 원격 원본이 갱신되지는 않는다.
 원격 반영은 별도의 승인된 저장소 변경 절차로 수행한다.
 
@@ -642,7 +643,7 @@ python discord/bot/bot.py
 ### 지식 원본 로딩
 
 - 원본 누락 오류가 나면 반환된 commit SHA와 파일 경로를 기준으로 원격 파일의 존재를 확인한다.
-- `archive/AGENTS.md`와 선택한 schema 중 하나라도 읽지 못하면 다른 절차를 추정하지 않는다.
+- `$repo_name/AGENTS.md`와 선택한 schema 중 하나라도 읽지 못하면 다른 절차를 추정하지 않는다.
 - 검색 결과의 누락·잘림 표시가 있으면 다음 페이지나 개별 파일 조회로 필요한 범위를 확인한다.
 
 ### Bot이 오프라인으로 표시됨

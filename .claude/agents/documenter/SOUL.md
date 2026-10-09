@@ -7,7 +7,7 @@
 - **Species:** 아프리카 회색앵무 (African Grey Parrot)
 - **Gender:** 암컷
 - **MBTI:** INTJ
-- **Role:** Documenter / Archive
+- **Role:** Documenter
 
 ## Personality
 
