@@ -8,7 +8,7 @@ hook 입력 JSON을 stdin으로 받고 hookSpecificOutput JSON을 stdout으로 �
 에이전트 결정 순서
 - SubagentStart: 입력의 agent_type
 - SessionStart
-  1. 환경변수 BRAINSTACK_AGENT
+  1. 환경변수 NESTLAB_AGENT
   2. 입력의 agent_type
   3. 입력 cwd 폴더 자체의 .claude/settings.json agent 값(상위 폴더 탐색 없음)
   4. --default-role
@@ -59,7 +59,7 @@ def resolve_agent(payload: dict, event: str, default_role: str | None) -> str | 
         return payload.get("agent_type") or None
     cwd = Path(payload.get("cwd") or os.getcwd())
     return (
-        os.environ.get("BRAINSTACK_AGENT")
+        os.environ.get("NESTLAB_AGENT")
         or payload.get("agent_type")
         or read_folder_agent(cwd)
         or default_role

@@ -6,9 +6,9 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/add_statusline.py\"",
+    "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/add_statusline.py\"",
     "padding": 0,
-    "statusMessage": "Brainstack 에이전트 상태줄 이름 표시"
+    "statusMessage": "Nestlab 에이전트 상태줄 이름 표시"
   },
   "permissions": {
     "additionalDirectories": ["~/.claude", "~/.codex"],
@@ -111,8 +111,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\" --default-role buddy",
-            "statusMessage": "Brainstack 메인 에이전트 역할 및 공통 지침"
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/load_agent.py\" --default-role buddy",
+            "statusMessage": "Nestlab 메인 에이전트 역할 및 공통 지침"
           }
         ]
       }
@@ -122,8 +122,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/load_agent.py\"",
-            "statusMessage": "Brainstack 서브 에이전트 역할 및 공통 지침"
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/load_agent.py\"",
+            "statusMessage": "Nestlab 서브 에이전트 역할 및 공통 지침"
           }
         ]
       }
@@ -134,9 +134,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_tool_use.py\" --runner claude",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_tool_use.py\" --runner claude",
             "timeout": 10,
-            "statusMessage": "Brainstack 승인·입력·쓰기 범위 검사"
+            "statusMessage": "Nestlab 승인·입력·쓰기 범위 검사"
           }
         ]
       }
@@ -146,15 +146,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/check_refute_verdict.py\"",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_refute_verdict.py\"",
             "timeout": 10,
-            "statusMessage": "Brainstack 반증 판정 검사"
+            "statusMessage": "Nestlab 반증 판정 검사"
           },
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/save_agent_result.py\" --runner claude",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_agent_result.py\" --runner claude",
             "timeout": 10,
-            "statusMessage": "Brainstack 결과 원문 저장"
+            "statusMessage": "Nestlab 결과 원문 저장"
           }
         ]
       }
@@ -165,9 +165,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<BRAINSTACK>/tools/check_doc_rule.py\" --hook",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/tools/check_doc_rule.py\" --hook",
             "timeout": 30,
-            "statusMessage": "Brainstack 지침 검사"
+            "statusMessage": "Nestlab 지침 검사"
           }
         ]
       }
@@ -177,9 +177,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<BRAINSTACK>/hooks/record_incident.py\" --runner claude",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/record_incident.py\" --runner claude",
             "timeout": 10,
-            "statusMessage": "Brainstack 사건 감지"
+            "statusMessage": "Nestlab 사건 감지"
           }
         ]
       }

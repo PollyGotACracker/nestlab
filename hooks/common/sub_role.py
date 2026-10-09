@@ -30,7 +30,7 @@ def to_role(name: str | None) -> str | None:
 
 def resolve_role(data: dict) -> str | None:
     name = (data.get("agent_type") or first_line(data.get("transcript_path")).get("agent_role")
-            or os.environ.get("BRAINSTACK_AGENT") or read_folder_agent(Path(data.get("cwd") or os.getcwd())))
+            or os.environ.get("NESTLAB_AGENT") or read_folder_agent(Path(data.get("cwd") or os.getcwd())))
     return to_role(name)
 
 

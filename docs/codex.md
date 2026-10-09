@@ -22,7 +22,7 @@ director(rio)는 사용자 메시지의 마지막 줄이 승인 명령으로 끝
 저장소 루트에서 실행한다.
 
 ```sh
-# ~/.bashrc에 codex agent 함수 블록을 추가하고, 설정 예제의 <BRAINSTACK>·<PYTHON>을 채워 config.toml을 만든다.
+# ~/.bashrc에 codex agent 함수 블록을 추가하고, 설정 예제의 <NESTLAB>·<PYTHON>을 채워 config.toml을 만든다.
 python tools/set_hooks.py install
 ```
 
@@ -60,7 +60,7 @@ macOS에서 bash를 기본 셸로 쓰면 `~/.bash_profile`에 `source ~/.bashrc`
 codex agent rio
 ```
 
-설치된 함수가 `BRAINSTACK_AGENT`를 설정하고 Codex를 실행한다.
+설치된 함수가 `NESTLAB_AGENT`를 설정하고 Codex를 실행한다.
 bash 실행 함수는 `--no-daemon`을 기본으로 붙인다.
 
 ### 서브에이전트 호출

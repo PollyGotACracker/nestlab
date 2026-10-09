@@ -17,10 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import set_hooks
 
 CLAUDE = {"agent": "x", "permissions": {"deny": ["Read(a)"]},
-          "hooks": {"Stop": [{"hooks": [{"command": "<PYTHON> <BRAINSTACK>"}]}]}}
+          "hooks": {"Stop": [{"hooks": [{"command": "<PYTHON> <NESTLAB>"}]}]}}
 CODEX = ('sandbox_mode = "danger-full-access"\napproval_policy = "on-request"\n\n[features]\nhooks = true\n\n'
-         "[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\ncommand = '<PYTHON> <BRAINSTACK>'\n")
-BEGIN = "# >>> brainstack >>>"
+         "[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\ncommand = '<PYTHON> <NESTLAB>'\n")
+BEGIN = "# >>> nestlab >>>"
 
 
 class SetHooksTest(unittest.TestCase):
@@ -31,7 +31,7 @@ class SetHooksTest(unittest.TestCase):
         self.settings = self.tmp / "settings"
         for rel in ("claude", "codex/rules"):
             (self.settings / rel).mkdir(parents=True)
-        (self.settings / "bashrc.sh").write_text(f"{BEGIN}\nA\n# <<< brainstack <<<\n", encoding="utf-8")
+        (self.settings / "bashrc.sh").write_text(f"{BEGIN}\nA\n# <<< nestlab <<<\n", encoding="utf-8")
         (self.settings / "claude/settings.example.json").write_text(json.dumps(CLAUDE), encoding="utf-8")
         (self.settings / "codex/config.example.toml").write_text(CODEX, encoding="utf-8")
         (self.settings / "codex/rules/default.rules").write_text('prefix_rule(pattern=["rm"], decision="prompt")\n', encoding="utf-8")
@@ -43,7 +43,7 @@ class SetHooksTest(unittest.TestCase):
         self.run_install()
         for rel in ("claude/settings.json", "codex/config.toml"):
             text = (self.settings / rel).read_text(encoding="utf-8")
-            self.assertNotIn("<BRAINSTACK>", text)
+            self.assertNotIn("<NESTLAB>", text)
             self.assertNotIn("<PYTHON>", text)
             self.assertIn(set_hooks.ROOT.as_posix(), text)
 
@@ -103,7 +103,7 @@ class SetHooksTest(unittest.TestCase):
         example = self.settings / "claude/settings.example.json"
         self.run_install()
         new = {"agent": "y", "permissions": {"deny": ["Read(a)", "Read(b)"]},
-               "hooks": {"Stop": [{"hooks": [{"command": "<PYTHON> <BRAINSTACK> v2"}]}]}}
+               "hooks": {"Stop": [{"hooks": [{"command": "<PYTHON> <NESTLAB> v2"}]}]}}
         example.write_text(json.dumps(new), encoding="utf-8")
         self.run_install()
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -125,7 +125,7 @@ class SetHooksTest(unittest.TestCase):
         set_hooks.install(real, self.bashrc, self.home)
         self.assertIn("permissions", json.loads((self.home / ".claude/settings.json").read_text(encoding="utf-8")))
         text = (self.home / ".codex/config.toml").read_text(encoding="utf-8")
-        self.assertNotIn("<BRAINSTACK>", text)
+        self.assertNotIn("<NESTLAB>", text)
         self.assertNotIn("<PYTHON>", text)
         data = tomllib.loads(text)
         for groups in data["hooks"].values():

@@ -25,7 +25,7 @@ director(rio)는 사용자 메시지의 마지막 줄이 승인 명령으로 끝
 저장소 루트에서 실행한다.
 
 ```sh
-# ~/.bashrc에 claude agent 함수 블록을 추가하고, 설정 예제의 <BRAINSTACK>·<PYTHON>을 채워 settings.json을 만든다.
+# ~/.bashrc에 claude agent 함수 블록을 추가하고, 설정 예제의 <NESTLAB>·<PYTHON>을 채워 settings.json을 만든다.
 python tools/set_hooks.py install
 ```
 

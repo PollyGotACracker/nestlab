@@ -3,7 +3,7 @@
 
 install: 한 번에 아래를 처리한다. 다시 실행해도 결과가 같고 사용자 항목은 보존한다.
          1. shared/settings/bashrc.sh 블록을 ~/.bashrc에 추가하거나 교체한다.
-         2. shared/settings/ 의 *.example.* 에서 <BRAINSTACK>(저장소 경로)과 <PYTHON>(실행한 Python 경로)을 채워
+         2. shared/settings/ 의 *.example.* 에서 <NESTLAB>(저장소 경로)과 <PYTHON>(실행한 Python 경로)을 채워
             ignore된 settings.json, config.toml을 만든다.
          3. 덮어쓰기 전의 기존 settings.json 항목(지난 설치분)을 전역 settings.json에서 먼저 뺀다.
             그 뒤 만든 파일과 rules/default.rules를 ~/.claude/settings.json, ~/.codex/config.toml,
@@ -27,16 +27,16 @@ BASHRC = Path.home() / ".bashrc"
 FILLED = [("claude/settings.example.json", "claude/settings.json"),
           ("codex/config.example.toml", "codex/config.toml")]
 # ponytail: hook 그룹을 값 동일성으로만 비교한다. 저장소 경로가 바뀌면 이전 경로 항목이 남는다.
-BEGIN, END = "# >>> brainstack >>>", "# <<< brainstack <<<"
+BEGIN, END = "# >>> nestlab >>>", "# <<< nestlab <<<"
 BLOCK_RE = re.compile(re.escape(BEGIN) + ".*?" + re.escape(END), re.S)
 
 
 # 예제 텍스트의 자리표시를 실제 경로로 바꾼다.
 def fill(text: str) -> str:
-    return text.replace("<BRAINSTACK>", ROOT.as_posix()).replace("<PYTHON>", Path(sys.executable).as_posix())
+    return text.replace("<NESTLAB>", ROOT.as_posix()).replace("<PYTHON>", Path(sys.executable).as_posix())
 
 
-# 텍스트의 brainstack 블록을 교체하고, 없으면 끝에 추가한다. 블록은 마커를 포함해야 한다.
+# 텍스트의 nestlab 블록을 교체하고, 없으면 끝에 추가한다. 블록은 마커를 포함해야 한다.
 def put_block(text: str, block: str) -> str:
     if BLOCK_RE.search(text):
         return BLOCK_RE.sub(lambda _: block, text, count=1)

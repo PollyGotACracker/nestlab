@@ -1,6 +1,8 @@
-# BRAINSTACK
+# NESTLAB
 
-에이전트 기반 개발 환경과 관련된 지식 및 운영 자산을 관리하는 저장소  
+![party_parrots](/assets/party_parrots_pixel_small.png)
+
+에이전트 기반 개발 환경 및 운영 자산 관리 저장소  
 Obsidian Archive: [Nodebase 저장소](https://github.com/PollyGotACracker/nodebase)
 
 - 에이전트 팀의 규칙 및 페르소나 파일
@@ -25,9 +27,9 @@ Obsidian Archive: [Nodebase 저장소](https://github.com/PollyGotACracker/nodeb
 
 기본 에이전트는 실행 경로에 따라 다음과 같이 설정된다.
 
-- brainstack/: rio
-- brainstack 외부 경로(nodebase 제외): buddy
-- brainstack 하위 경로: buddy
+- nestlab/: rio
+- nestlab 외부 경로(nodebase 제외): buddy
+- nestlab 하위 경로: buddy
 - nodebase/: pepper
 
 에이전트는 Git bash에서 다음과 같이 호출할 수 있다.

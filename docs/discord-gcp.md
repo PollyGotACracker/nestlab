@@ -31,13 +31,13 @@ CONFIG_SECRET_ID = os.environ.get("CONFIG_SECRET_ID", "DISCORD_BOT_CONFIG")
 
 ## VM 폴더 구조
 
-`저장소 Clone` 절에서 clone한 저장소 루트는 `brainstack/`이다.
+`저장소 Clone` 절에서 clone한 저장소 루트는 `nestlab/`이다.
 폴더 구조는 아래와 같다.
-봇은 `brainstack/AGENTS.md`를 공통 규칙으로 읽고 `.claude/agents/`에서 캐릭터 이름과 Persona를 읽는다.
+봇은 `nestlab/AGENTS.md`를 공통 규칙으로 읽고 `.claude/agents/`에서 캐릭터 이름과 Persona를 읽는다.
 루트 `AGENTS.md`의 참조 목록을 공통 프롬프트로 읽는 방식은 아니다.
 
 ```text
-brainstack/
+nestlab/
 ├── AGENTS.md
 ├── AGENTS.md
 ├── .claude/
@@ -169,8 +169,8 @@ VM에서 저장소를 clone한다.
 
 ```bash
 cd ~
-git clone --filter=blob:none --sparse https://github.com/PollyGotACracker/brainstack.git
-cd ~/brainstack
+git clone --filter=blob:none --sparse https://github.com/PollyGotACracker/nestlab.git
+cd ~/nestlab
 
 git sparse-checkout set .claude discord
 ```
@@ -184,10 +184,10 @@ ls -la
 ## 가상환경 생성
 
 ```bash
-cd ~/brainstack
+cd ~/nestlab
 ```
 
-- 실행 위치: VM SSH → `brainstack/`
+- 실행 위치: VM SSH → `nestlab/`
 
 `python3 -m venv .venv` 실행 시 `python3.14-venv`가 필요하다는 안내가 나오면 먼저 설치한다.
 
@@ -199,7 +199,7 @@ sudo apt install -y python3.14-venv
 venv 가상환경을 만들고 활성화한다.
 
 ```bash
-cd ~/brainstack/discord
+cd ~/nestlab/discord
 python3 -m venv .venv
 source .venv/bin/activate
 which python
@@ -210,7 +210,7 @@ which python
 ## 패키지 설치
 
 ```bash
-cd ~/brainstack/discord
+cd ~/nestlab/discord
 ```
 
 - 실행 위치: VM SSH → `discord/`
@@ -253,7 +253,7 @@ AI 응답을 확인한다.
 ## 수동 실행
 
 ```bash
-cd ~/brainstack/discord
+cd ~/nestlab/discord
 ```
 
 - 실행 위치: VM SSH → `discord/`
@@ -274,7 +274,7 @@ SSH 창을 닫아도 봇이 계속 실행되게 한다.
 
 ```bash
 VM_USER="$(whoami)"
-REPO_ROOT="/home/$VM_USER/brainstack"
+REPO_ROOT="/home/$VM_USER/nestlab"
 
 sudo tee /etc/systemd/system/discord-bot.service >/dev/null <<EOF
 [Unit]

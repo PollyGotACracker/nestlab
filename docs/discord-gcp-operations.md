@@ -6,23 +6,23 @@
 ## 구성 예시
 
 ```text
-프로젝트 루트: brainstack/
-가상환경:      brainstack/discord/.venv
-봇 코드:       brainstack/ 아래 로컬 저장소와 같은 상대경로
-규칙 원본:     brainstack/AGENTS.md, brainstack/.claude/agents/
+프로젝트 루트: nestlab/
+가상환경:      nestlab/discord/.venv
+봇 코드:       nestlab/ 아래 로컬 저장소와 같은 상대경로
+규칙 원본:     nestlab/AGENTS.md, nestlab/.claude/agents/
 Secret:        DISCORD_BOT_CONFIG
 Zone:          us-west1-b
 서비스:        discord-bot
 ```
 
-`brainstack/`은 VM 홈 디렉터리 기준 상대경로다.
+`nestlab/`은 VM 홈 디렉터리 기준 상대경로다.
 discord-gcp.md의 `저장소 Clone` 절에서 clone한 결과다.
 
 ## 파일 업데이트
 
 로컬에서 고친 파일을 VM의 같은 경로에 덮어쓰고 봇을 재시작한다.
 
-- VM 경로: `brainstack/` 뒤에 로컬 프로젝트 루트 기준 상대경로를 붙인 경로
+- VM 경로: `nestlab/` 뒤에 로컬 프로젝트 루트 기준 상대경로를 붙인 경로
 - 파일 하나가 바뀌면 그 파일을 VM의 같은 경로로 복사한다.
 - 같은 폴더의 여러 파일이 바뀌면 상위 폴더를 통째로 복사한다.
 - 폴더를 복사할 때는 봇이 실행 중 만드는 데이터 파일과 설정 파일을 빼고 올린다.
@@ -51,7 +51,7 @@ discord-gcp.md의 `저장소 Clone` 절에서 clone한 결과다.
 첫 번째 경로는 Cloud Shell의 파일, 두 번째 경로는 위 규칙의 VM 경로다.
 
 ```bash
-gcloud compute scp ~/<파일명> <VM_NAME>:brainstack/<상대경로> --zone=us-west1-b --project=discord-party-parrots
+gcloud compute scp ~/<파일명> <VM_NAME>:nestlab/<상대경로> --zone=us-west1-b --project=discord-party-parrots
 ```
 
 폴더 전체를 덮어쓸 때는 아래 명령을 쓴다.
@@ -60,7 +60,7 @@ Cloud Shell에 올린 폴더에서 실행 데이터 파일과 설정 파일을 �
 남아 있으면 VM의 운영 데이터와 설정을 로컬 내용으로 덮어쓴다.
 
 ```bash
-gcloud compute scp --recurse ~/<폴더명> <VM_NAME>:brainstack/<상위 폴더 상대경로>/ --zone=us-west1-b --project=discord-party-parrots
+gcloud compute scp --recurse ~/<폴더명> <VM_NAME>:nestlab/<상위 폴더 상대경로>/ --zone=us-west1-b --project=discord-party-parrots
 ```
 
 `No such file or directory` 오류가 나면 Cloud Shell에서 파일 위치를 찾는다.
