@@ -5,8 +5,8 @@
 
 ## 연결 경로
 
-| 링크 위치 | 원본 |
-| --- | --- |
+| 링크 위치                  | 원본                             |
+| -------------------------- | -------------------------------- |
 | `~/.claude/skills/<skill>` | `<저장소>/shared/skills/<skill>` |
 | `~/.agents/skills/<skill>` | `<저장소>/shared/skills/<skill>` |
 
@@ -66,16 +66,16 @@ skill을 추가·삭제·이름 변경하거나 저장소를 이동한 뒤에는
 
 ## Nodebase 개인 설정
 
-- 위키 Skill 원본은 brainstack에 유지한다.
+- 위키 Skill 원본은 nestlab에 유지한다.
 - 기존 전역 링크를 통해 다른 프로젝트에서도 같은 Skill을 사용한다.
-- 로컬 Nodebase 위치는 brainstack의 `shared/settings/local.json`에 작성한다.
+- 로컬 Nodebase 위치는 nestlab의 `shared/settings/local.json`에 작성한다.
   해당 파일은 Git에서 제외하며 별도 설치나 환경변수 등록 없이 다음 호출부터 읽는다.
-- `nodebase_root`에는 존재하는 Nodebase 저장소의 절대경로를 작성한다.
+- `archive_root`에는 존재하는 Nodebase 저장소의 절대경로를 작성한다.
   저장소를 옮기면 이 값만 수정한다.
 
 ```json
 {
-  "nodebase_root": "C:/workspace/nodebase"
+  "archive_root": "C:/workspace/nodebase"
 }
 ```
 

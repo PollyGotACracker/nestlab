@@ -12,11 +12,11 @@ description: Nodebase 위키 기반 자료 편입, 저장 지식 검색·답변,
 - 사용자 요청의 작업과 대상을 아래 원본에 연결한다.
 - Skill 이름과 저장소·schema 경로는 사용자 재지정 없이 직접 결정한다.
 
-| 요청                               | 읽을 schema                | 입력                          |
-| ---------------------------------- | -------------------------- | ----------------------------- |
-| 자료의 위키 편입                   | `$nodebase_root/schema/ingest.md` | 요청·첨부에서 대상 자료 확인. |
-| 저장된 위키의 검색·답변            | `$nodebase_root/schema/query.md`  | 사용자 질문 사용.             |
-| 위키의 누락·상충·연결 등 품질 점검 | `$nodebase_root/schema/lint.md`   | 요청한 점검 범위 사용.        |
+| 요청                               | 읽을 schema                      | 입력                          |
+| ---------------------------------- | -------------------------------- | ----------------------------- |
+| 자료의 위키 편입                   | `$archive_root/schema/ingest.md` | 요청·첨부에서 대상 자료 확인. |
+| 저장된 위키의 검색·답변            | `$archive_root/schema/query.md`  | 사용자 질문 사용.             |
+| 위키의 누락·상충·연결 등 품질 점검 | `$archive_root/schema/lint.md`   | 요청한 점검 범위 사용.        |
 
 ### 예외 요청
 
@@ -28,29 +28,26 @@ description: Nodebase 위키 기반 자료 편입, 저장 지식 검색·답변,
 ### 진입점 기준
 
 - 정본 진입점은 이 파일이다.
-- 절차는 `$nodebase_root/schema/`에만 배치하고 이 Skill에서는 참조만 유지한다.
+- 절차는 `$archive_root/schema/`에만 배치하고 이 Skill에서는 참조만 유지한다.
 
 ### 로딩 절차
 
 1. 현재 읽은 `SKILL.md`의 symlink 또는 junction을 실제 파일 경로로 해석한다.
-2. 실제 파일 경로의 `parents[3]`을 brainstack 루트로 설정한다.
+2. 실제 파일 경로의 `parents[3]`을 nestlab 루트로 설정한다.
    Python에서는 `Path(skill_file).resolve().parents[3]`을 사용한다.
    현재 작업 디렉터리나 사용자 설치 폴더 대신 해당 루트를 사용한다.
-3. 매 작업 시작 시 brainstack 루트를 기준으로 개인 설정 JSON을 읽는다.
+3. 매 작업 시작 시 nestlab 루트를 기준으로 개인 설정 JSON을 읽는다.
 
 ```python
-settings_file = brainstack_root / "shared" / "settings" / "local.json"
+settings_file = nestlab_root / "shared" / "settings" / "local.json"
 ```
 
-   JSON 객체의 `nodebase_root`에 등록된 비어 있지 않은 절대경로를 실제 경로로 해석하고, 존재하는 디렉터리를 Nodebase 루트로 설정한다.
-   아래의 `$nodebase_root`는 이 설정값을 뜻한다.
-   설정을 매번 읽으므로 파일 수정은 다음 호출에 반영된다.
-4. Nodebase 루트에서 아래 두 원본의 전체 내용을 확인한다.
-	- `$nodebase_root/AGENTS.md`
-	- 선택한 schema
+JSON 객체의 `archive_root`에 등록된 비어 있지 않은 절대경로를 실제 경로로 해석하고, 존재하는 디렉터리를 Nodebase 루트로 설정한다.
+아래의 `$archive_root`는 이 설정값을 뜻한다.
+설정을 매번 읽으므로 파일 수정은 다음 호출에 반영된다. 4. Nodebase 루트에서 아래 두 원본의 전체 내용을 확인한다. - `$archive_root/AGENTS.md` - 선택한 schema
 
-   파일이 긴 경우 범위를 나누어 읽고 누락 범위를 이어서 확인한다.
-   같은 세션에서 읽은 원본은 수정 시각이 같으면 기존 읽기 결과를 재사용한다.
+파일이 긴 경우 범위를 나누어 읽고 누락 범위를 이어서 확인한다.
+같은 세션에서 읽은 원본은 수정 시각이 같으면 기존 읽기 결과를 재사용한다.
 
 5. 두 원본 확인 후 해당 입력·절차·승인 조건을 적용한다.
    설정 누락·JSON 오류·잘못된 루트·원본 누락·읽기 실패 시 관측한 경로·오류와 영향받는 작업을 고지한다.
@@ -63,18 +60,18 @@ settings_file = brainstack_root / "shared" / "settings" / "local.json"
 
 원본의 아래 항목은 설정에서 확인한 Nodebase 루트를 기준으로 한다.
 
-- `$nodebase_root/raw/`
-- `$nodebase_root/wiki/`
-- `$nodebase_root/schema/`
+- `$archive_root/raw/`
+- `$archive_root/wiki/`
+- `$archive_root/schema/`
 - 위키링크
 
-- 원본의 목차는 `$nodebase_root/wiki/INDEX.md`에서 확인한다.
+- 원본의 목차는 `$archive_root/wiki/INDEX.md`에서 확인한다.
 - 파일 접근에는 실제 경로를 사용한다.
 - 위키링크는 Nodebase 원본의 저장소 기준 형식으로 작성한다.
 
 ### 저장소 루트 기준
 
-저장소 루트를 명시한 지침 참조와 `$nodebase_root/.github/` 템플릿 경로는 Nodebase 루트를 기준으로 한다.
+저장소 루트를 명시한 지침 참조와 `$archive_root/.github/` 템플릿 경로는 Nodebase 루트를 기준으로 한다.
 
 ## 실행 경계
 

@@ -39,10 +39,10 @@ def secret_patterns() -> list[str]:
     return [m.group(1) for rule in deny if (m := READ_RULE.match(rule))]
 
 
-def nodebase_root() -> Path | None:
+def archive_root() -> Path | None:
     """설정은 매 호출에 읽고 누락·오류에는 외부 접근을 허용하지 않는다."""
     try:
-        value = json.loads(LOCAL_SETTINGS.read_text(encoding="utf-8"))["nodebase_root"]
+        value = json.loads(LOCAL_SETTINGS.read_text(encoding="utf-8"))["archive_root"]
         if not isinstance(value, str) or not value.strip():
             return None
         root = Path(value)
@@ -105,7 +105,7 @@ def command_paths(command: str) -> list[tuple[str, bool]]:
 def check_paths(data: dict, runner: str) -> str | None:
     cwd = Path(data.get("cwd") or os.getcwd())
     patterns = secret_patterns()
-    nodebase = nodebase_root()
+    nodebase = archive_root()
     name = data.get("tool_name")
     if name == "Bash":
         write = is_write_bash(bash_command(data))

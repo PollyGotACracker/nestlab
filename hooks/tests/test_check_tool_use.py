@@ -355,7 +355,7 @@ class CodexPath(unittest.TestCase):
     def test_nodebase_settings_apply_immediately_from_other_cwd(self):
         nodebase = Path(self.tmp.name) / "nodebase"
         nodebase.mkdir()
-        self.local_settings.write_text(json.dumps({"nodebase_root": str(nodebase)}), encoding="utf-8")
+        self.local_settings.write_text(json.dumps({"archive_root": str(nodebase)}), encoding="utf-8")
         for runner in ("claude", "codex"):
             for name, tin in (("Read", {"file_path": str(nodebase / "AGENTS.md")}),
                               ("Grep", {"path": str(nodebase / "wiki"), "pattern": "x"}),
@@ -370,10 +370,10 @@ class CodexPath(unittest.TestCase):
             self.assertIsNotNone(self.claude("Write", {"file_path": str(nodebase / "secrets" / "a")}, runner))
         self.local_settings.write_text("{}", encoding="utf-8")
         self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase / "AGENTS.md")}))
-        for content in ("invalid", "[]", '{"nodebase_root": "../nodebase"}',
-                        '{"nodebase_root": 42}', '{"nodebase_root": null}',
-                        json.dumps({"nodebase_root": str(nodebase / "missing")}),
-                        json.dumps({"nodebase_root": nodebase.anchor})):
+        for content in ("invalid", "[]", '{"archive_root": "../nodebase"}',
+                        '{"archive_root": 42}', '{"archive_root": null}',
+                        json.dumps({"archive_root": str(nodebase / "missing")}),
+                        json.dumps({"archive_root": nodebase.anchor})):
             self.local_settings.write_text(content, encoding="utf-8")
             self.assertIsNotNone(self.claude("Read", {"file_path": str(nodebase / "AGENTS.md")}), content)
         self.local_settings.unlink()
@@ -398,7 +398,7 @@ class CodexPath(unittest.TestCase):
         nodebase = Path(self.tmp.name) / "nodebase-long-directory-name"
         nodebase.mkdir()
         for setting_root in (str(nodebase), self.short(nodebase)):
-            self.local_settings.write_text(json.dumps({"nodebase_root": setting_root}), encoding="utf-8")
+            self.local_settings.write_text(json.dumps({"archive_root": setting_root}), encoding="utf-8")
             for base in (str(nodebase), self.short(nodebase)):
                 for runner in ("claude", "codex"):
                     self.assertIsNone(self.claude("Read", {"file_path": f"{base}/AGENTS.md"}, runner))
@@ -425,7 +425,7 @@ class CodexPath(unittest.TestCase):
         nodebase.mkdir()
         outside = Path(self.tmp.name) / "outside"
         outside.mkdir()
-        self.local_settings.write_text(json.dumps({"nodebase_root": str(nodebase)}), encoding="utf-8")
+        self.local_settings.write_text(json.dumps({"archive_root": str(nodebase)}), encoding="utf-8")
         (nodebase / "secrets").mkdir()
         self.directory_link(nodebase / "escape", outside)
         self.directory_link(nodebase / "secret-link", nodebase / "secrets")
