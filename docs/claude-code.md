@@ -3,7 +3,7 @@
 ## 구성된 설정
 
 설정 원본과 권한 안내는 [shared/settings/claude/](/shared/settings/claude/)이다.
-사용자가 `settings.example.json`으로 만든 `settings.json`을 `~/.claude/settings.json`에 직접 반영한다.
+[공통 설치와 연결](setup.md)의 설치 도구가 `settings.example.json`에서 `settings.json`을 생성하고 `~/.claude/settings.json`에 병합한다.
 공통 지침은 `~/.claude/CLAUDE.md`의 import로, 에이전트 정의는 `~/.claude/agents`로 연결한다.
 
 ### hooks와 상태줄
@@ -31,37 +31,11 @@ director(rio)는 사용자 메시지의 마지막 줄이 승인 명령으로 끝
 
 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`는 `2`이다.
 
-## 전역 설정 설치
+## 설치와 연결
 
-저장소 루트에서 실행한다.
-
-```sh
-# ~/.bashrc에 claude agent 함수 블록을 추가하고, 설정 예제의 <NESTLAB>·<PYTHON>을 채워 settings.json을 만든다.
-python tools/set_hooks.py install
-```
-
-## 에이전트 전역 연결
-
-저장소 루트에서 실행한다.
-
-```sh
-python -B tools/set_agents.py link
-python -B tools/set_agents.py check
-```
-
-`~/.claude/agents`와 `~/.codex/agents`를 저장소의 에이전트 정의에 연결한다.
-기존 폴더나 다른 연결과 충돌하면 해당 항목을 보존하고 충돌을 표시한다.
-
-제거 명령:
-
-```sh
-python -B tools/set_agents.py unlink
-```
-
-이 저장소의 에이전트 정의를 가리키는 링크만 제거한다.
-원본 폴더가 없어진 링크도 제거한다.
-기존 폴더나 다른 연결과 충돌하면 해당 항목을 보존하고 충돌을 표시한다.
-저장소의 원본 폴더 내용은 남는다.
+- 전역 설정 설치와 변경별 조치는 [공통 설치와 연결](setup.md)에서 확인한다.
+- 에이전트 연결·상태 확인·제거는 [에이전트 연결](setup.md#에이전트-연결)에서 확인한다.
+- Skill 연결은 [공통 설치와 연결](setup.md#skill-연결)에서 확인한다.
 
 ## 사용
 

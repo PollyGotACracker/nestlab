@@ -72,6 +72,12 @@ Discord 채널의 웹훅 봇 목록
 - [Github 웹훅 설정 방법](docs/discord-github-webhook.md)
 - [추가: 긱뉴스 디스코드 봇](https://news.hada.io/discordbot)
 
+## 사용 설정
+
+- [전역 설정 설치](docs/setup.md#전역-설정-설치)
+- [에이전트 연결](docs/setup.md#에이전트-연결)
+- [Skill 연결](docs/setup.md#skill-연결)
+
 ## 환경별 연결
 
 - Claude Code: [docs/claude-code.md](docs/claude-code.md)
@@ -84,20 +90,6 @@ Discord 채널의 웹훅 봇 목록
   - 디버그: [docs/discord-debug.md](docs/discord-debug.md)
 - OpenClaw: [docs/openclaw.md](docs/openclaw.md)
 - Hermes: [docs/hermes.md](docs/hermes.md)
-
-## 전역 설정(Hooks) 설치
-
-- [Claude Code 설치 절차](docs/claude-code.md#전역-설정-설치)
-- [Codex 설치 절차](docs/codex.md#전역-설정-설치)
-
-## Agent 전역 연결
-
-- [Claude Code 연결 절차](docs/claude-code.md#에이전트-전역-연결)
-- [Codex 연결 절차](docs/codex.md#에이전트-전역-연결)
-
-## Skill 연결
-
-- [Skill 연결 절차](docs/skill-link.md)
 
 ### 추가 사용 Skill 목록
 

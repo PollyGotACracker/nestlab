@@ -3,7 +3,7 @@
 ## 구성된 설정
 
 설정 원본과 권한 안내는 [shared/settings/codex/](/shared/settings/codex/)이다.
-사용자가 `config.example.toml`로 만든 `config.toml`과 `rules/default.rules`를 `~/.codex/`에 직접 반영한다.
+[공통 설치와 연결](setup.md)의 설치 도구가 `config.example.toml`에서 `config.toml`을 생성하고 설정과 `rules/default.rules`를 `~/.codex/`에 병합한다.
 
 ### hooks와 에이전트
 
@@ -28,37 +28,11 @@ director(rio)는 사용자 메시지의 마지막 줄이 승인 명령으로 끝
 - 기존 기록은 원래 위치에 보존한다.
 - 기록 경로의 세부 처리는 [공용 기록 경로](../hooks/common/sub_docs.py)에서 확인한다.
 
-## 전역 설정 설치
+## 설치와 연결
 
-저장소 루트에서 실행한다.
-
-```sh
-# ~/.bashrc에 codex agent 함수 블록을 추가하고, 설정 예제의 <NESTLAB>·<PYTHON>을 채워 config.toml을 만든다.
-python tools/set_hooks.py install
-```
-
-## 에이전트 전역 연결
-
-저장소 루트에서 실행한다.
-
-```sh
-python -B tools/set_agents.py link
-python -B tools/set_agents.py check
-```
-
-`~/.claude/agents`와 `~/.codex/agents`를 저장소의 에이전트 정의에 연결한다.
-기존 폴더나 다른 연결과 충돌하면 해당 항목을 보존하고 충돌을 표시한다.
-
-제거 명령:
-
-```sh
-python -B tools/set_agents.py unlink
-```
-
-이 저장소의 에이전트 정의를 가리키는 링크만 제거한다.
-원본 폴더가 없어진 링크도 제거한다.
-기존 폴더나 다른 연결과 충돌하면 해당 항목을 보존하고 충돌을 표시한다.
-저장소의 원본 폴더 내용은 남는다.
+- 전역 설정 설치와 변경별 조치는 [공통 설치와 연결](setup.md)에서 확인한다.
+- 에이전트 연결·상태 확인·제거는 [에이전트 연결](setup.md#에이전트-연결)에서 확인한다.
+- Skill 연결은 [공통 설치와 연결](setup.md#skill-연결)에서 확인한다.
 
 ## 사용
 

@@ -76,3 +76,24 @@ Hermes는 그 작업 디렉터리에서 `AGENTS.md` 계층을 읽는다.
 실제 운영 전에는 해당 profile에서 원본 역할 지침과 `AGENTS.md`의 접근 가능한 실제 경로를 명시해 읽도록 요청한다.
 예를 들어 `nico`에는 `.claude/agents/researcher/AGENTS.md`와 공통 지침 파일을 지정한다.
 각 profile의 세션에서 역할·공통 지침과 persona가 함께 적용되는지 확인한다.
+
+## Skill 연결
+
+- 공용 Skill 링크 생성·상태 확인·제거는 [공통 설치와 연결](setup.md#skill-연결)에서 진행한다.
+- Hermes는 `~/.hermes/config.yaml`에 다음 경로를 추가한다.
+
+```yaml
+skills:
+  external_dirs:
+    - ~/.agents/skills
+```
+
+- Hermes 설정은 직접 추가한다.
+- Hermes가 설치돼 있으면 아래 명령으로 `external_dirs` 설정도 확인한다.
+
+```bash
+# 공용 Skill 연결 상태와 Hermes external_dirs 설정을 확인한다.
+python -B tools/set_skills.py check
+```
+
+- Skill 링크를 제거할 때 Hermes 설정은 직접 제거한다.
