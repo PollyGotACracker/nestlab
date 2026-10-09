@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sub_approval import APPROVED, approved, last_user
-from sub_docs import ROOT
+from sub_docs import project_root
 from sub_plan import check_plan
 from sub_research import check_decision, check_raw
 from sub_write import added_lines, read
@@ -22,22 +22,23 @@ READONLY = {"researcher", "reviewer"}
 DIRECTOR = ("log/",)
 
 
-def rel(path: Path) -> str:
+def rel(path: Path, root: Path) -> str:
     try:
-        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+        return path.resolve().relative_to(root).as_posix()
     except ValueError:
         return ""
 
 
 def check_director_write(data: dict, paths: list[Path]) -> str | None:
+    root = project_root(data.get("cwd"))
     user, _ = last_user(data.get("transcript_path"))
-    outside = not paths or any(not rel(path).startswith(DIRECTOR) for path in paths)
+    outside = not paths or any(not rel(path, root).startswith(DIRECTOR) for path in paths)
     if outside and not approved(user):
         return "director는 승인 없이 log/ 밖에 쓸 수 없습니다. 사용자 마지막 메시지에 승인이 없습니다."
-    if any(rel(path).startswith("log/state/.active") for path in paths):
+    if any(rel(path, root).startswith("log/state/.active") for path in paths):
         return "log/state/.active는 hook 전용입니다."
     for path in paths:
-        if not rel(path).startswith(DIRECTOR):
+        if not rel(path, root).startswith(DIRECTOR):
             continue
         added, new = added_lines(data, path)
         old = read(path)

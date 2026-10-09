@@ -23,12 +23,11 @@ from datetime import datetime
 # 공용 모듈 폴더를 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
-from sub_docs import ROOT, task_id
+from sub_docs import project_root, task_id
 from sub_role import first_line, resolve_role
 from sub_session import _claude_entry, _codex_entry, norm, session_path, turn
 from save_agent_result import fence_for
 
-INCIDENT = ROOT / "log" / "incident"
 # 표현 목록 기반 감지이다. 놓치는 표현이 쌓이면 이 목록에 추가한다.
 ADMIT = re.compile(
     r"죄송|제 실수|제 잘못|제가 실수|제가 잘못|실수했|잘못했|잘못 (?:이해|해석|읽|봤|판단|말씀|맞췄|잡았)|틀렸"
@@ -72,7 +71,7 @@ def is_child(data: dict) -> bool:
     return isinstance(source, dict) and bool(source.get("subagent"))
 
 
-def context(path: str, message: str) -> tuple[str, str, str, int | None]:
+def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str, str, str, int | None]:
     """현재 턴의 응답 위치와 가장 최근 명시된 작업 참조를 실제 원문에서 확인한다."""
     entries, lines = [], []
     try:
@@ -104,7 +103,7 @@ def context(path: str, message: str) -> tuple[str, str, str, int | None]:
             continue
         tasks = {task_id(f"입력 문서: {ref}") for ref in refs}
         evidence = f"{lines[i]}"
-        if len(tasks) == 1 and all((ROOT / ref).is_file() for ref in refs):
+        if len(tasks) == 1 and all((project_root(cwd) / ref).is_file() for ref in refs):
             return user, next(iter(tasks)) or "미확인", evidence, response_line
         return user, "미확인", evidence + " · 모호하거나 문서 없음", response_line
     return user, "미확인", "미확인", response_line
@@ -121,11 +120,12 @@ def record(data: dict, runner: str = "claude") -> None:
     now = datetime.now()
     session_id = data.get("session_id") or "unknown"
     sid = session_id[:8]
-    path = INCIDENT / f"{now:%Y%m%d}-{sid}.md"
+    directory = project_root(data.get("cwd")) / "log" / "incident"
+    path = directory / f"{now:%Y%m%d}-{sid}.md"
     role = resolve_role(data) or "미확인"
-    user, task, evidence, response_line = context(transcript, data.get("last_assistant_message") or "")
+    user, task, evidence, response_line = context(transcript, data.get("last_assistant_message") or "", data.get("cwd"))
     if not path.is_file():
-        INCIDENT.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         path.write_text(
             f"# 자동 감지 {now:%Y-%m-%d} {sid}\n\n"
             f"- 사건 ID: {now:%Y%m%d}-{sid}\n"

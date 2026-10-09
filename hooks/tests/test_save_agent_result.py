@@ -42,7 +42,7 @@ class SaveResult(unittest.TestCase):
         self.state.mkdir(parents=True)
         self.doc = self.state / "t-research.md"
         self.doc.write_text(RESEARCH, encoding="utf-8")
-        self.patches = [patch.object(sub_docs, "STATE", self.state), patch.object(hook, "ACTIVE", self.state / ".active")]
+        self.patches = [patch.object(sub_docs, "project_root", return_value=self.root)]
         for p in self.patches:
             p.start()
 

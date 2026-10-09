@@ -2,8 +2,9 @@
 - Claude와 Codex 모두 읽기·쓰기를 판정한다. Claude의 읽기 대상에는 Read·Grep·Glob 도구가 포함된다.
 
 - 보안 문서는 읽기·쓰기를 deny한다. 목록은 `~/.claude/settings.json` `permissions.deny`의 `Read(...)` 항목이다.
-- 세션 경로(cwd) 밖 경로는 deny한다. `~/.claude`·`~/.codex`는 읽기만 허용한다.
-- wiki Skill·local.json은 읽기만 허용하고, local.json의 Nodebase 안에는 기존 승인 규칙을 적용한다.
+- Git 프로젝트 루트 밖 경로는 deny한다. Git이 없으면 cwd를 기준으로 한다. `~/.claude`·`~/.codex`는 읽기만 허용한다.
+- 전역 Skill과 연결된 원본·내부 자료 및 local.json은 읽기만 허용한다. Skill 폴더 밖 링크는 차단한다.
+- local.json의 Nodebase 안에는 기존 승인 규칙을 적용한다.
 - OS 임시 폴더(`tempfile.gettempdir()`)는 읽기·쓰기를 허용한다. 보안 문서 deny는 임시 폴더에도 적용한다.
 - 대상은 Bash 명령의 경로 토큰, Read·Grep·Glob 경로, apply_patch 대상이다. 스크립트가 직접 여는 파일은 막지 못한다.
 """
@@ -17,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 from sub_write import bash_command, is_write_bash, targets
+from sub_docs import project_root
 
 HOME = Path.home()
 GLOBAL = (HOME / ".claude", HOME / ".codex")
@@ -25,6 +27,7 @@ TEMP = Path(tempfile.gettempdir())
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL_SETTINGS = ROOT / "shared" / "settings" / "local.json"
 WIKI_SKILL = ROOT / "shared" / "skills" / "wiki" / "SKILL.md"
+SKILLS = ROOT / "shared" / "skills"
 READ_RULE = re.compile(r"^Read\((.+)\)$")
 SPLIT = re.compile(r"[\s;&|<>()=]+")
 TOKEN = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s;&|<>()=\"']+")
@@ -102,8 +105,20 @@ def command_paths(command: str) -> list[tuple[str, bool]]:
     return out
 
 
+def skill_paths() -> list[tuple[Path, Path]]:
+    """설치된 Skill과 원본의 경계를 개별 Skill 폴더로 유지한다."""
+    out = []
+    for base in (SKILLS, HOME / ".agents" / "skills", HOME / ".claude" / "skills", HOME / ".codex" / "skills"):
+        if base.is_dir():
+            out.append((base, base.resolve()))
+            out.extend((child, child.resolve()) for child in base.iterdir() if child.is_dir())
+    return out
+
+
 def check_paths(data: dict, runner: str) -> str | None:
     cwd = Path(data.get("cwd") or os.getcwd())
+    project = project_root(cwd)
+    skills = skill_paths()
     patterns = secret_patterns()
     nodebase = archive_root()
     name = data.get("tool_name")
@@ -125,13 +140,21 @@ def check_paths(data: dict, runner: str) -> str | None:
         if is_secret(path, patterns) or is_secret(real, patterns):
             return f"보안 문서는 읽기·쓰기를 허용하지 않습니다: {token}"
         # 짧은 루트 표기와 링크 탈출은 실제 상위 경로도 대조한다.
+        skill = next(((base, target) for base, target in reversed(skills)
+                      if inside(path, base) or inside(path, target)), None)
+        if skill:
+            if not inside(real, skill[1]):
+                return f"Skill 밖 링크 접근은 허용하지 않습니다: {token}"
+            if write and not inside(real, project):
+                return f"외부 Skill은 읽기만 허용됩니다: {token}"
+            continue
         if nodebase and (inside(path, nodebase) or inside(real, nodebase)
                          or any(norm(os.path.realpath(parent), cwd) == norm(str(nodebase), cwd)
                                 for parent in Path(path).parents)):
             if not inside(real, nodebase):
                 return f"Nodebase 밖 링크 접근은 허용하지 않습니다: {token}"
             continue
-        if not looks or inside(path, cwd):
+        if not looks or inside(real, project):
             continue
         if not write and any(real == norm(os.path.realpath(p), cwd)
                              for p in (LOCAL_SETTINGS, WIKI_SKILL)):

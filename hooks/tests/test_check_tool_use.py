@@ -103,13 +103,13 @@ def codex_msg(role: str, text: str) -> str:
 class WriteScope(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.state = self.root / "log" / "state"
         self.state.mkdir(parents=True)
         self.sessions = self.root / "sessions"
         self.sessions.mkdir()
-        self.patches = [patch.object(sub_scope, "ROOT", self.root), patch.object(sub_approval, "ACTIVE", self.state / ".active"),
-                        patch.object(sub_docs, "STATE", self.state), patch.object(sub_role, "CODEX_SESSIONS", self.sessions)]
+        self.patches = [patch.object(sub_scope, "project_root", return_value=self.root),
+                        patch.object(sub_docs, "project_root", return_value=self.root), patch.object(sub_role, "CODEX_SESSIONS", self.sessions)]
         for p in self.patches:
             p.start()
 
@@ -408,7 +408,7 @@ class CodexPath(unittest.TestCase):
             self.assertIsNone(self.claude("Read", {"file_path": self.short(self.local_settings)}))
             self.assertIsNotNone(self.claude("Write", {"file_path": self.short(self.local_settings)}))
 
-    def test_global_wiki_directory_link_reads_only_original_skill(self):
+    def test_global_wiki_directory_link_reads_internal_resources(self):
         self.wiki_skill.parent.mkdir()
         self.wiki_skill.write_text("skill", encoding="utf-8")
         link = self.home / ".agents" / "skills" / "wiki"
@@ -418,7 +418,7 @@ class CodexPath(unittest.TestCase):
             self.assertIsNone(self.claude("Read", {"file_path": str(link / "SKILL.md")}, runner))
             self.assertIsNone(self.claude("Bash", {"command": f"cat {link}/SKILL.md"}, runner))
             self.assertIsNotNone(self.claude("Write", {"file_path": str(link / "SKILL.md")}, runner))
-            self.assertIsNotNone(self.claude("Read", {"file_path": str(link / "other.md")}, runner))
+            self.assertIsNone(self.claude("Read", {"file_path": str(link / "other.md")}, runner))
 
     def test_nodebase_symlink_escape_and_secret_target_are_denied(self):
         nodebase = Path(self.tmp.name) / "nodebase"
@@ -567,7 +567,7 @@ class Entry(unittest.TestCase):
                     path.write_text("\n".join(claude_line(r, t) for r, t in (("assistant", "계획"), ("user", user))) + "\n",
                                     encoding="utf-8")
                     data = {**claude("jelly", prompt), "agent_type": "rio", "transcript_path": str(path)}
-                    with patch.object(sub_approval, "ACTIVE", Path(tmp) / ".active"):
+                    with patch.object(sub_docs, "project_root", return_value=Path(tmp)):
                         self.assertEqual(hook.check(data, "claude") is not None, denied)
 
     def test_deny_output_shape(self):

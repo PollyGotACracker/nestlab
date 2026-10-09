@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
 from sub_call import VERDICT, refute_mode, verdict_problem
-from sub_docs import ACTIVE, doc, task_id
+from sub_docs import active, doc, task_id
 from sub_role import codex_rollout, first_prompt, parent_thread, resolve_role
 from sub_session import handback_report
 
@@ -45,7 +45,7 @@ def find_task(data: dict, runner: str, path: str, prompt: str) -> str | None:
     if runner == "codex":
         return task_id(first_prompt(codex_rollout(parent_thread(path))))
     try:
-        return json.loads((ACTIVE / f"{data.get('session_id')}.json").read_text(encoding="utf-8")).get("researcher")
+        return json.loads((active(data.get("cwd")) / f"{data.get('session_id')}.json").read_text(encoding="utf-8")).get("researcher")
     except (OSError, ValueError):
         return None
 
@@ -111,7 +111,7 @@ def save(data: dict, runner: str) -> None:
     if refute and verdict_problem(message):  # check_refute_verdict가 차단하는 보고는 다시 쓴 뒤에 저장한다.
         return
     tid = find_task(data, runner, path, prompt)
-    target = doc(tid, "research") if tid else None
+    target = doc(tid, "research", data.get("cwd")) if tid else None
     if not target or not target.is_file():
         return
     text = target.read_text(encoding="utf-8")

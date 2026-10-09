@@ -7,18 +7,34 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-STATE = ROOT / "log" / "state"
-ACTIVE = STATE / ".active"
 SUFFIX = {"state": "", "input": "-input", "research": "-research"}
 TASK_ID = re.compile(r"^(?:입력|상태|조사) 문서: log/state/([\w.\-]+?)(?:-input|-research)?\.md\s*$", re.M)
 HEADING = re.compile(r"^(#{1,6}) (.*)$")
 
 
-def doc(task: str, kind: str) -> Path:
-    return STATE / f"{task}{SUFFIX[kind]}.md"
+def project_root(cwd: str | Path | None = None) -> Path:
+    """도구 원본과 별개로 입력 cwd의 Git 루트 또는 cwd를 사용한다."""
+    base = Path(cwd or Path.cwd()).resolve()
+    try:
+        result = subprocess.run(["git", "-C", str(base), "rev-parse", "--show-toplevel"],
+                                capture_output=True, text=True, encoding="utf-8", timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip()).resolve()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return base
+
+
+def active(cwd: str | Path | None = None) -> Path:
+    return project_root(cwd) / "log" / "state" / ".active"
+
+
+def doc(task: str, kind: str, cwd: str | Path | None = None) -> Path:
+    return project_root(cwd) / "log" / "state" / f"{task}{SUFFIX[kind]}.md"
 
 
 def task_id(text: str) -> str | None:

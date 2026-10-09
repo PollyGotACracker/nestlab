@@ -18,14 +18,11 @@ import record_incident as hook
 class RecordIncident(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name) / "incident"
-        self.patch = patch.object(hook, "INCIDENT", self.dir)
-        self.patch.start()
-        self.root_patch = patch.object(hook, "ROOT", Path(self.tmp.name))
+        self.dir = Path(self.tmp.name) / "log" / "incident"
+        self.root_patch = patch.object(hook, "project_root", return_value=Path(self.tmp.name))
         self.root_patch.start()
 
     def tearDown(self):
-        self.patch.stop()
         self.root_patch.stop()
         self.tmp.cleanup()
 

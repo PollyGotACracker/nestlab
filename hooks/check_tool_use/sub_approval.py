@@ -13,7 +13,7 @@ import json
 import re
 
 from sub_call import call_info
-from sub_docs import ACTIVE, doc, section, task_id
+from sub_docs import active, doc, section, task_id
 from sub_role import codex_rollout, first_line, first_prompt, parent_thread, resolve_role, to_role
 from sub_session import read_session, turn
 from sub_write import read
@@ -47,16 +47,16 @@ def approved(user: str) -> bool:
     return bool(APPROVAL.search(lines[-1]))
 
 
-def executed_approved(task: str | None) -> bool:
-    body = section(read(doc(task, "input")), "실행 승인 범위") if task else ""
+def executed_approved(task: str | None, cwd: str | None = None) -> bool:
+    body = section(read(doc(task, "input", cwd)), "실행 승인 범위") if task else ""
     return any(APPROVED.match(line) for line in body.splitlines())
 
 
-def approval_reason(user: str, prompt: str) -> str | None:
+def approval_reason(user: str, prompt: str, cwd: str | None = None) -> str | None:
     if approved(user):
         return None
     first = next((line.strip() for line in prompt.splitlines() if line.strip()), "")
-    if first == REWORK and executed_approved(task_id(prompt)):
+    if first == REWORK and executed_approved(task_id(prompt), cwd):
         return None
     return "사용자 마지막 메시지에 승인이 없습니다. 하위 에이전트 호출 전에 승인을 받으십시오."
 
@@ -65,11 +65,12 @@ def remember(data: dict, target_role: str, prompt: str) -> None:
     tid = task_id(prompt)
     if not tid:
         return
-    path = ACTIVE / f"{data.get('session_id')}.json"
-    ACTIVE.mkdir(parents=True, exist_ok=True)
-    active = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    active[target_role] = tid  # ponytail: 역할당 작업 1개. 같은 역할 병렬 작업이 생기면 agent_id 키로 바꾼다.
-    path.write_text(json.dumps(active, ensure_ascii=False), encoding="utf-8")
+    directory = active(data.get("cwd"))
+    path = directory / f"{data.get('session_id')}.json"
+    directory.mkdir(parents=True, exist_ok=True)
+    entries = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    entries[target_role] = tid  # ponytail: 역할당 작업 1개. 같은 역할 병렬 작업이 생기면 agent_id 키로 바꾼다.
+    path.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
 
 
 def check_agent_call(data: dict) -> str | None:
@@ -81,7 +82,7 @@ def check_agent_call(data: dict) -> str | None:
     if role:
         remember(data, role, prompt)
     user, _ = last_user(data.get("transcript_path"))
-    return approval_reason(user, prompt)
+    return approval_reason(user, prompt, data.get("cwd"))
 
 
 def check_codex_child(data: dict) -> str | None:
@@ -91,4 +92,4 @@ def check_codex_child(data: dict) -> str | None:
     if not parent or first_line(parent).get("agent_role"):
         return None  # 부모가 director 메인 thread가 아니다(e.g. researcher가 부른 reviewer).
     user, _ = last_user(parent)
-    return approval_reason(user, first_prompt(path))
+    return approval_reason(user, first_prompt(path), data.get("cwd"))
