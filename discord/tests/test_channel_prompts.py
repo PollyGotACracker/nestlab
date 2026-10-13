@@ -259,6 +259,8 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(prompt.endswith(
             f"이번 발언 화자: 젤리\n젤리의 Tone Guide:\n{tone}\n"
             "- 사용자의 욕설과 거친 표현은 사용자의 말투로 받아들이고, 그 메시지가 묻거나 지적한 내용에 답한다.\n"
+            "- 감탄사는 직전 발언에 실제로 놀라거나 감탄할 내용이 있을 때만 쓴다.\n"
+            "- 발언에는 대화에 오간 내용과 캐릭터의 생각만 쓴다.\n"
             f"{style}"
         ))
 
