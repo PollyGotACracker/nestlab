@@ -93,6 +93,9 @@ class ProjectBoundaries(unittest.TestCase):
         rework = "작업 종류: 재작업\n입력 문서: log/state/same-input.md"
         self.assertIsNone(sub_approval.approval_reason("계획 수정", rework, str(self.child)))
         self.assertIsNotNone(sub_approval.approval_reason("계획 수정", rework, str(self.other)))
+        review = "작업 종류: 검수\n입력 문서: log/state/same-input.md"
+        self.assertIsNone(sub_approval.approval_reason("계획 수정", review, str(self.child)))
+        self.assertIsNotNone(sub_approval.approval_reason("계획 수정", review, str(self.other)))
         sub_approval.remember({"cwd": str(self.child), "session_id": "session"}, "researcher", rework)
         self.assertTrue((sub_docs.active(self.project) / "session.json").is_file())
         self.assertFalse(sub_docs.active(self.other).exists())
