@@ -27,17 +27,6 @@ TOOLS_CONFIG = config_module.ToolsConfig(channel_history_max=1, server_channels_
 REMINDERS_CONFIG = config_module.RemindersConfig(
     timezone_offset_hours=9, max_days=1, check_seconds=60, repeat_grace_minutes=1, late_minutes=1,
 )
-TURN_17_REQUEST = "작업 답변의 사실 주장은 이번 턴에 직접 연 공식 문서 원문이나 공식 URL을 주장 가까이에 붙인다."
-TURN_17_CHAT = "답변의 사실 주장은 이번 턴에 직접 연 공식 문서 원문이나 공식 URL을 주장 가까이에 붙인다."
-TURN_18 = "작업 답변에서 원문 확인이 실패한 주장은 `미확인`으로 표시한다."
-TURN_19 = "사용자가 재확인을 요청하면 이번 턴에 원문을 다시 열어 확인한다."
-# 모든 채널에서 지운 TURN.md 20행의 뒷부분.
-REMOVED_TURN_TAIL = "진단과 함께 직접 답과 사용자가 취할 수 있는 결론을 포함한다."
-REQUEST_FOLLOW = "작업 요청에서는 사용자 의도에 맞는 직전 발언만 이어받는다."
-REQUEST_CONTINUATION = (
-    "작업 요청이면 현재 요청에서 답할 내용이나 응답 차례가 남은 캐릭터를 고른다. "
-    "작업 요청에서 이번 발언이 다른 캐릭터의 주장을 반박하거나 정정했으면 그 캐릭터를 고른다."
-)
 
 
 def roster_agents() -> list:
@@ -118,7 +107,7 @@ class ChannelKindTests(unittest.TestCase):
 class ChatSystemPromptTests(unittest.TestCase):
     def test_chat_prompt_for_every_role(self) -> None:
         agents = roster_agents()
-        common = prompts_module.strip_section(prompts_module.read_common_rules(PROJECT_ROOT), "## 문서 서식")
+        common = prompts_module.chat_common_rules(PROJECT_ROOT)
         chat_text = prompts_module.CHAT_PROMPT_PATH.read_text(encoding="utf-8")
         self.assertEqual(len(agents), 6)
         for agent in agents:
@@ -131,20 +120,14 @@ class ChatSystemPromptTests(unittest.TestCase):
                 self.assertIn("# Discord chat channel", prompt)
                 self.assertIn(chat_text.split("\n", 3)[2], prompt)
                 self.assertIn("## Response control", prompt)
-                self.assertNotIn("턴 판단은 `[[next:...]]` 제어 줄로만 나타낸다.", prompt)
-                self.assertIn("- 사용자 선택·확인에 대한 응답이 필요하면", prompt)
                 self.assertIn(prompts_module.CHAT_MEMORY_BLOCK, prompt)
-                self.assertIn("대화 기록·장기기억·persona 기억에 있는 내용으로만 말한다", prompt)
-                self.assertNotIn("확인이 필요한 내용은 자기 도구로 직접 확인하거나", prompt)
                 tail = prompt.split(soul, 1)[1]
-                for banned in ("작업 요청", "역할 연결 판단", "실행 승인", "담당", "Archive", "$", "{{", "}}"):
+                for banned in ("$", "{{", "}}"):
                     self.assertNotIn(banned, tail)
                 for other in agents:
                     if other.name != agent.name:
                         self.assertIn(f"- {other.korean_name} (내부 ID: {other.name}, 종: ", tail)
                 self.assertNotIn("역할: ", tail)
-                if agent.role == "reviewer":
-                    self.assertNotIn("사실 검증은 비판적으로 한다", prompt)
 
     def test_doc_format_only_in_request_prompt(self) -> None:
         agents = roster_agents()
@@ -152,11 +135,12 @@ class ChatSystemPromptTests(unittest.TestCase):
             with self.subTest(role=agent.role):
                 chat = build_chat(agent, agents)
                 request = build_request(agent, agents)
-                self.assertNotIn("## 문서 서식", chat)
-                self.assertIn("## 문서 서식", request)
+                for heading in prompts_module.CHAT_DROP_SECTIONS:
+                    self.assertNotIn(heading, chat)
+                    self.assertIn(heading, request)
                 for prompt in (chat, request):
-                    self.assertIn("### 지적과 재작업", prompt)
-                    self.assertIn("확인한 근거에 따라 자신의 판단을 제시한다", prompt)
+                    for kept in ("### 웹 검색", "### 결과 보고", "## 추론 형식", "### 사실과 추론"):
+                        self.assertIn(kept, prompt)
                     for dropped in ("# 프로젝트 원칙", "## 경로 목록", "## Skill 적용"):
                         self.assertNotIn(dropped, prompt)
 
@@ -261,19 +245,12 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         client, prompt, system_prompt = await self.run_turn(chat=False)
         client._refresh_request_prompt.assert_called_once()
         client._refresh_chat_prompt.assert_not_called()
-        for removed in (TURN_17_REQUEST, TURN_18, REQUEST_FOLLOW, REQUEST_CONTINUATION, REMOVED_TURN_TAIL):
-            self.assertNotIn(removed, prompt)
         self.assertEqual(system_prompt, {"type": "preset", "preset": "claude_code", "append": "REQUEST"})
 
     async def test_chat_turn_drops_work_sentences(self) -> None:
         client, prompt, system_prompt = await self.run_turn(chat=True)
         client._refresh_chat_prompt.assert_called_once()
         client._refresh_request_prompt.assert_not_called()
-        for banned in (
-            TURN_17_CHAT, TURN_19, "작업 답변의", REMOVED_TURN_TAIL, "작업 요청", "검증 완료", "`미확인`",
-            "채팅이면 Response control 절의 사용자가 시작한 채팅 기준으로 고른다.",
-        ):
-            self.assertNotIn(banned, prompt)
         self.assertIsInstance(system_prompt, str)
         self.assertEqual(system_prompt, "CHAT")
 

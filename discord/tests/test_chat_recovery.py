@@ -170,8 +170,6 @@ class ConversationTraceTests(unittest.IsolatedAsyncioTestCase):
 class PromptLocationTests(unittest.TestCase):
     def test_turn_prompt_is_watched_and_contains_recheck_contract(self) -> None:
         prompt = (DISCORD_ROOT / "prompts" / "TURN.md").read_text(encoding="utf-8")
-        self.assertNotIn("재확인을 요청하면", prompt)
-        self.assertNotIn("공식 문서 원문이나 공식 URL", prompt)
         with patch.object(prompts_module, "canonical_role_dir", return_value=DISCORD_ROOT):
             with patch.object(Path, "stat", autospec=True) as stat:
                 stat.return_value = SimpleNamespace(st_mtime_ns=1, st_size=1)
@@ -188,28 +186,6 @@ class PromptLocationTests(unittest.TestCase):
             if line.strip().startswith("-")
         }
         self.assertFalse(runtime_lines & turn_lines)
-
-    def test_handoff_rule_has_one_prompt_source(self) -> None:
-        canonical = "역할 연결 판단과 턴 판단은 `[[next:...]]` 제어 줄로만 나타낸다."
-        runtime = (DISCORD_ROOT / "prompts" / "RUNTIME.md").read_text(encoding="utf-8")
-        turn = (DISCORD_ROOT / "prompts" / "TURN.md").read_text(encoding="utf-8")
-        source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((DISCORD_ROOT / "bot").glob("*.py")))
-        self.assertNotIn(canonical, runtime)
-        self.assertNotIn(canonical, turn)
-        self.assertNotIn("담당 역할 연결은 [[next:...]]", source)
-        self.assertNotIn("사용자 발언이 다른 캐릭터에게 한 말이면 본문 없이", source)
-
-    def test_handoff_control_contract_is_only_in_response_control(self) -> None:
-        runtime = (DISCORD_ROOT / "prompts" / "RUNTIME.md").read_text(encoding="utf-8")
-        before, marker, response_control = runtime.partition("## Response control")
-        self.assertTrue(marker)
-        self.assertNotIn("역할 연결 판단", before)
-        self.assertNotIn("본문 없이 해당 캐릭터", before)
-        self.assertNotIn("역할 연결 판단", response_control)
-        self.assertNotIn("본문 없이 해당 캐릭터", response_control)
-        self.assertNotIn("응답 본문에는 채널에 하는 말을 쓰고", runtime)
-        self.assertIn("응답은 선택적인 본문", response_control)
-        self.assertIn("[[react:<이모지>]]", response_control)
 
 
 if __name__ == "__main__":

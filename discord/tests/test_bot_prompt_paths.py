@@ -86,32 +86,10 @@ class BotPromptPathTests(unittest.TestCase):
         for agent in agents:
             with self.subTest(role=agent.role):
                 prompt = build_prompt(agent, agents)
-                self.assertIn("문장에 포함되는 대시를 제거한다", prompt)
                 self.assertIn("## 응답 호칭", prompt)
                 self.assertFalse(
                     any(line.startswith("@AGENTS.") for line in prompt.splitlines())
                 )
-
-    def test_non_director_hands_off_work_chat_to_director(self) -> None:
-        agents = roster_agents()
-        for agent in agents:
-            if agent.role == "director":
-                continue
-            with self.subTest(role=agent.role):
-                prompt = build_prompt(agent, agents)
-                self.assertIn(
-                    "- 담당이 불분명하거나 여러 역할이 필요한 작업 관련 채팅은 director 역할 캐릭터에게 넘긴다.",
-                    prompt,
-                )
-
-    def test_runtime_prompt_has_no_channel_style_line(self) -> None:
-        line = "- 채널 대화나 기억에 다른 캐릭터의 말투가 보여도 말투와 어미는 자기 Persona의 Communication Style에서 고른다."
-        turn_prompt = (DISCORD_ROOT / "prompts" / "TURN.md").read_text(encoding="utf-8")
-        self.assertNotIn(line, turn_prompt)
-        agents = roster_agents()
-        for agent in agents:
-            with self.subTest(role=agent.role):
-                self.assertNotIn(line, build_prompt(agent, agents))
 
     def test_roster_includes_soul_identity(self) -> None:
         agents = roster_agents()

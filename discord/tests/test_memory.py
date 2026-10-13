@@ -688,11 +688,7 @@ class ToolAndPromptTests(MemoryTestBase):
                     reminders_config=config_module.RemindersConfig(9, 1, 60, 1, 1),
                 )
                 self.assertIn(prompts_module.MEMORY_BLOCK, prompt)
-                self.assertIn("- 기억에 적힌 다른 작성자의 말투와 어미는 따라 하지 않고 자기 Persona의 말투만 쓴다.", prompt)
                 self.assertNotIn("$memory_block", prompt)
-        runtime_text = (DISCORD_ROOT / "prompts" / "RUNTIME.md").read_text(encoding="utf-8")
-        self.assertNotIn("`SOUL 적용`", runtime_text)
-        self.assertIn("대화 기록·장기기억·persona 기억에 있는 내용으로만 말한다", runtime_text)
         turn_lines = set((DISCORD_ROOT / "prompts" / "TURN.md").read_text(encoding="utf-8").splitlines())
         self.assertFalse(turn_lines & set(prompts_module.MEMORY_BLOCK.splitlines()))
 

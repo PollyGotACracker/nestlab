@@ -353,11 +353,24 @@ def build_request_system_prompt(
     )
 
 
-# 공통 규칙에서 heading 절을 뺀다. 채팅에서는 문서 파일을 쓰지 않으므로 `## 문서 서식` 절을 뺄 때 쓴다.
-# 절은 heading 줄부터 다음 `# `·`## ` 제목이나 `---` 줄 앞까지이다.
+# 채팅 프롬프트에서 뺄 공통 규칙 절이다.
+# 문서 서식은 채팅에서 문서 파일을 쓰지 않아서, 판단과 질문·지적과 재작업은 채팅을 질문·반박·재검토 보고로 바꿔서 뺀다.
+CHAT_DROP_SECTIONS = ("## 문서 서식", "### 판단과 질문", "### 지적과 재작업")
+
+
+# 공통 규칙에서 heading 절을 뺀다.
+# 절은 heading 줄부터 같은 단계 이상의 다음 제목이나 `---` 줄 앞까지이다.
 def strip_section(text: str, heading: str) -> str:
-    match = re.search(rf"^{re.escape(heading)}\n.*?(?=^#{{1,2}} |^---$|\Z)", text, re.M | re.S)
+    level = len(heading) - len(heading.lstrip("#"))
+    match = re.search(rf"^{re.escape(heading)}\n.*?(?=^#{{1,{level}}} |^---$|\Z)", text, re.M | re.S)
     return text[:match.start()] + text[match.end():] if match else text
+
+
+def chat_common_rules(root: Path) -> str:
+    common = read_common_rules(root)
+    for heading in CHAT_DROP_SECTIONS:
+        common = strip_section(common, heading)
+    return common
 
 
 # Discord 공통 규칙은 AGENTS.md의 `# 프로젝트 원칙` 앞까지이다. 그 뒤는 로컬 저장소 작업 전용이다.
@@ -379,7 +392,7 @@ def build_chat_system_prompt(
     tools_config: ToolsConfig,
     reminders_config: RemindersConfig,
 ) -> str:
-    common = strip_section(read_common_rules(root), "## 문서 서식")
+    common = chat_common_rules(root)
     soul = (canonical_role_dir(root, role) / "SOUL.md").read_text(encoding="utf-8").strip()
     character_memory = render_character_memory(root, role)
     chat_template = CHAT_PROMPT_PATH.read_text(encoding="utf-8").strip()

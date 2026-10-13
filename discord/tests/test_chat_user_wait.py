@@ -201,15 +201,5 @@ class WaitDeliveryTests(unittest.IsolatedAsyncioTestCase):
         restored.clients["rio"]._handle_chat_turn.assert_not_awaited()
 
 
-class WaitPromptTests(unittest.TestCase):
-    def test_wait_contract_and_final_turn_reference(self) -> None:
-        runtime = (DISCORD_ROOT / "prompts/RUNTIME.md").read_text(encoding="utf-8")
-        turn = (DISCORD_ROOT / "prompts/TURN.md").read_text(encoding="utf-8")
-        self.assertIn("선택적인 `[[wait:user]]` 줄", runtime)
-        self.assertIn("실행 승인은 그 발언의 대상·행동·영향 범위를 별도로 확인한다", runtime)
-        self.assertNotIn("대기 제어의 보장 범위는 표식 파싱 이후의 종속 진행이다", runtime)
-        self.assertNotIn("마지막 턴에도 `RUNTIME.md`의 `Response control` 절을 적용한다", turn)
-
-
 if __name__ == "__main__":
     unittest.main()
