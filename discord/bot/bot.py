@@ -571,7 +571,7 @@ class AgentBot(discord.Client):
                 return f"[답장 대상] 메시지 ID {reference.message_id} (원문을 찾을 수 없음)"
         author_bot = self.runtime.bot_id_to_name().get(target.author.id)
         author = self.runtime.chat_display_name(author_bot) if author_bot else target.author.display_name
-        snippet = target.content.strip()[:100] or "(텍스트 없음)"
+        snippet = target.content.strip() or "(텍스트 없음)"
         return f"[답장 대상] {author}의 메시지 (메시지 ID {target.id}) 「{snippet}」"
 
     # 멘션, 본문 이름, 답장 대상 순서로 시작 화자를 고르고 모두 없을 때만 무작위로 고른다.
@@ -700,7 +700,7 @@ class AgentBot(discord.Client):
             if author_bot
             else reacted_message.author.display_name
         )
-        snippet = reacted_message.content.strip()[:100] or "(텍스트 없음)"
+        snippet = reacted_message.content.strip() or "(텍스트 없음)"
         trigger_text = (
             f"({reactor_name}님이 {author_label}의 메시지 「{snippet}」에 {payload.emoji} 리액션을 달았다)"
         )
@@ -1064,7 +1064,7 @@ class AgentBot(discord.Client):
             kind = "캐릭터 메시지"
         else:
             kind = "사용자 메시지"
-        snippet = message.content.strip()[:60] or "(텍스트 없음)"
+        snippet = message.content.strip() or "(텍스트 없음)"
         return f"{self._react_target_author(message)}의 메시지 「{snippet}」 ({kind})"
 
     # 한 캐릭터의 채팅 발언 한 턴을 만들어 채널에 보내고, 다음 화자 이름을 반환한다.
