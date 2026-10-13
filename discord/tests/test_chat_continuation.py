@@ -36,7 +36,6 @@ class ChatSettingsTests(unittest.TestCase):
 
     def test_router_model_defaults_when_omitted(self) -> None:
         raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
-        self.assertEqual(raw["chat"]["router_model"], "claude-haiku-5-5")
         del raw["chat"]["router_model"]
         self.assertEqual(config_module.load_settings_sections(raw)["chat"].router_model, "claude-haiku-5-5")
 

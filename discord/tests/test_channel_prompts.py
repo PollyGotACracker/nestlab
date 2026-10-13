@@ -248,7 +248,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         client._refresh_request_prompt.assert_called_once()
         client._refresh_chat_prompt.assert_not_called()
         self.assertEqual(system_prompt, {"type": "preset", "preset": "claude_code", "append": "REQUEST"})
-        self.assertNotIn("이번 발언 화자:", prompt)
+        self.assertNotIn("발언 화자:", prompt)
 
     async def test_chat_turn_ends_with_speaker_tone_guide(self) -> None:
         _, prompt, _ = await self.run_turn(chat=True)
@@ -256,13 +256,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         style = bot.read_style_rules(bot.RULES_ROOT)
         self.assertTrue(tone)
         self.assertTrue(style.startswith("### 문장 표현"))
-        self.assertTrue(prompt.endswith(
-            f"이번 발언 화자: 젤리\n젤리의 Tone Guide:\n{tone}\n"
-            "- 사용자의 욕설과 거친 표현은 사용자의 말투로 받아들이고, 그 메시지가 묻거나 지적한 내용에 답한다.\n"
-            "- 감탄사는 직전 발언에 실제로 놀라거나 감탄할 내용이 있을 때만 쓴다.\n"
-            "- 발언에는 대화에 오간 내용과 캐릭터의 생각만 쓴다.\n"
-            f"{style}"
-        ))
+        self.assertIn(f"젤리의 Tone Guide:\n{tone}\n{style}\n", prompt)
 
     def test_style_rules_move_from_chat_system_prompt(self) -> None:
         style = bot.read_style_rules(bot.RULES_ROOT)

@@ -109,6 +109,22 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, message)), "rio")
 
+    def test_last_replier_is_fallback_before_random_pick(self) -> None:
+        history = [(1, 0.0, "폴리", "a", 1), (2, 0.0, "rio", "b", 2), (3, 0.0, "jelly", "c", 3),
+                   (4, 0.0, "폴리", "d", 4), (5, 0.0, "pepper", "e", 5), (6, 0.0, "rio", "f", 6)]
+        runtime = SimpleNamespace(
+            bot_id_to_name=Mock(return_value={}),
+            config=SimpleNamespace(agents=[SimpleNamespace(name=n, korean_name=n) for n in ("rio", "jelly", "pepper")]),
+            pick_chat_starter=Mock(return_value="jelly"),
+            route_chat_target=AsyncMock(return_value=None),
+            chat_history_for=Mock(return_value=history),
+        )
+        message = SimpleNamespace(mentions=[], content="확인", channel=SimpleNamespace(id=1), reference=None, id=9)
+        client = SimpleNamespace(runtime=runtime)
+        self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, message)), "pepper")
+        runtime.chat_history_for.return_value = []
+        self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, message)), "jelly")
+
     def test_mention_wins_and_router_result_is_used(self) -> None:
         route = AsyncMock(return_value="pepper")
         client = SimpleNamespace(
@@ -156,7 +172,8 @@ class HandoffAndEvidenceTests(unittest.TestCase):
             return gen
 
         for answer, expected in (("`researcher` (assistant 아님)", "researcher"), ("assistant입니다", "assistant"),
-                                 ("assistants", None), ("모름", None)):
+                                 ("assistants", None), ("모름", None), ("니코", "researcher"),
+                                 ("버디입니다", "assistant")):
             with patch.object(bot, "query", fake_query(answer)), patch.object(bot, "log_token_usage"):
                 self.assertEqual(asyncio.run(runtime._request_chat_router(1, "hi")), expected)
 
@@ -201,7 +218,9 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertNotIn("했슴다", first)
         self.assertIn("(요지) 요지 문장", first)
-        self.assertIn("자기 말", first)
+        self.assertNotIn("자기 말", first)
+        self.assertIn("[리오(나)]", first)
+        self.assertIn("[젤리]", first)
         self.assertIn("질문", first)
         self.assertEqual(calls.call_count, 1)
 

@@ -429,14 +429,16 @@ class Runtime:
         return speaker
 
     # 채팅 기록 한 줄을 프롬프트용 텍스트로 만든다. 메시지 ID가 있으면 함께 적는다.
-    def render_chat_entry(self, speaker: str, content: str, message_id: int | None) -> str:
+    # me가 발언자와 같으면 이름 뒤에 (나)를 붙인다.
+    def render_chat_entry(self, speaker: str, content: str, message_id: int | None, me: str | None = None) -> str:
         id_part = f" (메시지 ID {message_id})" if message_id else ""
-        return f"[{self.chat_display_name(speaker)}]{id_part} {content}"
+        self_part = "(나)" if me and speaker == me else ""
+        return f"[{self.chat_display_name(speaker)}{self_part}]{id_part} {content}"
 
     # 채널의 전체 채팅 기록을 프롬프트에 넣을 텍스트로 만든다.
     # 새 발언 없이 시작하는 자율 채팅도 오래된 기록을 보지 않도록 먼저 정리한다.
     # digests에 seq가 있으면 그 발언은 원문 대신 `(요지) 문장`으로 쓴다.
-    def render_chat_history(self, channel_id: int, digests: dict[int, str | None] | None = None) -> str:
+    def render_chat_history(self, channel_id: int, digests: dict[int, str | None] | None = None, me: str | None = None) -> str:
         if self.prune_chat_history(channel_id):
             save_chat_state(channel_id, self)
         history = self.chat_history_for(channel_id)
@@ -446,7 +448,7 @@ class Runtime:
         # 도구·출처 기록 줄은 원문 창(summary.raw_hours) 안의 것만 보낸다.
         raw_cutoff = datetime.now().timestamp() - summary_settings(self.config).raw_hours * 3600
         return "\n".join(
-            self.render_chat_entry(speaker, f"(요지) {digests[seq]}" if digests.get(seq) else content, message_id)
+            self.render_chat_entry(speaker, f"(요지) {digests[seq]}" if digests.get(seq) else content, message_id, me)
             for seq, timestamp, speaker, content, message_id in history
             if not (content.startswith(EVIDENCE_HEADER) and timestamp < raw_cutoff)
         ) or "(아직 대화 없음)"
@@ -455,7 +457,7 @@ class Runtime:
     async def _request_chat_digest(self, channel_id: int, items: list[tuple[int, str, str]]) -> dict[int, str]:
         options = ClaudeAgentOptions(
             system_prompt=(
-                "각 발언의 내용만 표준어 평서문 한 문장으로 옮기고 어미, 말버릇, 감탄사는 옮기지 않는다.\n"
+                "각 발언의 모든 문장을 표준어로 옮긴다. 감탄사와 말버릇은 뺀다. 그 밖의 낱말과 내용은 원문 그대로 쓴다. 높임 수준은 원문과 같게 쓴다. 음슴체 어미는 해요체로 옮긴다.\n"
                 "입력은 `번호: [화자] 발언` 줄이다. 입력과 같은 개수의 `번호: 문장` 줄만 출력한다."
             ),
             tools=[], allowed_tools=[], cwd=str(AGENT_ROOT), permission_mode="default",
@@ -473,17 +475,17 @@ class Runtime:
             raise ValueError("digest lines missing")
         return {seq: parsed[seq] for seq, _, _ in items}
 
-    # 화자 기준 대화 기록을 만든다. 사용자와 화자 자신의 발언은 원문이고, 다른 캐릭터 발언은 요지다.
+    # 화자 기준 대화 기록을 만든다. 사용자 발언은 원문이고, 화자 자신을 포함한 캐릭터 발언은 요지다.
     # 요지는 발언별로 저장하고 아직 없는 발언 묶음만 한 번 만들어 6개 봇이 공유한다. 실패하면 원문이다.
     async def render_speaker_history(self, channel_id: int, speaker: str) -> str:
         names = {agent.name for agent in self.config.agents}
         history = self.chat_history_for(channel_id)
         others = [
             (seq, who, content) for seq, _, who, content, _ in history
-            if who in names and who != speaker
+            if who in names
         ]
         if not others:
-            return self.render_chat_history(channel_id)
+            return self.render_chat_history(channel_id, me=speaker)
         missing = [
             (seq, self.chat_display_name(who), content) for seq, who, content in others
             if (channel_id, seq) not in self.chat_digests
@@ -503,9 +505,9 @@ class Runtime:
                     self.chat_digests.pop(next(iter(self.chat_digests)))
             except Exception:
                 log.exception("chat digest failed channel=%s speaker=%s", channel_id, speaker)
-                return self.render_chat_history(channel_id)
+                return self.render_chat_history(channel_id, me=speaker)
         digests = {seq: self.chat_digests.get((channel_id, seq)) for seq, _, _ in others}
-        return self.render_chat_history(channel_id, digests)
+        return self.render_chat_history(channel_id, digests, speaker)
 
     # 채널별로 채팅 진행을 직렬화할 락을 가져오거나 없으면 새로 만든다.
     def chat_lock_for(self, channel_id: int) -> asyncio.Lock:
@@ -523,6 +525,7 @@ class Runtime:
             system_prompt=(
                 "채팅 채널에서 사용자의 새 메시지가 누구에게 하는 말인지 고른다.\n"
                 "사용자가 이름, 호칭, 멘션으로 부른 캐릭터를 고른다. 문장에 이름이 화제로만 나온 캐릭터는 부른 캐릭터로 보지 않는다.\n"
+                "부른 캐릭터가 없고 새 메시지가 특정 캐릭터의 발언을 묻거나 지적하면, 그 발언을 처음 한 캐릭터를 고른다.\n"
                 "부른 캐릭터가 없으면 최근 대화에서 사용자 메시지에 마지막으로 답한 캐릭터를 고른다.\n"
                 "캐릭터의 내부 ID 하나만 출력한다.\n"
                 f"캐릭터 명단(내부 ID: 한국어 이름):\n{roster}"
@@ -540,9 +543,11 @@ class Runtime:
                     "router", sdk_message, channel=channel_id, model=self.config.chat.router_model,
                 )
                 answer = (getattr(sdk_message, "result", "") or "").strip()
-        # 한글이 ID에 바로 붙어도 찾도록 ASCII 단어 문자만 경계로 본다.
-        found = re.search(r"(?<![A-Za-z0-9_])(" + "|".join(map(re.escape, names)) + r")(?![A-Za-z0-9_])", answer)
-        return found.group(1) if found else None
+        # 한글이 ID에 바로 붙어도 찾도록 ASCII 단어 문자만 경계로 본다. 한국어 표시 이름도 내부 ID로 바꾼다.
+        by_label = {agent.name: agent.name for agent in self.config.agents}
+        by_label.update({agent.korean_name: agent.name for agent in self.config.agents})
+        found = re.search(r"(?<![A-Za-z0-9_])(" + "|".join(map(re.escape, by_label)) + r")(?![A-Za-z0-9_])", answer)
+        return by_label[found.group(1)] if found else None
 
     # 메시지 ID별로 한 번만 라우터를 호출하고 결과를 공유한다. 실패는 None이다.
     async def route_chat_target(self, channel_id: int, message_id: int, text: str) -> str | None:
@@ -703,6 +708,15 @@ class AgentBot(discord.Client):
             replied = bot_names.get(author.id)
             if replied is not None:
                 return replied
+        # 마지막 사용자 메시지 다음에 처음 발언한 캐릭터가 이어서 답한다.
+        agent_names = {agent.name for agent in self.runtime.config.agents}
+        last_replier = None
+        for _, _, who, _, _ in reversed(self.runtime.chat_history_for(message.channel.id)):
+            if who not in agent_names:
+                break
+            last_replier = who
+        if last_replier is not None:
+            return last_replier
         return self.runtime.pick_chat_starter(message.id)
 
     # 모든 봇이 같은 이벤트를 받으므로 기억·기록 반영은 이름이 가장 앞선 처리 봇 하나만 한다.
@@ -1254,7 +1268,7 @@ class AgentBot(discord.Client):
             style_rules = read_style_rules(RULES_ROOT)
             tone = read_tone_guide(canonical_role_dir(RULES_ROOT, self.agent.role) / "SOUL.md")
             name = self.agent.korean_name
-            speaker_tone = f"이번 발언 화자: {name}\n{name}의 Tone Guide:\n{tone}"
+            speaker_tone = f"{name}의 Tone Guide:\n{tone}"
         turn_template = render_variant(
             TURN_PROMPT_PATH.read_text(encoding="utf-8").strip(), "chat" if is_chat else "request"
         )
