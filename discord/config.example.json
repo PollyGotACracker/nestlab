@@ -26,8 +26,9 @@
     "token": "<GITHUB_PAT_WITH_CONTENTS_ISSUES_PULL_REQUESTS_WRITE>"
   },
   "chat": {
-    "model": "claude-sonnet-5",
+    "model": "claude-haiku-5-5",
     "effort": "medium",
+    "router_model": "claude-haiku-5-5",
     "sdk_max_turns": 10,
     "history_hours": 12,
     "history_max_lines": 500,

@@ -72,6 +72,8 @@ class AgentConfig:
 class ChatConfig:
     model: str
     effort: str
+    # 멘션 없는 사용자 메시지의 첫 화자를 고르는 모델. 설정 키를 생략하면 claude-haiku-5-5이다.
+    router_model: str
     # Claude Agent SDK가 한 캐릭터의 응답 1회를 만드는 동안 허용하는 내부 도구 호출 턴 수.
     # max_turns(대화가 몇 번 오가는지)와는 다른 값이다.
     # 설정 키를 생략하면 None으로 SDK 턴 상한을 두지 않는다.
@@ -138,7 +140,7 @@ class ToolsConfig:
     server_channels_max: int
 
 
-# config.json의 항목 이름과 설정 클래스. chat.sdk_max_turns 외의 키는 필수다.
+# config.json의 항목 이름과 설정 클래스. chat.sdk_max_turns와 chat.router_model 외의 키는 필수다.
 SETTINGS_SECTIONS = {
     "chat": ChatConfig,
     "attachments": AttachmentsConfig,
@@ -161,6 +163,9 @@ def load_settings_sections(raw: dict[str, Any]) -> dict[str, Any]:
             if item.name not in section_raw:
                 if section == "chat" and item.name == "sdk_max_turns":
                     values[section][item.name] = None
+                    continue
+                if section == "chat" and item.name == "router_model":
+                    values[section][item.name] = "claude-haiku-5-5"
                     continue
                 missing.append(f"{section}.{item.name}")
                 continue

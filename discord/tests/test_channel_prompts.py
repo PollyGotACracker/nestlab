@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import random
+import re
 import shutil
 import sys
 import tempfile
@@ -107,7 +108,7 @@ class ChannelKindTests(unittest.TestCase):
 class ChatSystemPromptTests(unittest.TestCase):
     def test_chat_prompt_for_every_role(self) -> None:
         agents = roster_agents()
-        common = prompts_module.chat_common_rules(PROJECT_ROOT)
+        common = prompts_module.STYLE_SECTION.sub("", prompts_module.read_common_rules(PROJECT_ROOT), count=1).strip()
         chat_text = prompts_module.CHAT_PROMPT_PATH.read_text(encoding="utf-8")
         self.assertEqual(len(agents), 6)
         for agent in agents:
@@ -129,18 +130,18 @@ class ChatSystemPromptTests(unittest.TestCase):
                         self.assertIn(f"- {other.korean_name} (내부 ID: {other.name}, 종: ", tail)
                 self.assertNotIn("역할: ", tail)
 
-    def test_doc_format_only_in_request_prompt(self) -> None:
+    def test_chat_and_request_prompts_keep_all_common_headings(self) -> None:
         agents = roster_agents()
+        common = prompts_module.read_common_rules(PROJECT_ROOT)
+        headings = re.findall(r"^#{2,3} .+$", common, re.M)
+        self.assertIn("### 판단과 질문", headings)
         for agent in agents:
             with self.subTest(role=agent.role):
-                chat = build_chat(agent, agents)
-                request = build_request(agent, agents)
-                for heading in prompts_module.CHAT_DROP_SECTIONS:
-                    self.assertNotIn(heading, chat)
-                    self.assertIn(heading, request)
-                for prompt in (chat, request):
-                    for kept in ("### 웹 검색", "### 결과 보고", "## 추론 형식", "### 사실과 추론"):
-                        self.assertIn(kept, prompt)
+                for prompt in (build_chat(agent, agents), build_request(agent, agents)):
+                    for heading in headings:
+                        if heading == "### 문장 표현" and "# Discord chat channel" in prompt:
+                            continue  # 채팅은 이 절을 턴 프롬프트 끝에 둔다.
+                        self.assertIn(heading, prompt)
                     for dropped in ("# 프로젝트 원칙", "## 경로 목록", "## Skill 적용"):
                         self.assertNotIn(dropped, prompt)
 
@@ -208,6 +209,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         )
         runtime = SimpleNamespace(
             ready=SimpleNamespace(wait=AsyncMock()), render_chat_history=Mock(return_value=""),
+            render_speaker_history=AsyncMock(return_value=""),
             chat_last_message={}, chat_last_user_id={}, chat_pending={}, append_chat=Mock(),
             config=SimpleNamespace(
                 chat_model_for=Mock(return_value=("test", "low")), chat=SimpleNamespace(sdk_max_turns=1),
@@ -219,7 +221,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
             _refresh_request_prompt=Mock(), _refresh_chat_prompt=Mock(),
             _request_prompt="REQUEST", _chat_prompt="CHAT",
             _react_target_label=Mock(return_value="없음"),
-            agent=SimpleNamespace(name="jelly", role="worker", tools=[]), user=SimpleNamespace(id=1),
+            agent=SimpleNamespace(name="jelly", korean_name="젤리", role="worker", tools=[]), user=SimpleNamespace(id=1),
         )
         prompts: list[str] = []
         options = Mock()
@@ -246,6 +248,25 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         client._refresh_request_prompt.assert_called_once()
         client._refresh_chat_prompt.assert_not_called()
         self.assertEqual(system_prompt, {"type": "preset", "preset": "claude_code", "append": "REQUEST"})
+        self.assertNotIn("이번 발언 화자:", prompt)
+
+    async def test_chat_turn_ends_with_speaker_tone_guide(self) -> None:
+        _, prompt, _ = await self.run_turn(chat=True)
+        tone = bot.read_tone_guide(bot.canonical_role_dir(bot.RULES_ROOT, "worker") / "SOUL.md")
+        style = bot.read_style_rules(bot.RULES_ROOT)
+        self.assertTrue(tone)
+        self.assertTrue(style.startswith("### 문장 표현"))
+        self.assertTrue(prompt.endswith(
+            f"이번 발언 화자: 젤리\n젤리의 Tone Guide:\n{tone}\n"
+            "- 사용자의 욕설과 거친 표현은 사용자의 말투로 받아들이고, 그 메시지가 묻거나 지적한 내용에 답한다.\n"
+            f"{style}"
+        ))
+
+    def test_style_rules_move_from_chat_system_prompt(self) -> None:
+        style = bot.read_style_rules(bot.RULES_ROOT)
+        agents = roster_agents()
+        self.assertNotIn(style, build_chat(agents[0], agents))
+        self.assertIn(style, build_request(agents[0], agents))
 
     async def test_chat_turn_drops_work_sentences(self) -> None:
         client, prompt, system_prompt = await self.run_turn(chat=True)

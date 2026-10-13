@@ -143,6 +143,13 @@ def read_soul_identity(soul_path: Path) -> list[str]:
     return parts
 
 
+# SOUL.md의 `## Tone Guide` 절 원문을 읽는다. 절이 없으면 빈 문자열이다.
+def read_tone_guide(soul_path: Path) -> str:
+    text = soul_path.read_text(encoding="utf-8")
+    match = re.search(r"^## Tone Guide[^\n]*\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
 # 프롬프트 구성에 쓰이는 파일들의 수정 시각·크기로 서명을 만든다(파일 변경 감지용).
 def prompt_source_signature(
     root: Path, role: str, roster_roles: tuple[str, ...] = ()
@@ -353,32 +360,21 @@ def build_request_system_prompt(
     )
 
 
-# 채팅 프롬프트에서 뺄 공통 규칙 절이다.
-# 문서 서식은 채팅에서 문서 파일을 쓰지 않아서, 판단과 질문·지적과 재작업은 채팅을 질문·반박·재검토 보고로 바꿔서 뺀다.
-CHAT_DROP_SECTIONS = ("## 문서 서식", "### 판단과 질문", "### 지적과 재작업")
-
-
-# 공통 규칙에서 heading 절을 뺀다.
-# 절은 heading 줄부터 같은 단계 이상의 다음 제목이나 `---` 줄 앞까지이다.
-def strip_section(text: str, heading: str) -> str:
-    level = len(heading) - len(heading.lstrip("#"))
-    match = re.search(rf"^{re.escape(heading)}\n.*?(?=^#{{1,{level}}} |^---$|\Z)", text, re.M | re.S)
-    return text[:match.start()] + text[match.end():] if match else text
-
-
-def chat_common_rules(root: Path) -> str:
-    common = read_common_rules(root)
-    for heading in CHAT_DROP_SECTIONS:
-        common = strip_section(common, heading)
-    return common
-
-
 # Discord 공통 규칙은 AGENTS.md의 `# 프로젝트 원칙` 앞까지이다. 그 뒤는 로컬 저장소 작업 전용이다.
 PROJECT_RULES = re.compile(r"\r?\n---\r?\n\s*# 프로젝트 원칙")
 
 
 def read_common_rules(root: Path) -> str:
     return PROJECT_RULES.split((root / "AGENTS.md").read_text(encoding="utf-8"), 1)[0].strip()
+
+
+# 채팅은 `### 문장 표현` 절을 시스템 프롬프트 대신 턴 프롬프트 끝에 둔다.
+STYLE_SECTION = re.compile(r"^### 문장 표현[^\n]*\n.*?(?=^#{1,3} |\Z)", re.MULTILINE | re.DOTALL)
+
+
+def read_style_rules(root: Path) -> str:
+    match = STYLE_SECTION.search(read_common_rules(root))
+    return match.group(0).strip() if match else ""
 
 
 # 채팅 채널용 시스템 프롬프트(공통 규칙 + 페르소나 + 채팅 규칙)를 만든다.
@@ -392,7 +388,7 @@ def build_chat_system_prompt(
     tools_config: ToolsConfig,
     reminders_config: RemindersConfig,
 ) -> str:
-    common = chat_common_rules(root)
+    common = STYLE_SECTION.sub("", read_common_rules(root), count=1).strip()
     soul = (canonical_role_dir(root, role) / "SOUL.md").read_text(encoding="utf-8").strip()
     character_memory = render_character_memory(root, role)
     chat_template = CHAT_PROMPT_PATH.read_text(encoding="utf-8").strip()
@@ -578,7 +574,7 @@ MEMORY_BLOCK = (
     "  저장소에 올리려면 `승인`, 그만두려면 `취소`라고만 보내 달라고 안내한다.\n"
     "  업로드는 그 메시지를 받은 Python이 실행하므로 직접 올렸다고 말하지 않는다.\n"
     "- 턴 프롬프트의 관련 장기기억과 캐릭터 기억을 답에 반영하고, 부족하면 memory_search로 더 찾는다.\n"
-    "- 기억과 대화 기록에 적힌 다른 작성자의 말투와 어미는 대화 자료로 다루고 자기 Persona의 말투만 쓴다.\n"
+    "- 기억과 대화 기록에 적힌 다른 작성자의 말투, 어미, 경험담은 그 작성자의 대화 자료로 다룬다.\n"
     "- 장기기억은 지식 저장소와 다르며, 장기기억 요청은 documenter에게 넘기지 않는다."
 )
 # 채팅 프롬프트용 장기기억 안내. 담당 넘기기 문장만 뺀다.

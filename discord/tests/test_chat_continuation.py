@@ -34,6 +34,12 @@ class ChatSettingsTests(unittest.TestCase):
         del raw["chat"]["sdk_max_turns"]
         self.assertIsNone(config_module.load_settings_sections(raw)["chat"].sdk_max_turns)
 
+    def test_router_model_defaults_when_omitted(self) -> None:
+        raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(raw["chat"]["router_model"], "claude-haiku-5-5")
+        del raw["chat"]["router_model"]
+        self.assertEqual(config_module.load_settings_sections(raw)["chat"].router_model, "claude-haiku-5-5")
+
     def test_sdk_turn_limit_preserves_positive_values(self) -> None:
         for value in (1, 4, 12):
             with self.subTest(value=value):
@@ -53,7 +59,7 @@ class ChatSettingsTests(unittest.TestCase):
         original = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
         for section, cls in config_module.SETTINGS_SECTIONS.items():
             for item in fields(cls):
-                if (section, item.name) == ("chat", "sdk_max_turns"):
+                if (section, item.name) in (("chat", "sdk_max_turns"), ("chat", "router_model")):
                     continue
                 with self.subTest(section=section, key=item.name):
                     raw = json.loads(json.dumps(original))

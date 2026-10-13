@@ -93,20 +93,135 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         bot.collect_tool_evidence(success, uses, records)
         self.assertIn("확인 web_fetch: https://docs.example.com/a", bot.render_tool_evidence(records))
 
-    def test_reply_target_selects_original_bot(self) -> None:
+    def test_reply_target_is_fallback_when_router_fails(self) -> None:
         client = SimpleNamespace(
             runtime=SimpleNamespace(
                 bot_id_to_name=Mock(return_value={22: "rio"}),
                 config=SimpleNamespace(agents=[]),
                 pick_chat_starter=Mock(return_value="jelly"),
+                route_chat_target=AsyncMock(return_value=None),
             )
         )
         message = SimpleNamespace(
-            mentions=[], content="확인해 줘",
+            mentions=[], content="확인해 줘", channel=SimpleNamespace(id=1),
             reference=SimpleNamespace(resolved=SimpleNamespace(author=SimpleNamespace(id=22))),
             id=100,
         )
-        self.assertEqual(bot.AgentBot._chat_target_name(client, message), "rio")
+        self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, message)), "rio")
+
+    def test_mention_wins_and_router_result_is_used(self) -> None:
+        route = AsyncMock(return_value="pepper")
+        client = SimpleNamespace(
+            runtime=SimpleNamespace(bot_id_to_name=Mock(return_value={22: "rio"}), route_chat_target=route)
+        )
+        mentioned = SimpleNamespace(mentions=[SimpleNamespace(id=22)], content="x", channel=SimpleNamespace(id=1), id=1)
+        plain = SimpleNamespace(mentions=[], content="x", channel=SimpleNamespace(id=1), id=2)
+        self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, mentioned)), "rio")
+        route.assert_not_awaited()
+        self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, plain)), "pepper")
+
+    def test_router_model_is_called_once_per_message(self) -> None:
+        runtime = make_runtime()
+        runtime.config.agents = [SimpleNamespace(name="rio", korean_name="리오")]
+        runtime.config.chat.router_model = "m"
+        calls = Mock(return_value="rio")
+
+        async def fake(channel_id: int, text: str) -> str:
+            calls()
+            return "rio"
+
+        runtime._request_chat_router = fake
+
+        async def run() -> list:
+            return await asyncio.gather(*(runtime.route_chat_target(1, 5, "hi") for _ in range(6)))
+
+        self.assertEqual(asyncio.run(run()), ["rio"] * 6)
+        self.assertEqual(calls.call_count, 1)
+
+    def test_router_answer_picks_first_roster_id(self) -> None:
+        runtime = make_runtime()
+        runtime.config.agents = [
+            SimpleNamespace(name="assistant", korean_name="버디"),
+            SimpleNamespace(name="researcher", korean_name="니코"),
+        ]
+        runtime.config.chat.router_model = "m"
+        runtime.render_chat_history = lambda channel_id: ""
+
+        def fake_query(answer: str):
+            async def gen(**kwargs):
+                yield bot.ResultMessage(
+                    subtype="success", duration_ms=0, duration_api_ms=0, is_error=False,
+                    num_turns=1, session_id="s", result=answer,
+                )
+            return gen
+
+        for answer, expected in (("`researcher` (assistant 아님)", "researcher"), ("assistant입니다", "assistant"),
+                                 ("assistants", None), ("모름", None)):
+            with patch.object(bot, "query", fake_query(answer)), patch.object(bot, "log_token_usage"):
+                self.assertEqual(asyncio.run(runtime._request_chat_router(1, "hi")), expected)
+
+    def test_router_failure_returns_none(self) -> None:
+        runtime = make_runtime()
+
+        async def boom(channel_id: int, text: str) -> str:
+            raise RuntimeError("x")
+
+        runtime._request_chat_router = boom
+        self.assertIsNone(asyncio.run(runtime.route_chat_target(1, 6, "hi")))
+
+    def _digest_runtime(self):
+        runtime = make_runtime()
+        runtime.config.agents = [
+            SimpleNamespace(name="jelly", korean_name="젤리"),
+            SimpleNamespace(name="rio", korean_name="리오"),
+        ]
+        with patch.object(bot, "save_chat_state"):
+            runtime.append_chat(1, "user", "질문", 10)
+            runtime.append_chat(1, "jelly", "했슴다 캬~", 11)
+            runtime.append_chat(1, "rio", "자기 말", 12)
+        return runtime
+
+    def test_other_speaker_text_becomes_digest_and_is_shared(self) -> None:
+        runtime = self._digest_runtime()
+        calls = Mock()
+
+        async def fake(channel_id: int, items: list) -> dict:
+            calls()
+            return {seq: "요지 문장" for seq, _, _ in items}
+
+        runtime._request_chat_digest = fake
+
+        async def run() -> list:
+            with patch.object(bot, "save_chat_state"):
+                return await asyncio.gather(
+                    runtime.render_speaker_history(1, "rio"), runtime.render_speaker_history(1, "rio"),
+                )
+
+        first, second = asyncio.run(run())
+        self.assertEqual(first, second)
+        self.assertNotIn("했슴다", first)
+        self.assertIn("(요지) 요지 문장", first)
+        self.assertIn("자기 말", first)
+        self.assertIn("질문", first)
+        self.assertEqual(calls.call_count, 1)
+
+    def test_digest_failure_falls_back_to_original(self) -> None:
+        runtime = self._digest_runtime()
+
+        async def boom(channel_id: int, items: list) -> dict:
+            raise RuntimeError("x")
+
+        runtime._request_chat_digest = boom
+        with patch.object(bot, "save_chat_state"):
+            text = asyncio.run(runtime.render_speaker_history(1, "rio"))
+        self.assertIn("했슴다", text)
+
+    def test_tone_guide_section_is_read_verbatim(self) -> None:
+        soul = DISCORD_ROOT.parent / ".claude" / "agents" / "researcher" / "SOUL.md"
+        tone = prompts_module.read_tone_guide(soul)
+        self.assertTrue(tone)
+        self.assertIn(tone, soul.read_text(encoding="utf-8"))
+        self.assertNotIn("## ", tone)
 
 
 class RuntimeRecoveryTests(unittest.TestCase):

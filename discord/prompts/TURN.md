@@ -11,3 +11,6 @@ $history
 이번 캐릭터 발언은 최대 $turn_limit턴 중 $turn_index번째다.
 $turn_instruction
 $continuation_rule
+{{chat:$speaker_tone}}
+{{chat:- 사용자의 욕설과 거친 표현은 사용자의 말투로 받아들이고, 그 메시지가 묻거나 지적한 내용에 답한다.}}
+{{chat:$style_rules}}
