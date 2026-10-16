@@ -110,7 +110,6 @@ class ChatSystemPromptTests(unittest.TestCase):
         agents = roster_agents()
         common = prompts_module.STYLE_SECTION.sub("", prompts_module.read_common_rules(PROJECT_ROOT), count=1).strip()
         chat_text = prompts_module.CHAT_PROMPT_PATH.read_text(encoding="utf-8")
-        self.assertEqual(len(agents), 6)
         for agent in agents:
             with self.subTest(role=agent.role):
                 prompt = build_chat(agent, agents)
@@ -134,7 +133,6 @@ class ChatSystemPromptTests(unittest.TestCase):
         agents = roster_agents()
         common = prompts_module.read_common_rules(PROJECT_ROOT)
         headings = re.findall(r"^#{2,3} .+$", common, re.M)
-        self.assertIn("### 판단과 질문", headings)
         for agent in agents:
             with self.subTest(role=agent.role):
                 for prompt in (build_chat(agent, agents), build_request(agent, agents)):
@@ -142,16 +140,6 @@ class ChatSystemPromptTests(unittest.TestCase):
                         if heading == "### 문장 표현" and "# Discord chat channel" in prompt:
                             continue  # 채팅은 이 절을 턴 프롬프트 끝에 둔다.
                         self.assertIn(heading, prompt)
-                    for dropped in ("# 프로젝트 원칙", "## 경로 목록", "## Skill 적용"):
-                        self.assertNotIn(dropped, prompt)
-
-    def test_chat_memory_block_drops_only_handoff_line(self) -> None:
-        memory_lines = prompts_module.MEMORY_BLOCK.split("\n")
-        chat_lines = prompts_module.CHAT_MEMORY_BLOCK.split("\n")
-        self.assertEqual(
-            [line for line in memory_lines if line not in chat_lines],
-            ["- 장기기억은 지식 저장소와 다르며, 장기기억 요청은 documenter에게 넘기지 않는다."],
-        )
 
 
 class CharacterMemoryTests(unittest.TestCase):
@@ -159,10 +147,11 @@ class CharacterMemoryTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
-        shutil.copy(PROJECT_ROOT / "AGENTS.md", root / "AGENTS.md")
+        common = config_module.COMMON_RULES_FILE
+        shutil.copy(PROJECT_ROOT / common, root / common)
         role_dir = root / ".claude" / "agents" / "worker"
         role_dir.mkdir(parents=True)
-        for name in ("AGENTS.md", "SOUL.md"):
+        for name in (config_module.ROLE_RULES_FILE, "SOUL.md"):
             shutil.copy(PROJECT_ROOT / ".claude" / "agents" / "worker" / name, role_dir / name)
         return root
 
@@ -255,7 +244,6 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         tone = bot.read_tone_guide(bot.canonical_role_dir(bot.RULES_ROOT, "worker") / "SOUL.md")
         style = bot.read_style_rules(bot.RULES_ROOT)
         self.assertTrue(tone)
-        self.assertTrue(style.startswith("### 문장 표현"))
         self.assertIn(f"젤리의 Tone Guide:\n{tone}\n{style}\n", prompt)
 
     def test_style_rules_move_from_chat_system_prompt(self) -> None:

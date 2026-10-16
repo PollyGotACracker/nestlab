@@ -7,6 +7,8 @@ import re
 from typing import Any
 from urllib.parse import quote
 
+from config import ARCHIVE_RULES_FILE
+
 
 SHA = re.compile(r"[0-9a-fA-F]{40}")
 MAX_FILE_BYTES = 1_000_000
@@ -17,9 +19,9 @@ def archive_path(path: str) -> str:
     if not isinstance(path, str) or not path or any(c in path for c in ("\\", "%", ":")):
         raise ValueError("path는 인코딩하지 않은 Nodebase POSIX 경로여야 합니다.")
     parts = path.split("/")
-    if (parts[0] not in ("raw", "wiki", "schema") and path != "AGENTS.md"
+    if (parts[0] not in ("raw", "wiki", "schema") and path != ARCHIVE_RULES_FILE
             or any(p in ("", ".", "..") for p in parts)):
-        raise ValueError("path는 AGENTS.md 또는 raw/wiki/schema 경계 안의 저장소 기준 경로여야 합니다.")
+        raise ValueError(f"path는 {ARCHIVE_RULES_FILE} 또는 raw/wiki/schema 경계 안의 저장소 기준 경로여야 합니다.")
     if any(ord(c) < 32 or ord(c) == 127 for c in path):
         raise ValueError("path에 제어 문자를 사용할 수 없습니다.")
     return path
@@ -112,7 +114,7 @@ class ArchiveReader:
         if sha is None:
             raise ValueError(f"branch를 찾을 수 없습니다: {branch}")
         ref, entries, truncated = await self.tree(sha)
-        paths = ("AGENTS.md", f"schema/{operation}.md")
+        paths = (ARCHIVE_RULES_FILE, f"schema/{operation}.md")
         by_path = {entry["path"]: entry for entry in entries}
         missing = [path for path in paths if path not in by_path]
         if missing:

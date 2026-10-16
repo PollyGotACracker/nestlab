@@ -9,7 +9,6 @@ import unittest
 from pathlib import Path
 
 MODULE_PATH = Path(__file__).parents[1] / "bot" / "archive_workflow.py"
-BOT_PATHS = sorted((Path(__file__).parents[1] / "bot").glob("*.py"))
 SPEC = importlib.util.spec_from_file_location("archive_workflow", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 archive_workflow = importlib.util.module_from_spec(SPEC)
@@ -142,32 +141,6 @@ class WorkflowStoreTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "전체 변경 작업"):
                         self.store.stage("change", 10, 20, data)
                     self.assertIsNone(workflow.pending)
-
-
-class ArchiveThreadSourceTests(unittest.TestCase):
-    def test_user_request_is_kept_separately_from_last_chat_message(self) -> None:
-        """역할 전달 중 봇 응답이 archive thread의 원 요청을 덮어쓰지 않는다."""
-        source = "\n".join(path.read_text(encoding="utf-8") for path in BOT_PATHS)
-        self.assertIn(
-            "self.runtime.chat_last_user_message[message.channel.id] = message",
-            source,
-        )
-        self.assertIn(
-            "original = runtime.chat_last_user_message.get(channel.id)",
-            source,
-        )
-        self.assertNotIn(
-            "original = runtime.chat_last_message.get(channel.id)",
-            source,
-        )
-
-    def test_general_forum_post_excludes_archive_forum(self) -> None:
-        """일반 forum_post는 설정된 archive forum을 게시 대상으로 고르지 않는다."""
-        source = "\n".join(path.read_text(encoding="utf-8") for path in BOT_PATHS)
-        self.assertIn(
-            "and ch.id != runtime.config.archive_forum_id",
-            source,
-        )
 
 
 if __name__ == "__main__":

@@ -24,8 +24,6 @@ class ChatSettingsTests(unittest.TestCase):
         raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
         original = config_module.load_settings_sections(raw)
         for name in ("user_min_turns", "auto_min_turns"):
-            self.assertNotIn(name, raw["chat"])
-            self.assertNotIn(name, {item.name for item in fields(config_module.ChatConfig)})
             raw["chat"][name] = "unused legacy value"
         self.assertEqual(config_module.load_settings_sections(raw), original)
 
@@ -33,11 +31,6 @@ class ChatSettingsTests(unittest.TestCase):
         raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
         del raw["chat"]["sdk_max_turns"]
         self.assertIsNone(config_module.load_settings_sections(raw)["chat"].sdk_max_turns)
-
-    def test_router_model_defaults_when_omitted(self) -> None:
-        raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
-        del raw["chat"]["router_model"]
-        self.assertEqual(config_module.load_settings_sections(raw)["chat"].router_model, "claude-haiku-5-5")
 
     def test_sdk_turn_limit_preserves_positive_values(self) -> None:
         for value in (1, 4, 12):

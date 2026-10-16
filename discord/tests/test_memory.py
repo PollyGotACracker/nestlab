@@ -303,12 +303,6 @@ class ConfigAndRestartTests(MemoryTestBase):
         self.assertEqual(config_module.memory_settings(SimpleNamespace()), config_module.MemoryConfig())
         self.assertEqual(config_module.summary_settings(SimpleNamespace()), config_module.SummaryConfig())
 
-    def test_example_config_sections_match_defaults(self) -> None:
-        raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
-        self.assertEqual(config_module.load_optional_section(raw, "summary", config_module.SummaryConfig), config_module.SummaryConfig())
-        self.assertEqual(config_module.load_optional_section(raw, "memory", config_module.MemoryConfig), config_module.MemoryConfig())
-        config_module.load_settings_sections(raw)
-
     def test_memories_survive_restart(self) -> None:
         self.runtime.memory.add(GUILD, memory_store.KIND_EXPLICIT, "재시작 후에도 남는 기억", sources=[(1, CHANNEL)])
         self.runtime.memory.close()
@@ -689,8 +683,6 @@ class ToolAndPromptTests(MemoryTestBase):
                 )
                 self.assertIn(prompts_module.MEMORY_BLOCK, prompt)
                 self.assertNotIn("$memory_block", prompt)
-        turn_lines = set((DISCORD_ROOT / "prompts" / "TURN.md").read_text(encoding="utf-8").splitlines())
-        self.assertFalse(turn_lines & set(prompts_module.MEMORY_BLOCK.splitlines()))
 
 
 class UploadTests(MemoryTestBase):

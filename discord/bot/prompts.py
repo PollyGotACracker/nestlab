@@ -19,6 +19,7 @@ from claude_agent_sdk import (
 )
 
 from config import (
+    COMMON_RULES_FILE,
     DISCORD_LIMIT,
     HERE,
     POLL_ANSWERS_MAX,
@@ -26,6 +27,7 @@ from config import (
     POLL_ANSWER_MAX,
     POLL_HOURS_MAX,
     POLL_QUESTION_MAX,
+    ROLE_RULES_FILE,
     THREAD_NAME_MAX,
     TURN_PROMPT_PATH,
     AgentConfig,
@@ -101,7 +103,7 @@ def canonical_role_dir(root: Path, role: str) -> Path:
     return root / ".claude" / "agents" / role
 
 
-# AGENTS.md의 frontmatter에서 name 값을 읽는다.
+# 역할 지침의 frontmatter에서 name 값을 읽는다.
 def read_agent_name(agents_file: Path) -> str | None:
     text = agents_file.read_text(encoding="utf-8")
     if not text.startswith("---"):
@@ -120,7 +122,7 @@ def discover_agents(root: Path) -> dict[str, str]:
     """내부 에이전트 ID(폴더명)와 호출 이름을 .claude/agents에서 읽는다."""
     agents: dict[str, str] = {}
     for role_dir in sorted((root / ".claude" / "agents").iterdir()):
-        agents_file = role_dir / "AGENTS.md"
+        agents_file = role_dir / ROLE_RULES_FILE
         if not role_dir.is_dir() or not agents_file.is_file():
             continue
         name = read_agent_name(agents_file)
@@ -156,7 +158,7 @@ def prompt_source_signature(
 ) -> tuple[tuple[str, int, int], ...]:
     role_dir = canonical_role_dir(root, role)
     paths = [
-        root / "AGENTS.md", role_dir / "AGENTS.md", role_dir / "SOUL.md",
+        root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / "SOUL.md",
         RUNTIME_PROMPT_PATH, TURN_PROMPT_PATH, CHAT_PROMPT_PATH,
     ]
     paths += [canonical_role_dir(root, other) / "SOUL.md" for other in roster_roles if other != role]
@@ -360,12 +362,9 @@ def build_request_system_prompt(
     )
 
 
-# Discord 공통 규칙은 AGENTS.md의 `# 프로젝트 원칙` 앞까지이다. 그 뒤는 로컬 저장소 작업 전용이다.
-PROJECT_RULES = re.compile(r"\r?\n---\r?\n\s*# 프로젝트 원칙")
-
-
+# Discord 공통 규칙은 COMMON_RULES_FILE 전체이다.
 def read_common_rules(root: Path) -> str:
-    return PROJECT_RULES.split((root / "AGENTS.md").read_text(encoding="utf-8"), 1)[0].strip()
+    return (root / COMMON_RULES_FILE).read_text(encoding="utf-8").strip()
 
 
 # 채팅은 `### 문장 표현` 절을 시스템 프롬프트 대신 턴 프롬프트 끝에 둔다.

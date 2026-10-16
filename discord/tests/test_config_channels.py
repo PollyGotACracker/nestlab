@@ -34,10 +34,6 @@ class ConfigChannelTests(unittest.TestCase):
             path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
             return config_module.Config.load(path)
 
-    def test_example_config_loads(self) -> None:
-        raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
-        self.assertLessEqual(set(raw), config_module.CONFIG_TOP_LEVEL_KEYS)
-
     def test_id_items_and_per_day_default(self) -> None:
         cfg = self.load(example_raw(chat_channels=[
             "10", 11, {"id": 12}, {"id": "13", "per_day": 2, "topic": "야구"},

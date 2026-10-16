@@ -25,6 +25,10 @@ os.environ.setdefault("CLAUDE_CODE_SKIP_PROMPT_HISTORY", "1")
 HERE = Path(__file__).resolve().parent
 AGENT_ROOT = HERE.parent
 TURN_PROMPT_PATH = HERE.parent / "prompts" / "TURN.md"
+# 지침 파일 이름. 공통 지침은 저장소 루트, 역할 지침은 .claude/agents/<role>/, archive 지침은 Nodebase 저장소 루트에 있다.
+COMMON_RULES_FILE = "AGENTS.global.md"
+ROLE_RULES_FILE = "AGENTS.md"
+ARCHIVE_RULES_FILE = "AGENTS.md"
 DISCORD_LIMIT = 2000
 CHAT_STATE_DIR = HERE / "chat_state"
 # Claude API가 받는 effort 값.

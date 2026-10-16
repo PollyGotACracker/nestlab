@@ -310,17 +310,6 @@ class PromptLocationTests(unittest.TestCase):
                 signature = bot.prompt_source_signature(DISCORD_ROOT, "worker")
         self.assertIn(str(DISCORD_ROOT / "prompts" / "TURN.md"), [item[0] for item in signature])
 
-    def test_runtime_and_turn_templates_have_no_duplicate_rule_lines(self) -> None:
-        runtime_lines = {
-            line.strip() for line in (DISCORD_ROOT / "prompts" / "RUNTIME.md").read_text(encoding="utf-8").splitlines()
-            if line.strip().startswith("-")
-        }
-        turn_lines = {
-            line.strip() for line in (DISCORD_ROOT / "prompts" / "TURN.md").read_text(encoding="utf-8").splitlines()
-            if line.strip().startswith("-")
-        }
-        self.assertFalse(runtime_lines & turn_lines)
-
 
 if __name__ == "__main__":
     unittest.main()

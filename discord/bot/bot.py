@@ -26,7 +26,9 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query, tool
 from config import (
     AGENT_ROOT,
     CHAT_STATE_DIR,
+    COMMON_RULES_FILE,
     HERE,
+    ROLE_RULES_FILE,
     TURN_PROMPT_PATH,
     WEEKDAY_NAMES,
     AgentConfig,
@@ -107,7 +109,7 @@ from summary import run_channel_summary
 from chat_loop import run_chat_conversation, run_chat_scheduler
 
 
-# 공통 규칙(AGENTS.md)과 에이전트 파일(.claude/agents)은 저장소 루트의 원본을 읽는다.
+# 공통 규칙(AGENTS.global.md)과 에이전트 파일(.claude/agents)은 저장소 루트의 원본을 읽는다.
 RULES_ROOT = AGENT_ROOT.parent
 CONFIG_PATH = AGENT_ROOT / "config.json"
 MENTION = re.compile(r"<@!?(\d+)>")
@@ -1471,8 +1473,8 @@ async def main() -> None:
 
     config = Config.load(CONFIG_PATH)
 
-    if not (RULES_ROOT / "AGENTS.md").is_file():
-        raise SystemExit(f"{RULES_ROOT / 'AGENTS.md'}가 없습니다.")
+    if not (RULES_ROOT / COMMON_RULES_FILE).is_file():
+        raise SystemExit(f"{RULES_ROOT / COMMON_RULES_FILE}가 없습니다.")
     if not CHAT_PROMPT_PATH.is_file():
         raise SystemExit(f"{CHAT_PROMPT_PATH}가 없습니다.")
 
@@ -1482,7 +1484,7 @@ async def main() -> None:
 
     for role in known_agents:
         role_dir = canonical_role_dir(RULES_ROOT, role)
-        for filename in ("AGENTS.md", "SOUL.md"):
+        for filename in (ROLE_RULES_FILE, "SOUL.md"):
             if not (role_dir / filename).is_file():
                 raise SystemExit(f"{role_dir / filename}가 없습니다.")
 

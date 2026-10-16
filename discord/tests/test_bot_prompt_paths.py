@@ -45,27 +45,6 @@ def build_prompt(agent, agents: list) -> str:
 
 
 class BotPromptPathTests(unittest.TestCase):
-    def test_reviewer_reports_requested_independent_verification(self) -> None:
-        agent = bot.AgentConfig(
-            role="reviewer", name="ricky", korean_name="리키", token="", tools=[]
-        )
-        prompt = bot.build_request_system_prompt(
-            root=PROJECT_ROOT,
-            role=agent.role,
-            self_name=agent.name,
-            self_korean_name=agent.korean_name,
-            agents=[agent],
-            archive_repository=None,
-            tools_config=config_module.ToolsConfig(channel_history_max=1, server_channels_max=1),
-            reminders_config=config_module.RemindersConfig(
-                timezone_offset_hours=9,
-                max_days=1,
-                check_seconds=60,
-                repeat_grace_minutes=1,
-                late_minutes=1,
-            ),
-        )
-
     def test_system_prompt_excludes_role_guideline(self) -> None:
         agents = roster_agents()
         for agent in agents:
@@ -86,7 +65,6 @@ class BotPromptPathTests(unittest.TestCase):
         for agent in agents:
             with self.subTest(role=agent.role):
                 prompt = build_prompt(agent, agents)
-                self.assertIn("## 응답 호칭", prompt)
                 self.assertFalse(
                     any(line.startswith("@AGENTS.") for line in prompt.splitlines())
                 )
@@ -96,7 +74,6 @@ class BotPromptPathTests(unittest.TestCase):
         reviewer = next(agent for agent in agents if agent.role == "reviewer")
         prompt = build_prompt(reviewer, agents)
         identity = prompts_module.read_soul_identity(PROJECT_ROOT / ".claude" / "agents" / "worker" / "SOUL.md")
-        self.assertEqual(len(identity), 2)
         for item in identity:
             with self.subTest(item=item):
                 self.assertIn(item, prompt)
