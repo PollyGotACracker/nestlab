@@ -1,41 +1,50 @@
 # 공통 지침
 
-## 컨벤션
-
-- 스크립트 파일명은 snake_case를 사용하여 `행동\_목적명사`로 작성한다.
-- 스크립트 폴더에는 진입 스크립트만 두고, 기능별 모듈은 진입 스크립트와 같은 이름 폴더에 `sub_` 접두어로 둔다.
-	- 진입 스크립트 둘 이상이 쓰는 모듈은 같은 스크립트 폴더의 common 폴더에 둔다.
-	- 테스트는 같은 스크립트 폴더의 tests 폴더에 `test_` 접두어로 둔다.
-- 문서 파일명은 kebab-case로 작성한다.
-- 커맨드는 Git Bash 기준이며, 작업 대상이 문서 파일인 경우 코드 블록에 넣고 내부 주석 또는 상단에 커맨드 설명을 작성한다.
-- 저장소 관련 작업은 Claude Code, Codex를 전부 고려하며, 터미널은 bash를 기본으로 한다.
-- Claude Code는 파일 읽기, 검색, 수정에 Read, Grep, Glob, Edit, Write 도구를 쓴다.
+- 작업 시 Claude Code, Codex를 전부 고려한다.
 
 ## 경로 목록
 
 - 저장소 경로의 정의는 이 절에 둔다.
 - 다른 문서는 아래 이름으로 경로를 부른다.
 
-| **이름**           | **경로**                          |
+|      **이름**      | **경로**                          |
 | :----------------: | :-------------------------------- |
-| 전역 지침          | `AGENTS.global.md`                |
+|     전역 지침      | `AGENTS.global.md`                |
 | 프로젝트 공통 지침 | `AGENTS.md`                       |
-| 역할 지침          | `.claude/agents/<role>/AGENTS.md` |
-| 로그 폴더          | `log/`                            |
-| 양식 폴더          | `schema/`                         |
-| 상태 양식          | `schema/log-state.md`             |
-| 입력 양식          | `schema/log-input.md`             |
-| 조사 양식          | `schema/log-research.md`          |
-| 사건 양식          | `schema/log-incident.md`          |
-| 상태 문서          | `log/state/<작업-id>.md`          |
-| 입력 문서          | `log/state/<작업-id>-input.md`    |
-| 조사 문서          | `log/state/<작업-id>-research.md` |
-| 사건 문서          | `log/incident/<사건-id>.md`       |
-| Skill 원본         | `shared/skills/<name>/SKILL.md`   |
-| Hooks 설치 도구    | `tools/set_hooks.py`              |
-| Skill 연결 도구    | `tools/set_skills.py`             |
-| Agents 연결 도구   | `tools/set_agents.py`             |
-| 지침 검사 도구     | `tools/check_doc_rule.py`         |
+|     역할 지침      | `.claude/agents/<role>/AGENTS.md` |
+|     로그 폴더      | `log/`                            |
+|     양식 폴더      | `schema/`                         |
+|     상태 양식      | `schema/log-state.md`             |
+|     입력 양식      | `schema/log-input.md`             |
+|     조사 양식      | `schema/log-research.md`          |
+|     사건 양식      | `schema/log-incident.md`          |
+|     상태 문서      | `log/state/<작업-id>.md`          |
+|     입력 문서      | `log/state/<작업-id>-input.md`    |
+|     조사 문서      | `log/state/<작업-id>-research.md` |
+|     사건 문서      | `log/incident/<사건-id>.md`       |
+|     Skill 원본     | `shared/skills/<name>/SKILL.md`   |
+|  Hooks 설치 도구   | `tools/set_hooks.py`              |
+|  Skill 연결 도구   | `tools/set_skills.py`             |
+|  Agents 연결 도구  | `tools/set_agents.py`             |
+|   지침 검사 도구   | `tools/check_doc_rule.py`         |
+
+## 컨벤션
+
+### 스크립트
+
+- 파일명은 snake_case를 사용하여 `행동\_목적명사`로 작성한다.
+- 폴더는 진입 스크립트만 두고, 기능별 모듈은 진입 스크립트와 같은 이름 폴더에 `sub_` 접두어로 둔다.
+  - 진입 스크립트 둘 이상이 쓰는 모듈은 같은 스크립트 폴더의 common 폴더에 둔다.
+  - 테스트는 같은 스크립트 폴더의 tests 폴더에 `test_` 접두어로 둔다.
+
+### 문서
+
+- 문서 파일명은 kebab-case로 작성한다.
+
+### 커맨드
+
+- 커맨드는 Git Bash 기준이다.
+- 작업 대상이 문서 파일인 경우 코드 블록에 넣고 내부 주석 또는 상단에 커맨드 설명을 간략하게 작성한다.
 
 ## Commit
 
