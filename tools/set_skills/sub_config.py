@@ -10,10 +10,11 @@ from pathlib import Path
 SOURCE = (Path(__file__).resolve().parents[2] / "shared" / "skills").resolve()
 HOME = Path.home()
 
-# 링크를 만드는 폴더. (표시 이름, skill 폴더, 사용하는 도구)
+# 링크를 만드는 폴더. (표시 이름, skill 폴더, 사용하는 도구, 설치 판정용 도구 설정 폴더)
 LINK_DIRS = [
-    ("Claude Code", HOME / ".claude" / "skills", "Claude Code"),
-    (".agents", HOME / ".agents" / "skills", "Codex, Cursor, OpenClaw"),
+    ("Claude Code", HOME / ".claude" / "skills", "Claude Code", [HOME / ".claude"]),
+    (".agents", HOME / ".agents" / "skills", "Codex, Cursor, OpenClaw",
+     [HOME / ".codex", HOME / ".cursor", HOME / ".openclaw", HOME / ".hermes"]),
 ]
 # 링크를 만들지 않고 중복만 확인하는 폴더.
 DUPLICATE_DIRS = [

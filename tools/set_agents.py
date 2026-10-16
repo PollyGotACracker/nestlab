@@ -36,6 +36,9 @@ def run(mode: str) -> int:
             print(f"  원본 없음: {source}")
             problems += 1
             continue
+        if not destination.parent.is_dir():
+            print("  건너뜀: 설정 폴더 없음")
+            continue
 
         target = link_target(destination)
         if target is not None and target.resolve() == source.resolve():
@@ -51,7 +54,6 @@ def run(mode: str) -> int:
             continue
 
         try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
             kind = make_link(source, destination)
         except OSError as exc:
             print(f"  연결 실패: {exc}")

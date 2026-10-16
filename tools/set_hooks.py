@@ -28,6 +28,7 @@ FILLED = [("claude/settings.example.json", "claude/settings.json"),
           ("codex/config.example.toml", "codex/config.toml")]
 # ponytail: hook 그룹을 값 동일성으로만 비교한다. 저장소 경로가 바뀌면 이전 경로 항목이 남는다.
 BEGIN, END = "# >>> nestlab >>>", "# <<< nestlab <<<"
+PREFIX_RE = re.compile(r"^prefix_rule[(]", re.M)
 BLOCK_RE = re.compile(re.escape(BEGIN) + ".*?" + re.escape(END), re.S)
 
 
@@ -108,28 +109,64 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
-def install(settings: Path = SETTINGS, bashrc: Path = BASHRC, home: Path | None = None) -> None:
+def count_hooks(hooks: dict) -> int:
+    return sum("nestlab/hooks/" in h.get("command", "")
+               for groups in hooks.values() if isinstance(groups, list) for g in groups for h in g["hooks"])
+
+
+# 쓴 대상 파일을 다시 읽어 결과 줄을 만든다.
+def report(bashrc: Path, claude: Path, config: Path, rules: Path, home: Path) -> list[str]:
+    def name(p: Path) -> str:
+        return "~/" + p.relative_to(home).as_posix() if p.is_relative_to(home) else p.as_posix()
+    lines = ["설치 완료",
+             f"- {name(bashrc)}: nestlab 블록" if BLOCK_RE.search(read(bashrc)) else f"- {name(bashrc)}: nestlab 블록 없음"]
+    if claude.parent.is_dir():
+        lines.append(f"- {name(claude)}: nestlab hook 명령 {count_hooks(json.loads(read(claude)).get('hooks', {}))}개")
+    else:
+        lines.append(f"- {name(claude.parent)}: 건너뜀 (설정 폴더 없음)")
+    if config.parent.is_dir():
+        cfg = tomllib.loads(read(config))
+        text = read(rules)
+        m = BLOCK_RE.search(text)
+        inside = len(PREFIX_RE.findall(m.group())) if m else 0
+        outside = len(PREFIX_RE.findall(text)) - inside
+        lines += [f"- {name(config)}: nestlab hook 명령 {count_hooks(cfg.get('hooks', {}))}개, "
+                  f"sandbox_mode = {json.dumps(cfg.get('sandbox_mode'))}, approval_policy = {json.dumps(cfg.get('approval_policy'))}",
+                  f"- {name(rules)}: prefix_rule {inside}개" + (f" (블록 밖 {outside}개)" if outside else "")]
+    else:
+        lines.append(f"- {name(config.parent)}: 건너뜀 (설정 폴더 없음)")
+    return lines
+
+
+def install(settings: Path = SETTINGS, bashrc: Path = BASHRC, home: Path | None = None) -> list[str]:
     home = home or Path.home()
     write(bashrc, put_block(read(bashrc), read(settings / "bashrc.sh").strip("\n")))
     old = json.loads(read(settings / "claude/settings.json") or "{}")  # 지난 설치 내용, 덮어쓰기 전에 읽는다.
     for src, dst in FILLED:
         write(settings / dst, fill(read(settings / src)))
     claude = home / ".claude" / "settings.json"
-    data = json.loads(read(claude) or "{}")
-    prune_json(data, old)
-    merge_json(data, json.loads(read(settings / "claude/settings.json")))
-    write(claude, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    if claude.parent.is_dir():
+        data = json.loads(read(claude) or "{}")
+        prune_json(data, old)
+        merge_json(data, json.loads(read(settings / "claude/settings.json")))
+        write(claude, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     codex = home / ".codex"
-    write(codex / "config.toml", merge_config(read(codex / "config.toml"), read(settings / "codex/config.toml")))
     rules = codex / "rules" / "default.rules"
-    write(rules, put_block(read(rules), wrap(read(settings / "codex/rules/default.rules"))))
+    if codex.is_dir():
+        write(codex / "config.toml", merge_config(read(codex / "config.toml"), read(settings / "codex/config.toml")))
+        write(rules, put_block(read(rules), wrap(read(settings / "codex/rules/default.rules"))))
+    return report(bashrc, claude, codex / "config.toml", rules, home)
 
 
 def main() -> int:
     if sys.argv[1:] != ["install"]:
         print("사용법: python tools/set_hooks.py install", file=sys.stderr)
         return 2
-    install()
+    try:
+        print(*install(), sep="\n")
+    except (OSError, ValueError) as e:
+        print(f"설치 실패: {e}", file=sys.stderr)
+        return 1
     return 0
 
 

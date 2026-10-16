@@ -5,12 +5,15 @@
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import shutil
 import sys
 import tempfile
 import tomllib
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -18,7 +21,7 @@ import set_hooks
 
 CLAUDE = {"agent": "x", "permissions": {"deny": ["Read(a)"]},
           "hooks": {"Stop": [{"hooks": [{"command": "<PYTHON> <NESTLAB>"}]}]}}
-CODEX = ('sandbox_mode = "danger-full-access"\napproval_policy = "on-request"\n\n[features]\nhooks = true\n\n'
+CODEX = ('sandbox_mode = "workspace-write"\napproval_policy = "on-request"\n\n[features]\nhooks = true\n\n'
          "[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\ncommand = '<PYTHON> <NESTLAB>'\n")
 BEGIN = "# >>> nestlab >>>"
 
@@ -29,6 +32,8 @@ class SetHooksTest(unittest.TestCase):
         self.home = self.tmp / "home"
         self.bashrc = self.home / ".bashrc"
         self.settings = self.tmp / "settings"
+        (self.home / ".claude").mkdir(parents=True)
+        (self.home / ".codex").mkdir()
         for rel in ("claude", "codex/rules"):
             (self.settings / rel).mkdir(parents=True)
         (self.settings / "bashrc.sh").write_text(f"{BEGIN}\nA\n# <<< nestlab <<<\n", encoding="utf-8")
@@ -48,7 +53,7 @@ class SetHooksTest(unittest.TestCase):
             self.assertIn(set_hooks.ROOT.as_posix(), text)
 
     def test_bashrc_block_is_appended_replaced_and_user_lines_kept(self):
-        self.bashrc.parent.mkdir(parents=True)
+        self.bashrc.parent.mkdir(parents=True, exist_ok=True)
         self.bashrc.write_text("export X=1\n", encoding="utf-8")
         self.run_install()
         self.run_install()
@@ -58,7 +63,7 @@ class SetHooksTest(unittest.TestCase):
 
     def test_claude_merge_keeps_user_items_and_is_idempotent(self):
         path = self.home / ".claude/settings.json"
-        path.parent.mkdir(parents=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         user = {"model": "m", "permissions": {"deny": ["Read(u)"], "allow": ["Bash(u)"]},
                 "hooks": {"Stop": [{"hooks": [{"command": "user"}]}]}}
         path.write_text(json.dumps(user), encoding="utf-8")
@@ -75,11 +80,11 @@ class SetHooksTest(unittest.TestCase):
 
     def test_codex_merge_keeps_user_items_and_is_idempotent(self):
         path = self.home / ".codex/config.toml"
-        path.parent.mkdir(parents=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('approval_policy = "never"\napprovals_reviewer = "auto_review"\n\n[features]\nfoo = true\n\n[plugins.p]\nenabled = true\n',
                         encoding="utf-8")
         rules = self.home / ".codex/rules/default.rules"
-        rules.parent.mkdir(parents=True)
+        rules.parent.mkdir(parents=True, exist_ok=True)
         rules.write_text('prefix_rule(pattern=["rg"], decision="allow")\n', encoding="utf-8")
         self.run_install()
         first, first_rules = path.read_text(encoding="utf-8"), rules.read_text(encoding="utf-8")
@@ -89,7 +94,7 @@ class SetHooksTest(unittest.TestCase):
         data = tomllib.loads(first)
         self.assertNotIn("approvals_reviewer", data)
         self.assertEqual(data["approval_policy"], "on-request")
-        self.assertEqual(data["sandbox_mode"], "danger-full-access")
+        self.assertEqual(data["sandbox_mode"], "workspace-write")
         self.assertEqual(data["features"], {"foo": True, "hooks": True})
         self.assertTrue(data["plugins"]["p"]["enabled"])
         self.assertEqual(len(data["hooks"]["Stop"]), 1)
@@ -98,7 +103,7 @@ class SetHooksTest(unittest.TestCase):
 
     def test_removed_and_changed_items_propagate_to_global(self):
         path = self.home / ".claude/settings.json"
-        path.parent.mkdir(parents=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"model": "m", "permissions": {"deny": ["Read(u)"]}}), encoding="utf-8")
         example = self.settings / "claude/settings.example.json"
         self.run_install()
@@ -132,6 +137,53 @@ class SetHooksTest(unittest.TestCase):
             for group in groups:
                 for h in group["hooks"]:
                     self.assertEqual(h["commandWindows"], "& " + h["command"], h["command"])
+
+    def test_install_returns_result_lines_from_target_files(self):
+        real = self.tmp / "real"
+        shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
+        pre = self.home / ".codex/config.toml"
+        pre.parent.mkdir(parents=True, exist_ok=True)
+        pre.write_text('[hooks.state."x:y"]\ntrusted_hash = "h"\n', encoding="utf-8")
+        rules = self.home / ".codex/rules/default.rules"
+        rules.parent.mkdir(parents=True, exist_ok=True)
+        rules.write_text('prefix_rule(pattern=["rg"], decision="allow")\n', encoding="utf-8")
+        lines = set_hooks.install(real, self.bashrc, self.home)
+        cfg = tomllib.loads((self.home / ".codex/config.toml").read_text(encoding="utf-8"))
+        n = set_hooks.count_hooks(cfg["hooks"])
+        block = set_hooks.BLOCK_RE.search(rules.read_text(encoding="utf-8")).group()
+        k = len(set_hooks.PREFIX_RE.findall(block))
+        self.assertEqual(lines[4], f"- ~/.codex/rules/default.rules: prefix_rule {k}개 (블록 밖 1개)")
+        self.assertEqual(lines[0], "설치 완료")
+        self.assertEqual(len(lines), 5)
+        self.assertIn(f"~/.codex/config.toml: nestlab hook 명령 {n}개", lines[3])
+        self.assertIn(f'sandbox_mode = "{cfg["sandbox_mode"]}"', lines[3])
+        self.assertTrue(lines[4].startswith("- ~/.codex/rules/default.rules: prefix_rule "))
+
+    def test_missing_codex_home_is_skipped(self):
+        shutil.rmtree(self.home / ".codex")
+        lines = set_hooks.install(self.settings, self.bashrc, self.home)
+        self.assertFalse((self.home / ".codex").exists())
+        self.assertTrue(any("건너뜀" in l and ".codex" in l for l in lines))
+
+    def test_missing_claude_home_is_skipped(self):
+        shutil.rmtree(self.home / ".claude")
+        lines = set_hooks.install(self.settings, self.bashrc, self.home)
+        self.assertFalse((self.home / ".claude").exists())
+        self.assertTrue(any("건너뜀" in l and ".claude" in l for l in lines))
+
+    def test_main_reports_failure_with_exit_1(self):
+        bad = self.home / ".claude/settings.json"
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_text("{broken", encoding="utf-8")
+        err = io.StringIO()
+        orig = set_hooks.install
+        with (
+            mock.patch.object(sys, "argv", ["set_hooks.py", "install"]),
+            mock.patch.object(set_hooks, "install", lambda: orig(self.settings, self.bashrc, self.home)),
+            contextlib.redirect_stderr(err),
+        ):
+            self.assertEqual(set_hooks.main(), 1)
+        self.assertIn("설치 실패:", err.getvalue())
 
 
 if __name__ == "__main__":

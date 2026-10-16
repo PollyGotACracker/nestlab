@@ -18,7 +18,7 @@ def check() -> int:
     def count(state: str) -> None:
         counts[state] = counts.get(state, 0) + 1
 
-    for label, folder, tools in LINK_DIRS:
+    for label, folder, tools, _ in LINK_DIRS:
         print(f"[{label}] {folder}  ({tools})")
         if not folder.parent.is_dir():
             print("  미설치")

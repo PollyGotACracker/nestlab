@@ -17,8 +17,11 @@ def link() -> int:
     conflicts = 0
     failures = 0
 
-    for label, folder, _ in LINK_DIRS:
+    for label, folder, _, homes in LINK_DIRS:
         print(f"[{label}] {folder}")
+        if not any(h.is_dir() for h in homes):
+            print("  건너뜀: 사용하는 도구 설정 폴더 없음")
+            continue
         folder.mkdir(parents=True, exist_ok=True)
         for skill in skills:
             dst = folder / skill.name

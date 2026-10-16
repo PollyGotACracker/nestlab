@@ -26,7 +26,7 @@ def unlink() -> int:
     conflicts = 0
     failures = 0
 
-    for label, folder, _ in LINK_DIRS:
+    for label, folder, _, _ in LINK_DIRS:
         print(f"[{label}] {folder}")
         if not folder.is_dir():
             print("  폴더 없음")
