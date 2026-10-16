@@ -1,7 +1,7 @@
 # `prompt` 줄: 승인 요청
 # `forbidden` 줄: 금지
 # 규칙이 없는 명령: 허용
-# sandbox_mode = "danger-full-access"라 모든 명령에 적용된다.
+# 규칙에 맞는 명령은 sandbox_mode와 무관하게 이 결정을 따른다. 규칙이 없는 명령은 샌드박스 안에서 실행된다.
 # 여러 규칙이 맞으면 가장 엄격한 결정(forbidden > prompt > allow)을 적용한다.
 
 prefix_rule(pattern=["git", "commit"], decision="prompt")
@@ -65,6 +65,7 @@ prefix_rule(pattern=["rm"], decision="prompt")
 prefix_rule(pattern=["rmdir"], decision="prompt")
 
 prefix_rule(pattern=["sed"], decision="forbidden")
+prefix_rule(pattern=["cd"], decision="forbidden")
 prefix_rule(pattern=["git", "rebase"], decision="forbidden")
 prefix_rule(pattern=["git", "revert"], decision="forbidden")
 prefix_rule(pattern=["git", "cherry-pick"], decision="forbidden")

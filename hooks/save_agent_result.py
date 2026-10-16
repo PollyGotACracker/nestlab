@@ -6,7 +6,9 @@
   `조사·반증 루프` 표에 회차 행을 추가한다.
 - reviewer 검수는 저장하지 않는다. 판정은 director가 상태 문서 `검수 결과`에 기록한다.
 - 작업 ID는 하위 기록 첫 요청의 `입력 문서:`·`상태 문서:` 줄에서 읽는다.
-  반증 요청처럼 문서 줄이 없으면 Claude는 ACTIVE의 researcher 값, Codex는 부모 thread 첫 요청에서 찾는다.
+  `조사 문서:` 줄이 없는 이전 형식 반증 요청이면 Claude는 ACTIVE의 researcher 값, Codex는 부모 thread 첫 요청에서 찾는다.
+- 저장할 칸이 없으면 `조사 단계 원문` 절 끝에 칸을 만들어 저장한다. 절도 없으면 문서 끝에 만든다.
+- SubagentHandback 보고가 `결과 저장:` 한 줄이고 그 칸이 조사 문서에 실제로 있으면(sub_docs.saved_report 판정) 저장하지 않는다.
 - 조사 문서가 없으면 아무것도 하지 않는다. 출력은 없다. 오류는 통과한다(fail-open).
 
 공용 모듈(common/): sub_call, sub_docs, sub_role
@@ -22,17 +24,18 @@ from pathlib import Path
 # 공용 모듈 폴더를 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
-from sub_call import VERDICT, refute_mode, verdict_problem
-from sub_docs import active, doc, task_id
+from sub_call import VERDICT, refute_mode
+from sub_docs import active, doc, saved_report, task_id
 from sub_role import codex_rollout, first_prompt, parent_thread, resolve_role
-from sub_session import handback_report
+from sub_session import agent_transcript, handback_report
 
 LOOP_ROW = re.compile(r"^\| *(\d+) *\|", re.M)
 MAX_ROUNDS = 2
+SAVED = "결과 저장:"
 
 
 def transcript(data: dict, runner: str) -> str:
-    path = data.get("agent_transcript_path")
+    path = agent_transcript(data)
     if path:
         return path
     return codex_rollout(data.get("agent_id")) if runner == "codex" else ""
@@ -63,19 +66,24 @@ def replace_block(text: str, title: str, body: str) -> str:
     return pattern.sub(lambda m: f"{m.group(1)}{fence}\n{body}\n{fence}", text, count=1)
 
 
+def insert_blocks(text: str, blocks: str) -> str:
+    """`조사 단계 원문` 절 끝에 블록을 덧붙인다. 절이 없으면 문서 끝에 절을 만든다."""
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, l in enumerate(lines) if l.strip() == "## 조사 단계 원문"), None)
+    if start is None:
+        return text.rstrip("\n") + "\n\n## 조사 단계 원문\n" + blocks
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    head = "".join(lines[:end]).rstrip("\n") + "\n"
+    tail = "".join(lines[end:])
+    return head + blocks + ("\n" + tail if tail else "")
+
+
 def add_round_blocks(text: str, request: str, message: str) -> str:
     """`조사 단계 원문` 절 끝에 이번 회차의 반증 요청과 반증 원문 블록을 덧붙인다."""
     n = len(LOOP_ROW.findall(text)) + 1
     blocks = "".join(f"\n### {n}회차 반증 {kind}\n\n{fence_for(body)}\n{body}\n{fence_for(body)}\n"
                      for kind, body in (("요청", request.strip()), ("원문", message)))
-    lines = text.splitlines(keepends=True)
-    start = next((i for i, l in enumerate(lines) if l.strip() == "## 조사 단계 원문"), None)
-    if start is None:
-        return text
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    head = "".join(lines[:end]).rstrip("\n") + "\n"
-    tail = "".join(lines[end:])
-    return head + blocks + ("\n" + tail if tail else "")
+    return insert_blocks(text, blocks)
 
 
 def add_loop_row(text: str, message: str) -> str:
@@ -95,6 +103,22 @@ def add_loop_row(text: str, message: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
+def write_result(target: Path, prompt: str, message: str, refute: bool) -> None:
+    """조사 문서에 결과를 쓴다. 이미 기록한 반증 보고면 쓰지 않는다."""
+    text = target.read_text(encoding="utf-8")
+    if refute:
+        if message in text:  # 같은 보고로 다시 멈춘 경우는 이미 기록했다.
+            return
+        text = add_loop_row(add_round_blocks(text, prompt, message), message)
+    else:
+        replaced = replace_block(text, "최종 조사 원문", message)
+        if replaced == text and not re.search(r"^#{2,3} 최종 조사 원문", text, re.M):
+            fence = fence_for(message)
+            replaced = insert_blocks(text, f"\n### 최종 조사 원문\n\n{fence}\n{message}\n{fence}\n")
+        text = replaced
+    target.write_text(text, encoding="utf-8")
+
+
 def save(data: dict, runner: str) -> None:
     role = resolve_role(data)
     if role not in ("researcher", "reviewer"):
@@ -106,22 +130,15 @@ def save(data: dict, runner: str) -> None:
         return
     prompt = first_prompt(path) or "\n".join(str(v) for v in (data.get("tool_input") or {}).values())
     refute = role == "reviewer" and refute_mode(prompt)
-    if role == "reviewer" and not refute:
+    if saved_report(message, data.get("cwd"), refute):  # 이미 저장해 경로로 바뀐 보고는 덮어쓰지 않는다.
         return
-    if refute and verdict_problem(message):  # check_refute_verdict가 차단하는 보고는 다시 쓴 뒤에 저장한다.
+    if role == "reviewer" and not refute:
         return
     tid = find_task(data, runner, path, prompt)
     target = doc(tid, "research", data.get("cwd")) if tid else None
     if not target or not target.is_file():
         return
-    text = target.read_text(encoding="utf-8")
-    if refute:
-        if message in text:  # 같은 보고로 다시 멈춘 경우는 이미 기록했다.
-            return
-        text = add_loop_row(add_round_blocks(text, prompt, message), message)
-    else:
-        text = replace_block(text, "최종 조사 원문", message)
-    target.write_text(text, encoding="utf-8")
+    write_result(target, prompt, message, refute)
 
 
 def main() -> int:

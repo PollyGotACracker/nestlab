@@ -4,7 +4,7 @@
 - Claude: hook 입력의 transcript_path.
 - Codex: ~/.codex/sessions/**/rollout-*-<session_id>.jsonl (CODEX_HOME이 있으면 그 아래).
 
-사용: check_refute_verdict.py, check_tool_use.py, record_incident.py
+사용: check_tool_use.py, record_incident.py
 """
 from __future__ import annotations
 
@@ -26,6 +26,19 @@ def session_path(data: dict, runner: str) -> str:
         if found:
             return str(found)
     return data.get("transcript_path", "")
+
+
+def agent_transcript(data: dict) -> str:
+    """하위 에이전트 기록 경로이다. agent_transcript_path가 없으면 <세션 폴더>/subagents/agent-<agent_id>.jsonl이다."""
+    path = data.get("agent_transcript_path")
+    if path:
+        return path
+    parent, agent = data.get("transcript_path"), data.get("agent_id")
+    if parent and agent:
+        found = Path(parent).with_suffix("") / "subagents" / f"agent-{agent}.jsonl"
+        if found.is_file():
+            return str(found)
+    return ""
 
 
 def _claude_entry(d: dict) -> dict | None:

@@ -65,14 +65,13 @@ class SaveResult(unittest.TestCase):
         self.assertNotIn("회차 반증", text)
 
     def test_refute_saved_with_loop_row(self):
-        (self.state / ".active").mkdir()
-        (self.state / ".active" / "s1.json").write_text('{"researcher": "t"}', encoding="utf-8")
-        text = self.stop("ricky", "작업 종류: 반증\n주장: x", "- 주장 1: 반증 | 출처: https://a.example")
-        self.assertIn("### 1회차 반증 요청\n\n```\n작업 종류: 반증\n주장: x\n```", text)
+        ask = "작업 종류: 반증\n조사 문서: log/state/t-research.md"
+        text = self.stop("ricky", ask, "- 주장 1: 반증 | 출처: https://a.example")
+        self.assertIn(f"### 1회차 반증 요청\n\n```\n{ask}\n```", text)
         self.assertIn("### 1회차 반증 원문\n\n```\n- 주장 1: 반증 | 출처: https://a.example\n```", text)
         self.assertIn("| 1 | 1 | 계속 |", text)
-        text = self.stop("ricky", "작업 종류: 반증\n주장: y", "- 주장 1: 지지 | 출처: https://b.example")
-        self.assertIn("### 2회차 반증 요청\n\n```\n작업 종류: 반증\n주장: y\n```", text)
+        text = self.stop("ricky", ask, "- 주장 1: 지지 | 출처: https://b.example")
+        self.assertIn(f"### 2회차 반증 요청\n\n```\n{ask}\n```", text)
         self.assertIn("| 2 | 0 | 정지(반증 0건) |", text)
         self.assertLess(text.index("### 2회차 반증 원문"), text.index("## 후보 비교"))
         self.assertIn("주장 1: 반증", text)
@@ -109,17 +108,24 @@ class SaveResult(unittest.TestCase):
         self.assertIn("```\n재조사 보고\n```", text)
         self.assertNotIn("조사 보고 원문", text)
 
-    def test_refute_blocked_then_rewritten_saves_once(self):
-        (self.state / ".active").mkdir()
-        (self.state / ".active" / "s1.json").write_text('{"researcher": "t"}', encoding="utf-8")
-        ask = "작업 종류: 반증\n주장: x"
-        self.assertEqual(self.stop_with_handback("ricky", ask, "", "결론만"), RESEARCH)
-        good = "- 주장 1: 지지 | 출처: https://a.example"
-        self.stop_with_handback("ricky", ask, good, "")
-        text = self.stop_with_handback("ricky", ask, good, "후속")
+    def test_refute_without_verdict_line_saves_once(self):
+        ask = "작업 종류: 반증\n조사 문서: log/state/t-research.md"
+        report = "판정 줄 없는 보고"
+        self.stop_with_handback("ricky", ask, report, "")
+        text = self.stop_with_handback("ricky", ask, report, "후속")
+        self.assertIn(report, text)
         self.assertEqual(text.count("| 1 | 0 |"), 1)
         self.assertEqual(text.count("회차 반증 요청"), 1)
         self.assertEqual(text.count("회차 반증 원문"), 1)
+
+    def test_missing_slot_created(self):
+        ask = "작업 종류: 조사\n조사 문서: log/state/t-research.md"
+        self.doc.write_text("# 조사 문서: t\n\n## 조사 단계 원문\n\n## 후보 비교\n", encoding="utf-8")
+        text = self.stop("nico", ask, "후보 A")
+        self.assertIn("### 최종 조사 원문\n\n```\n후보 A\n```", text)
+        self.assertLess(text.index("### 최종 조사 원문"), text.index("## 후보 비교"))
+        self.doc.write_text("# 조사 문서: t\n", encoding="utf-8")
+        self.assertIn("## 조사 단계 원문\n\n### 최종 조사 원문\n\n```\n후보 B\n```", self.stop("nico", ask, "후보 B"))
 
     def test_review_not_saved(self):
         text = self.stop("ricky", "작업 종류: 검수\n입력 문서: log/state/t-input.md", "PASS")

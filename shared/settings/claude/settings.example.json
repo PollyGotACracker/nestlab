@@ -126,6 +126,7 @@
     "deny": [
       "Agent(fork)",
       "Bash(sed *)",
+      "Bash(cd *)",
       "Bash(git rebase *)",
       "Bash(git revert *)",
       "Bash(git cherry-pick *)",
@@ -201,17 +202,22 @@
             "statusMessage": "Nestlab 승인·입력·쓰기 범위 검사"
           }
         ]
+      },
+      {
+        "matcher": "SubagentHandback",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_research.py\"",
+            "timeout": 10,
+            "statusMessage": "Nestlab 조사 결과 저장"
+          }
+        ]
       }
     ],
     "SubagentStop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_refute_verdict.py\"",
-            "timeout": 10,
-            "statusMessage": "Nestlab 반증 판정 검사"
-          },
           {
             "type": "command",
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_agent_result.py\" --runner claude",
@@ -230,6 +236,17 @@
             "command": "\"<PYTHON>\" \"<NESTLAB>/tools/check_doc_rule.py\" --hook",
             "timeout": 30,
             "statusMessage": "Nestlab 지침 검사"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/return_research_path.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Nestlab 조사 문서 경로 반환"
           }
         ]
       }

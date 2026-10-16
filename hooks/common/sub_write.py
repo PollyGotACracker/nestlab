@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# ponytail: Bash 쓰기 판정은 패턴 기반이다. 우회는 sandbox_mode·readonly가 2차로 막는다.
+# ponytail: Bash 쓰기 판정은 패턴 기반이다. 우회한 저장소 밖 쓰기는 Codex workspace-write 샌드박스와 Claude Code readonly가 2차로 막는다.
 # 따옴표 안 문자열은 지우고 본다. 리다이렉트 대상이 &(2>&1)·null 장치(/dev/null, $null, NUL)면 쓰기로 보지 않는다.
 QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
 WRITE_BASH = re.compile(r"(^|[;&|]\s*)(rm|mv|cp|mkdir|touch|tee|Set-Content|Out-File|New-Item|Remove-Item)\b"

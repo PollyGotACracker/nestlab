@@ -5,9 +5,10 @@
 #   금지: 보안 문서 읽기·쓰기, 세션 경로 밖 접근, ~/.claude·~/.codex 쓰기 (hooks/check_tool_use.py)
 # 보안 문서 목록은 `~/.claude/settings.json`의 `permissions.deny` `Read(...)` 항목을 hook이 읽는다.
 
-# sandbox를 쓰지 않아 rules가 모든 명령에 적용된다.
+# workspace-write: 저장소 안 쓰기만 허용하고 네트워크는 끈다.
+# rules의 forbidden은 샌드박스와 무관하게 적용되고, 샌드박스 밖 실행은 승인을 묻는다.
 # `approvals_reviewer = "auto_review"`는 승인 요청을 사용자 대신 처리하므로 쓰지 않는다.
-sandbox_mode = "danger-full-access"
+sandbox_mode = "workspace-write"
 approval_policy = "on-request"
 
 [features]
@@ -48,13 +49,6 @@ statusMessage = "Nestlab 승인·입력·쓰기 범위 검사"
 
 [[hooks.SubagentStop.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/hooks/check_refute_verdict.py"'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_refute_verdict.py"'
-timeout = 10
-statusMessage = "Nestlab 반증 판정 검사"
-
-[[hooks.SubagentStop.hooks]]
-type = "command"
 command = '"<PYTHON>" "<NESTLAB>/hooks/save_agent_result.py" --runner codex'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/save_agent_result.py" --runner codex'
 timeout = 10
@@ -69,6 +63,16 @@ command = '"<PYTHON>" "<NESTLAB>/tools/check_doc_rule.py" --hook'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/tools/check_doc_rule.py" --hook'
 timeout = 30
 statusMessage = "Nestlab 지침 검사"
+
+[[hooks.PostToolUse]]
+matcher = "spawn_agent"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/return_research_path.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/return_research_path.py" --runner codex'
+timeout = 10
+statusMessage = "Nestlab 조사 문서 경로 반환"
 
 [[hooks.Stop]]
 

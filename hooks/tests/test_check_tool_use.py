@@ -233,10 +233,13 @@ class WriteScope(unittest.TestCase):
         self.assertIsNone(hook.check(data, "claude"))
 
     def test_rework_continues_without_new_approval(self):
-        prompt = "작업 종류: 재작업\n입력 문서: log/state/t-input.md"
-        self.assertIsNotNone(self.agent(prompt, "이 부분 고쳐"))
-        (self.state / "t-input.md").write_text(INPUT_APPROVED, encoding="utf-8")
-        self.assertIsNone(self.agent(prompt, "이 부분 고쳐"))
+        path = self.state / "t-input.md"
+        for kind in sub_approval.IN_SCOPE:
+            prompt = f"{kind}\n입력 문서: log/state/t-input.md"
+            path.unlink(missing_ok=True)
+            self.assertIsNotNone(self.agent(prompt, "이 부분 고쳐"), kind)
+            path.write_text(INPUT_APPROVED, encoding="utf-8")
+            self.assertIsNone(self.agent(prompt, "이 부분 고쳐"), kind)
 
     # 하위 에이전트 호출 승인 (Codex 하위 thread)
     def test_codex_child_needs_parent_approval(self):
@@ -444,7 +447,8 @@ class CodexPath(unittest.TestCase):
 STATE_IN = "상태 문서: log/state/20261006-0555-x.md\n절: 요구사항 목록"
 RESEARCH_IN = "작업 종류: 조사\n조사 문서: log/state/20261006-0555-x-research.md"
 INPUT_IN = "입력 문서: log/state/20261006-0555-x-input.md"
-REFUTE = "작업 종류: 반증\n주장: 1. 변경이 요구를 충족한다.\n증거: 코드 발췌\n출처: hooks/a.py:12\n판정 기준: 요구 충족\n원문 발췌: 확인할 원문"
+REFUTE = "작업 종류: 반증\n조사 문서: log/state/20261006-0555-x-research.md"
+OLD_REFUTE = "작업 종류: 반증\n주장: 1. 변경이 요구를 충족한다.\n증거: 코드 발췌\n출처: hooks/a.py:12\n판정 기준: 요구 충족\n원문 발췌: 확인할 원문"
 
 
 def claude(target, prompt, sub=False):
@@ -522,7 +526,8 @@ class AgentInput(unittest.TestCase):
                    REFUTE + "\n전체 대화: 이전 대화", REFUTE + "\n도구 출력: 로그",
                    REFUTE + "\n중간 설명: 작업 설명", REFUTE + "\n추론: 사고 과정",
                    REFUTE + "\n이전 대화 요약", REFUTE.replace("작업 종류: 반증\n", ""),
-                   "작업 종류: 반증", "작업 종류: 반증\n주장: ")
+                   "작업 종류: 반증", "작업 종류: 반증\n주장: ", OLD_REFUTE,
+                   REFUTE.replace("조사 문서", "상태 문서").replace("-research", ""))
         for runner, make in (("claude", claude), ("codex", codex)):
             for target in sub_call.REVIEWER:
                 with self.subTest(runner=runner, target=target):
@@ -531,7 +536,14 @@ class AgentInput(unittest.TestCase):
                     for prompt in invalid:
                         self.assertIsNotNone(self.check(make(target, prompt), runner), prompt)
         self.assertIsNone(self.check(claude("ricky", REFUTE, sub=True), "claude"))
+        self.assertIsNotNone(self.check(claude("ricky", OLD_REFUTE, sub=True), "claude"))
         self.assertIsNotNone(self.check(claude("ricky", REFUTE + "\n전체 대화: 로그", sub=True), "claude"))
+
+    def test_researcher_cannot_call_any_agent(self):
+        for target, prompt in (("ricky", REFUTE), ("reviewer", INPUT_IN), ("jelly", INPUT_IN), ("pepper", STATE_IN)):
+            with self.subTest(target=target):
+                data = {**claude(target, prompt, sub=True), "agent_type": "researcher"}
+                self.assertIsNotNone(self.check(data, "claude"))
 
     def test_general_review_and_worker_allow_path_only(self):
         for runner, make in (("claude", claude), ("codex", codex)):

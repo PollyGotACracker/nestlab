@@ -42,6 +42,32 @@ def task_id(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+SAVED_REPORT = re.compile(r"^결과 저장: (log/state/[\w.\-]+-research\.md) (\S.*)$")
+
+
+def saved_report(report: str, cwd: str | Path | None = None, refute: bool = False) -> bool:
+    """report가 하네스가 만든 `결과 저장:` 한 줄이고 그 칸이 조사 문서에 실제로 있을 때만 True이다.
+
+    반증이면 칸이 마지막 회차 `<n>회차 반증 원문`이어야 한다.
+    """
+    m = SAVED_REPORT.match((report or "").strip())
+    if not m:
+        return False
+    try:
+        text = (project_root(cwd) / m.group(1)).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    slot = m.group(2).strip()
+    block = re.search(rf"^#{{2,3}} {re.escape(slot)}[^\n]*\n+(`{{3,}})[^\n]*\n(.*?)\n\1[ \t]*$", text, re.M | re.S)
+    body = block.group(2).strip() if block else ""
+    if not body:
+        return False
+    if refute:
+        rounds = [int(n) for n in re.findall(r"^#{2,3} (\d+)회차 반증 원문", text, re.M)]
+        return bool(rounds) and slot == f"{max(rounds)}회차 반증 원문"
+    return True
+
+
 def section(text: str, title: str) -> str:
     """title로 시작하는 제목 절의 본문을 같은 수준 이상의 다음 제목 전까지 반환한다. 없으면 빈 문자열이다."""
     out: list[str] = []

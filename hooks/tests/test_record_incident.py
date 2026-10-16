@@ -77,9 +77,75 @@ class RecordIncident(unittest.TestCase):
                    "제가 번호를 잘못 맞췄습니다.", "확정 8을 제가 직접 어긴 것입니다.",
                    "지금 실제 파일 확인 안 하고 제안했습니다.", "제가 근거 없이 말했습니다.",
                    "제 분류 착오였습니다.", "제가 엉뚱한 쪽으로 갔어요.", "계속 망가뜨리고 있습니다.",
-                   "앞의 제안은 철회합니다.", "토큰을 크게 낭비했습니다.")
+                   "앞의 제안은 철회합니다.", "토큰을 크게 낭비했습니다.",
+                   "저의 착오였습니다.", "저의 잘못입니다.", "저의 판단 실수입니다.",
+                   "제가 잘못된 판단을 했습니다.")
         for text in samples:
             self.assertTrue(hook.ADMIT.search(text), text)
+
+    def test_block_reason_returned(self):
+        reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요."})
+        self.assertIn("(놓쳤)", reason)
+        self.assertIn("log/incident/", reason)
+        self.assertIn("예방 행동", reason)
+
+    def test_block_reason_has_cause_rule(self):
+        reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요."})
+        self.assertIn("그 규칙이 지켜지지 않은 원인", reason)
+
+    def test_stop_hook_active_records_without_block(self):
+        reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.",
+                              "stop_hook_active": True})
+        self.assertIsNone(reason)
+        self.assertEqual(len(list(self.dir.glob("*.md"))), 1)
+
+    def test_inline_code_ignored(self):
+        self.assertEqual(self.run_hook("정규식에 `떠넘겼`, `이미 지적`을 추가했어요."), [])
+
+    def test_guideline_noncompliance_detected(self):
+        for text in ("정해진 절차를 끝까지 적용하지 않았습니다.", "착수 승인도 받지 않았습니다.",
+                     "스킬을 적용하지 않았습니다.", "지침을 따르지 않았습니다.", "Skill을 읽지 않았습니다."):
+            with self.subTest(text=text):
+                self.assertTrue(hook.ADMIT.search(text))
+        for text in ("Codex 세션은 아직 확인하지 않았습니다.", "Skill 원문과 기존 변경은 확인했습니다."):
+            with self.subTest(text=text):
+                self.assertIsNone(hook.ADMIT.search(text))
+
+    def test_attached_hangul_prefix_ignored(self):
+        for text in ("실제 실수를 인정하는 문장입니다.", "문제 잘못 표기를 고칩니다.", "시행착오를 줄입니다.",
+                     "제가 보기엔 잘못된 설계입니다.", "제 판단엔 잘못되었습니다."):
+            with self.subTest(text=text):
+                self.assertIsNone(hook.ADMIT.search(text))
+
+    def test_attached_hangul_prefix_detected(self):
+        self.assertTrue(hook.ADMIT.search("승인하실 일은 없습니다."))
+
+    def test_quoted_text_ignored(self):
+        for text in ('패턴을 "확인하지 않고"로 바꿨어요.', "패턴을 '놓쳤'으로 바꿨어요.",
+                     "패턴을 “빠뜨”로 바꿨어요.", "패턴을 ‘어겼’으로 바꿨어요."):
+            with self.subTest(text=text):
+                self.assertEqual(self.run_hook(text), [])
+
+    def test_unverified_scope_report_ignored(self):
+        self.assertEqual(self.run_hook("Codex 세션은 아직 확인하지 않았습니다."), [])
+        self.assertEqual(len(self.run_hook("파일을 확인하지 않고 고쳤습니다.")), 1)
+
+    def test_many_types_blocks(self):
+        reason = hook.record({"session_id": "abcdef123456",
+                              "last_assistant_message": "죄송, 엉뚱, 놓쳤, 어겼, 근거 없이 목록입니다."})
+        self.assertIsNotNone(reason)
+        self.assertEqual(len(list(self.dir.glob("*.md"))), 1)
+
+    def test_entry_inserted_before_analysis(self):
+        file = self.run_hook("놓쳤어요.")[0]
+        file.write_text(file.read_text(encoding="utf-8") + "\n## 원인과 처리\n\n- 분석\n", encoding="utf-8")
+        self.run_hook("빠뜨렸어요.")
+        text = file.read_text(encoding="utf-8")
+        self.assertLess(text.index("감지 표현: 빠뜨"), text.index("## 원인과 처리"))
+        self.assertTrue(text.endswith("- 분석\n"))
+
+    def test_plain_response_no_reason(self):
+        self.assertIsNone(hook.record({"session_id": "abcdef123456", "last_assistant_message": "완료"}))
 
     def test_plain_response_ignored(self):
         self.assertEqual(self.run_hook("검증을 끝냈어요."), [])

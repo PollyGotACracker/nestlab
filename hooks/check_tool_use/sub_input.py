@@ -9,10 +9,9 @@
 - documenter·worker·reviewer·researcher와 해당 별칭만 검사한다. 다른 에이전트는 통과한다.
 - worker·reviewer 일반 검수는 `작업 종류` 줄과 입력 문서 경로 한 줄만 허용한다.
 - 첫 줄이 `작업 종류: <값>`이면 그 줄을 뺀 나머지 줄로 입력 형식을 검사한다.
-- reviewer 반증 입력은 `작업 종류: 반증` 한 줄과 `주장:`·`증거:`·`출처:`·`판정 기준:`·`원문 발췌:` 필드만 허용한다.
-  필드 값은 한 줄이고 여러 줄 발췌는 JSON 문자열의 줄바꿈 이스케이프 등으로 표현한다.
-  표식은 정확히 1개이며 비어 있지 않은 `주장:` 필드가 1개 이상 있어야 한다.
-  다른 입력 형식·대화·도구 로그 줄을 섞으면 차단한다.
+- reviewer 반증 입력은 `작업 종류: 반증` 한 줄과 `조사 문서: log/state/<작업-id>-research.md` 한 줄만 허용한다.
+  주장 목록은 reviewer가 조사 원문에서 직접 뽑는다. 다른 줄·대화·도구 로그 줄을 섞으면 차단한다.
+- researcher 안의 하위 에이전트 호출은 모두 차단한다.
 - 대상이 documenter이고 형식이 아니면 기록·문서 요청이므로 통과한다.
 - Claude 하위 호출은 reviewer 대상일 때만 입력 경계를 검사한다.
 - Codex는 호출자의 미관측 필드를 추정하지 않고 대상과 요청 본문의 명시적 표식으로 검사한다.
@@ -27,7 +26,7 @@ from __future__ import annotations
 
 import re
 
-from sub_call import DOCUMENTER, REFUTE_MARKER, RESEARCHER, REVIEWER, ROLES, WORKER_REVIEWER, call_info, refute_mode
+from sub_call import DOCUMENTER, REFUTE_MARKER, RESEARCHER, REVIEWER, ROLES, WORKER_REVIEWER, call_info
 from sub_role import resolve_role
 
 INPUT_LINE = re.compile(r"^입력 문서: log/state/[\w.\-]+-input\.md$")
@@ -35,7 +34,6 @@ STATE_LINE = re.compile(r"^상태 문서: log/state/[\w.\-]+(?<!-input)\.md$")
 RESEARCH_LINE = re.compile(r"^조사 문서: log/state/[\w.\-]+-research\.md$")
 ID_LINE = re.compile(r"^(절|항목): .+$")
 KIND_LINE = re.compile(r"^작업 종류: .+$")
-REFUTE_LINE = re.compile(r"^(주장|증거|출처|판정 기준|원문 발췌): \S.*$")
 
 
 def is_main(data: dict, target: str, runner: str) -> bool:
@@ -65,8 +63,7 @@ def is_format(prompt: str, target: str = "") -> bool:
 
 def is_refute_format(prompt: str) -> bool:
     lines = [line.strip() for line in prompt.splitlines() if line.strip()]
-    return (refute_mode(prompt) and any(line.startswith("주장: ") for line in lines)
-            and all(line == REFUTE_MARKER or REFUTE_LINE.fullmatch(line) for line in lines))
+    return len(lines) == 2 and lines[0] == REFUTE_MARKER and bool(RESEARCH_LINE.match(lines[1]))
 
 
 def check_input(data: dict, runner: str) -> str | None:
@@ -74,10 +71,10 @@ def check_input(data: dict, runner: str) -> str | None:
     target, prompt = call_info(data)
     if target not in ROLES:
         return None
-    if data.get("agent_id") and resolve_role(data) == "researcher" and target not in REVIEWER:
-        return "researcher는 reviewer만 호출할 수 있습니다."
+    if data.get("agent_id") and resolve_role(data) == "researcher":
+        return "researcher는 다른 에이전트를 호출할 수 없습니다."
     if target in REVIEWER and any(line.strip() == REFUTE_MARKER for line in prompt.splitlines()):
-        return None if is_refute_format(prompt) else "반증 요청은 `작업 종류: 반증` 한 줄과 주장·증거·출처·판정 기준·원문 발췌 필드만 허용합니다."
+        return None if is_refute_format(prompt) else "반증 요청은 `작업 종류: 반증` 한 줄과 `조사 문서: log/state/<작업-id>-research.md` 한 줄만 허용합니다."
     if target not in REVIEWER and not is_main(data, target, runner) or target in DOCUMENTER and not is_format(prompt):
         return None
     if is_format(prompt, target):
