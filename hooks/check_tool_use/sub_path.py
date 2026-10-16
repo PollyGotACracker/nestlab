@@ -2,7 +2,8 @@
 - Claude와 Codex 모두 읽기·쓰기를 판정한다. Claude의 읽기 대상에는 Read·Grep·Glob 도구가 포함된다.
 
 - 보안 문서는 읽기·쓰기를 deny한다. 목록은 `~/.claude/settings.json` `permissions.deny`의 `Read(...)` 항목이다.
-- Git 프로젝트 루트 밖 경로는 deny한다. Git이 없으면 cwd를 기준으로 한다. `~/.claude`·`~/.codex`는 읽기만 허용한다.
+- Git 프로젝트 루트 밖 경로는 deny한다. Git이 없으면 cwd를 기준으로 한다.
+- `~/.claude`·`~/.codex`는 읽기·쓰기를 통과시킨다. 쓰기 확인은 Claude 설정 ask와 Codex 샌드박스 승인이 맡고, 인증 파일은 보안 문서 deny로 막는다.
 - 전역 Skill과 연결된 원본·내부 자료 및 local.json은 읽기만 허용한다. Skill 폴더 밖 링크는 차단한다.
 - local.json의 Nodebase 안에는 기존 승인 규칙을 적용한다.
 - OS 임시 폴더(`tempfile.gettempdir()`)는 읽기·쓰기를 허용한다. 보안 문서 deny는 임시 폴더에도 적용한다.
@@ -32,6 +33,8 @@ READ_RULE = re.compile(r"^Read\((.+)\)$")
 SPLIT = re.compile(r"[\s;&|<>()=]+")
 TOKEN = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s;&|<>()=\"']+")
 GIT_BASH = re.compile(r"^/([a-zA-Z])/")
+DRIVE = re.compile(r"^[a-zA-Z]:")
+ESCAPE = re.compile(r"\\[ntr0abfv\\]")
 
 
 def secret_patterns() -> list[str]:
@@ -91,6 +94,13 @@ def is_secret(path: str, patterns: list[str]) -> bool:
     return False
 
 
+def is_escape_text(token: str) -> bool:
+    """`'a\\nb'`처럼 이스케이프 시퀀스뿐인 문자열이다. 드라이브·UNC·상위·홈 표기와 슬래시 경로는 해당하지 않는다."""
+    if "/" in token or DRIVE.match(token) or token.startswith(("..", "~", "\\\\")):
+        return False
+    return "\\" in token and "\\" not in ESCAPE.sub("", token)
+
+
 def command_paths(command: str) -> list[tuple[str, bool]]:
     """(토큰, 경로 표기 여부)이다."""
     out = []
@@ -98,6 +108,8 @@ def command_paths(command: str) -> list[tuple[str, bool]]:
         quoted = token[0] in "\"'"
         token = token.strip("\"'")
         if quoted and SPLIT.search(token):  # 따옴표 안 문장·패턴은 경로가 아니다.
+            continue
+        if quoted and is_escape_text(token):
             continue
         if not token or token.startswith("-") or "://" in token or token == "/dev/null":
             continue
@@ -161,9 +173,7 @@ def check_paths(data: dict, runner: str) -> str | None:
             continue
         if in_temp(path):
             continue
-        if any(inside(path, g) for g in GLOBAL):
-            if write:
-                return f"~/.claude·~/.codex는 읽기만 허용합니다: {token}"
+        if any(inside(path, g) for g in GLOBAL):  # 쓰기는 설정 ask와 샌드박스 승인에 맡기고, 인증 파일은 보안 문서 판정이 막는다.
             continue
         return f"세션 경로 밖 접근은 허용하지 않습니다: {token}"
     return None

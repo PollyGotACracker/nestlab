@@ -71,6 +71,14 @@ class RecordIncident(unittest.TestCase):
                 self.assertEqual(text.count("  - 사용자 메시지:"), 2)
                 self.assertEqual(text.count("  - 응답 발췌:"), 2)
 
+    def test_entry_goes_before_next_section(self):
+        path = self.run_hook("놓쳤어요.")[0]
+        path.write_text(path.read_text(encoding="utf-8") + "\n## 사건 경과\n\n경과\n\n## 원인과 처리\n", encoding="utf-8")
+        self.run_hook("빠뜨렸어요.")
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count("감지 표현"), 2)
+        self.assertLess(text.rindex("감지 표현"), text.index("## 사건 경과"))
+
     def test_real_admissions_detected(self):
         samples = ("네, 제 잘못입니다.", "둘 다 제가 틀렸습니다.", "오늘 docs를 빼먹었습니다.",
                    "# 루프 설계 (빠뜨린 부분)", "제 사전 검토 누락입니다.", "제가 지시를 잘못 해석해서 적었습니다.",

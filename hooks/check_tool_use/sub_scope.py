@@ -1,7 +1,8 @@
 """역할별 쓰기 범위이다.
 
 - director 메인 세션:
-  - log/ 밖 쓰기(Bash 쓰기 포함)는 사용자 마지막 메시지가 승인 명령으로 끝날 때만 허용한다. log/state/.active는 hook 전용이다.
+  - log/ 밖 쓰기(Bash 쓰기 포함)는 사용자 마지막 메시지가 승인 명령으로 끝날 때만 허용한다. OS 임시 폴더는 sub_path와 같이 승인 없이 허용한다.
+    log/state/.active는 hook 전용이다.
   - Bash 읽기 명령은 검사하지 않는다.
   - `승인 상태: 승인` 줄을 새로 쓰려면 사용자 마지막 메시지가 승인 명령으로 끝나야 한다.
   - 조사 문서는 sub_research 원문 보존, 입력 문서는 sub_plan 계획 검사와 sub_research 결정 확인을 거친다.
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from sub_approval import APPROVED, approved, last_user
 from sub_docs import project_root
+from sub_path import in_temp
 from sub_plan import check_plan
 from sub_research import check_decision, check_raw
 from sub_write import added_lines, read
@@ -32,7 +34,7 @@ def rel(path: Path, root: Path) -> str:
 def check_director_write(data: dict, paths: list[Path]) -> str | None:
     root = project_root(data.get("cwd"))
     user, _ = last_user(data.get("transcript_path"))
-    outside = not paths or any(not rel(path, root).startswith(DIRECTOR) for path in paths)
+    outside = not paths or any(not rel(path, root).startswith(DIRECTOR) and not in_temp(str(path)) for path in paths)
     if outside and not approved(user):
         return "director는 승인 없이 log/ 밖에 쓸 수 없습니다. 사용자 마지막 메시지에 승인이 없습니다."
     if any(rel(path, root).startswith("log/state/.active") for path in paths):

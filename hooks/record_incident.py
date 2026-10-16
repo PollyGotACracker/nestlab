@@ -9,7 +9,7 @@
 - 세션 경로를 사용하여 내부적으로 원문을 조회하고, 사용자 메시지와 응답은 경로 제거 뒤 코드 블록에 원문대로 기록한다.
 - 기록 뒤 {"decision": "block", "reason": ...}를 출력해 근거를 확인한 원인과 예방 행동 작성 뒤 응답을 다시 쓰게 한다.
   stop_hook_active이면 기록만 하고 출력하지 않는다(턴당 1회 차단).
-- 사건 문서에 `## 원인과 처리` 절이 있으면 감지 기록을 그 앞에 넣는다.
+- 감지 기록은 `## 감지 기록` 절 끝(다음 `## ` 절 앞)에 넣는다. 그 절이 없으면 문서 끝에 덧붙인다.
 - 오류는 통과한다(fail-open).
 
 공용 모듈(common/): sub_docs, sub_role, sub_session
@@ -42,7 +42,7 @@ ADMIT_TYPES = {
         r"|단정(?:했|한 것)|정(?:한|하신) (?:게|것이|것은|건|거) (?:아니|아님)"
     ),
     "누락·생략": (
-        r"놓(?:쳤|치고)|빠뜨|빼먹|누락(?:했|입니다|시켰)|건너뛰었"
+        r"놓(?:쳤|치고)|빠뜨|빼먹|누락(?:했|입니다|시켰)|건너뛰었(?!을 (?:수|가능성|지도))|검토하지 않았"
         r"|(?<![가-힣])제가 생략|안 했(?:습니다|어요)"
     ),
     "규칙 위반": (
@@ -66,7 +66,6 @@ ADMIT_TYPES = {
 }
 # 다른 단어의 일부로 나오는 패턴(실제 실수의 '제 실수', 시행착오의 '착오')만 앞 글자 검사를 둔다.
 ADMIT = re.compile("|".join(ADMIT_TYPES.values()))
-ANALYSIS = "\n## 원인과 처리"
 INLINE_CODE = re.compile(r"`+[^`\n]*`+|\"[^\"\n]*\"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’")
 FENCE = re.compile(r"^\s*(```|~~~)")
 TASK_REF = re.compile(r"log/state/[\w.\-]+\.md")
@@ -198,10 +197,13 @@ def record(data: dict, runner: str = "claude") -> str | None:
              f"  - 응답 발췌:\n\n"
              f"    {excerpt_fence}\n    " + excerpt.replace("\n", "\n    ") + "\n"
              f"    {excerpt_fence}\n")
-    # 분석 절이 생긴 뒤에도 감지 기록은 감지 기록 절 안에 둔다.
-    head, mark, tail = path.read_text(encoding="utf-8").partition(ANALYSIS)
-    if mark:
-        path.write_text(head + entry + mark + tail, encoding="utf-8")
+    # 다른 절이 생긴 뒤에도 감지 기록은 `## 감지 기록` 절 끝(다음 `## ` 절 앞)에 둔다.
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"^## 감지 기록[^\n]*\n(?:.*?\n)??(?=^## |\Z)", text, re.M | re.S)
+    if m:
+        head = text[:m.end()].rstrip("\n") + "\n"
+        tail = text[m.end():]
+        path.write_text(head + entry + ("\n" + tail if tail else ""), encoding="utf-8")
     else:
         with open(path, "a", encoding="utf-8") as f:
             f.write(entry)

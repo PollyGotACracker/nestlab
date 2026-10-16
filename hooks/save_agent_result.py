@@ -7,6 +7,8 @@
 - reviewer 검수는 저장하지 않는다. 판정은 director가 상태 문서 `검수 결과`에 기록한다.
 - 작업 ID는 하위 기록 첫 요청의 `입력 문서:`·`상태 문서:` 줄에서 읽는다.
   `조사 문서:` 줄이 없는 이전 형식 반증 요청이면 Claude는 ACTIVE의 researcher 값, Codex는 부모 thread 첫 요청에서 찾는다.
+- Claude reviewer 반증은 SubagentHandback 보고가 있을 때만 저장한다. Handback 없이 끝난 응답은 하네스가 다시 보고하게 하므로 저장하지 않는다.
+- 칸을 찾을 때 코드 블록 안의 `## ` 줄은 절 경계로 보지 않는다.
 - 저장할 칸이 없으면 `조사 단계 원문` 절 끝에 칸을 만들어 저장한다. 절도 없으면 문서 끝에 만든다.
 - SubagentHandback 보고가 `결과 저장:` 한 줄이고 그 칸이 조사 문서에 실제로 있으면(sub_docs.saved_report 판정) 저장하지 않는다.
 - 조사 문서가 없으면 아무것도 하지 않는다. 출력은 없다. 오류는 통과한다(fail-open).
@@ -72,7 +74,16 @@ def insert_blocks(text: str, blocks: str) -> str:
     start = next((i for i, l in enumerate(lines) if l.strip() == "## 조사 단계 원문"), None)
     if start is None:
         return text.rstrip("\n") + "\n\n## 조사 단계 원문\n" + blocks
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    end, fence = len(lines), 0
+    for i in range(start + 1, len(lines)):
+        run = re.match(r"`{3,}", lines[i])
+        if run and not fence:
+            fence = len(run.group())
+        elif run and len(run.group()) >= fence and not lines[i].strip().strip("`"):
+            fence = 0
+        elif not fence and lines[i].startswith("## "):  # 코드 블록 안의 `## ` 줄은 절 경계가 아니다.
+            end = i
+            break
     head = "".join(lines[:end]).rstrip("\n") + "\n"
     tail = "".join(lines[end:])
     return head + blocks + ("\n" + tail if tail else "")
@@ -125,11 +136,15 @@ def save(data: dict, runner: str) -> None:
         return
     path = transcript(data, runner)
     # SubagentHandback으로 넘긴 보고가 최종 결과이다. 뒤따르는 후속 응답으로 덮어쓰지 않는다.
-    message = handback_report(path) or (data.get("last_assistant_message") or "").strip()
+    report = handback_report(path)
+    message = report or (data.get("last_assistant_message") or "").strip()
     if not message:
         return
     prompt = first_prompt(path) or "\n".join(str(v) for v in (data.get("tool_input") or {}).values())
     refute = role == "reviewer" and refute_mode(prompt)
+    # Claude는 Handback 없이 끝난 응답을 하네스가 되돌려 다시 보고하게 한다. 그 응답을 저장하면 회차가 둘이 된다.
+    if refute and runner == "claude" and not report:
+        return
     if saved_report(message, data.get("cwd"), refute):  # 이미 저장해 경로로 바뀐 보고는 덮어쓰지 않는다.
         return
     if role == "reviewer" and not refute:

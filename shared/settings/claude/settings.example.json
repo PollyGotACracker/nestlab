@@ -62,6 +62,8 @@
       "Bash(git config --list *)"
     ],
     "ask": [
+      "Edit(~/.claude/settings*.json)",
+      "Edit(~/.codex/**)",
       "Bash(git commit *)",
       "Bash(git add *)",
       "Bash(git push *)",
@@ -164,8 +166,8 @@
       "Read(~/.claude/.credentials.json)",
       "Read(~/.codex/auth.json)",
       "Read(~/.codex/auth.json.bak)",
-      "Edit(~/.claude/**)",
-      "Edit(~/.codex/**)"
+      "Edit(~/.claude/.credentials.json)",
+      "Edit(~/.codex/auth.json*)"
     ]
   },
   "hooks": {

@@ -14,7 +14,7 @@ hook 입력 JSON을 stdin으로 받는다. 위반이면 permissionDecision deny�
 - sub_research: 조사 문서 원문 보존, 조사 결과 없는 확정 결정 차단
 
 검사 순서
-1. 하위 에이전트 호출(Agent·spawn_agent): 호출 승인(Claude Agent만) → 입력 형식
+1. 하위 에이전트 호출(Agent·spawn_agent): 호출 승인(Claude Agent만) → fork 차단(Codex spawn_agent만) → 입력 형식
 2. 경로: 보안 문서·세션 경로 밖
 3. Codex 하위 thread의 도구 호출: 부모 director 승인
 4. 쓰기 도구: 역할별 쓰기 범위
@@ -46,11 +46,23 @@ def deny(reason: str) -> dict:
                                    "permissionDecisionReason": reason}}
 
 
+def check_fork(data: dict, runner: str) -> str | None:
+    """Codex spawn_agent가 대화 맥락을 복제하면 차단한다(Claude `Agent(fork)` deny 대응).
+
+    fork_turns 생략 시 기본값은 "all"이다(openai/codex 이슈 보고). 필드명은 hook 입력 덤프로 확인하지 못했다.
+    """
+    if runner != "codex" or data.get("tool_name") != "spawn_agent":
+        return None
+    if (data.get("tool_input") or {}).get("fork_turns") != "none":
+        return 'fork_turns를 "none"으로 지정하지 않은 spawn_agent는 대화 맥락을 복제하므로 허용하지 않습니다.'
+    return None
+
+
 def check(data: dict, runner: str) -> str | None:
     """위반 사유를 반환한다. 통과면 None이다."""
     if data.get("tool_name") in SPAWN_TOOLS:
         reason = check_agent_call(data) if data.get("tool_name") == "Agent" else None
-        return reason or check_input(data, runner)
+        return reason or check_fork(data, runner) or check_input(data, runner)
     role = resolve_role(data)
     reason = check_paths(data, runner)
     if reason:

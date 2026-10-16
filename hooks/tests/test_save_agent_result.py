@@ -66,11 +66,11 @@ class SaveResult(unittest.TestCase):
 
     def test_refute_saved_with_loop_row(self):
         ask = "작업 종류: 반증\n조사 문서: log/state/t-research.md"
-        text = self.stop("ricky", ask, "- 주장 1: 반증 | 출처: https://a.example")
+        text = self.stop_with_handback("ricky", ask, "- 주장 1: 반증 | 출처: https://a.example", "")
         self.assertIn(f"### 1회차 반증 요청\n\n```\n{ask}\n```", text)
         self.assertIn("### 1회차 반증 원문\n\n```\n- 주장 1: 반증 | 출처: https://a.example\n```", text)
         self.assertIn("| 1 | 1 | 계속 |", text)
-        text = self.stop("ricky", ask, "- 주장 1: 지지 | 출처: https://b.example")
+        text = self.stop_with_handback("ricky", ask, "- 주장 1: 지지 | 출처: https://b.example", "")
         self.assertIn(f"### 2회차 반증 요청\n\n```\n{ask}\n```", text)
         self.assertIn("| 2 | 0 | 정지(반증 0건) |", text)
         self.assertLess(text.index("### 2회차 반증 원문"), text.index("## 후보 비교"))
@@ -117,6 +117,33 @@ class SaveResult(unittest.TestCase):
         self.assertEqual(text.count("| 1 | 0 |"), 1)
         self.assertEqual(text.count("회차 반증 요청"), 1)
         self.assertEqual(text.count("회차 반증 원문"), 1)
+
+    def test_refute_recorded_once_outside_code_block(self):
+        """Handback 저장 뒤 SubagentStop이 와도 회차 1개이고, 반증 블록은 원문 코드 블록 밖에 붙는다."""
+        import save_research
+        ask = "작업 종류: 반증\n조사 문서: log/state/t-research.md"
+        report = "반증 없음\n- 주장 1: 지지 | 출처: https://a.example"
+        for stop_message, handback in (("반증 없음\n- 주장 1: 지지 | 출처: https://a.example", True),
+                                       ("다른 문구의 마지막 응답", True), ("다른 문구의 마지막 응답", False)):
+            with self.subTest(stop_message=stop_message, handback=handback):
+                self.doc.write_text(RESEARCH.replace("기록 없음", "원문\n## 조사 결과: 가짜 제목\n본문"), encoding="utf-8")
+                path = self.root / "ricky-hb.jsonl"
+                rows = [{"type": "user", "message": {"content": ask}}]
+                if handback:
+                    rows.append({"type": "assistant", "message": {"content": [
+                        {"type": "tool_use", "name": "SubagentHandback", "input": {"message": report}}]}})
+                path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+                base = {"agent_type": "ricky", "agent_transcript_path": str(path), "session_id": "s1"}
+                if handback:  # 실제 순서: PreToolUse(SubagentHandback)가 먼저 저장한다.
+                    self.assertIsNotNone(save_research.replace(
+                        {**base, "tool_name": "SubagentHandback", "tool_input": {"message": report}}))
+                hook.save({**base, "last_assistant_message": stop_message}, "claude")
+                text = self.doc.read_text(encoding="utf-8")
+                self.assertEqual(text.count("| 1 |") + text.count("| 2 |"), 1 if handback else 0)
+                self.assertEqual(text.count("회차 반증 원문"), 1 if handback else 0)
+                if handback:
+                    self.assertGreater(text.index("### 1회차 반증 원문"), text.index("본문\n```"))
+                    self.assertLess(text.index("### 1회차 반증 원문"), text.index("## 후보 비교"))
 
     def test_missing_slot_created(self):
         ask = "작업 종류: 조사\n조사 문서: log/state/t-research.md"

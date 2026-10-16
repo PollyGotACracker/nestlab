@@ -108,7 +108,9 @@ class WriteScope(unittest.TestCase):
         self.state.mkdir(parents=True)
         self.sessions = self.root / "sessions"
         self.sessions.mkdir()
-        self.patches = [patch.object(sub_scope, "project_root", return_value=self.root),
+        self.ostemp = tempfile.TemporaryDirectory()  # 프로젝트가 임시 폴더 안에 있어도 OS 임시 폴더 판정과 분리한다.
+        self.patches = [patch.object(sub_path, "TEMP", Path(self.ostemp.name).resolve()),
+                        patch.object(sub_scope, "project_root", return_value=self.root),
                         patch.object(sub_docs, "project_root", return_value=self.root), patch.object(sub_role, "CODEX_SESSIONS", self.sessions)]
         for p in self.patches:
             p.start()
@@ -117,6 +119,7 @@ class WriteScope(unittest.TestCase):
         for p in self.patches:
             p.stop()
         self.tmp.cleanup()
+        self.ostemp.cleanup()
 
     def transcript(self, *pairs) -> str:
         path = self.root / "t.jsonl"
@@ -137,6 +140,14 @@ class WriteScope(unittest.TestCase):
         self.assertIsNotNone(self.write("hooks/a.py", "x", transcript=no))
         self.assertIsNone(self.write("hooks/a.py", "x"))
         self.assertIsNotNone(self.write("log/state/.active/a.json", "{}"))
+
+    def test_director_temp_write(self):
+        no = self.transcript(("assistant", "계획"), ("user", "다시 생각해"))
+        temp = Path(self.ostemp.name).resolve() / "scratch.txt"
+        data = {"tool_name": "Write", "tool_input": {"file_path": str(temp), "content": "x"},
+                "agent_type": "director", "cwd": str(self.root), "transcript_path": no}
+        self.assertIsNone(hook.check(data, "claude"))
+        self.assertIsNotNone(self.write("src/x.py", "x", role="director", transcript=no))
 
     def test_director_bash(self):
         no = self.transcript(("assistant", "계획"), ("user", "다시 생각해"))
@@ -264,7 +275,7 @@ class CodexPath(unittest.TestCase):
         settings = self.home / ".claude" / "settings.json"
         settings.write_text(json.dumps({"permissions": {"deny": [
             "Read(//**/.env)", "Read(//**/.env.*)", "Read(//**/secrets/**)", "Read(//**/*.pem)",
-            "Read(~/.codex/auth.json)", "Edit(~/.codex/**)"]}}), encoding="utf-8")
+            "Read(~/.claude/.credentials.json)", "Read(~/.codex/auth.json)"]}}), encoding="utf-8")
         glob = (self.home / ".claude", self.home / ".codex")
         self.patches = [patch.object(sub_path, "HOME", self.home), patch.object(sub_path, "SETTINGS", settings),
                         patch.object(sub_path, "GLOBAL", glob)]
@@ -299,9 +310,29 @@ class CodexPath(unittest.TestCase):
             self.assertIsNotNone(self.bash(cmd), cmd)
 
     def test_outside_session_denied(self):
-        for cmd in (f"cat {self.home}/notes.txt", "cat ../x", "cat ~/x", f"echo a > {self.home}/.claude/x",
-                    f"rm {self.home}/.codex/x"):
+        for cmd in (f"cat {self.home}/notes.txt", "cat ../x", "cat ~/x", "cat 'C:\\Windows\\x.txt'",
+                    "cat ../../outside.txt"):
             self.assertIsNotNone(self.bash(cmd), cmd)
+
+    def test_escape_text_not_path(self):
+        for cmd in ("python -c \"print('a\\nb')\"", "printf '%s\\t' x", "python - <<'EOF'\nx.replace('\\n',' ')\nEOF"):
+            self.assertIsNone(self.bash(cmd), cmd)
+
+    def test_global_folder_write_left_to_ask(self):
+        """~/.claude·~/.codex 쓰기는 통과하고 인증 파일만 막는다. Claude·Codex 입력이 같다."""
+        h = self.home
+        def patch_(path):
+            text = chr(10).join(["*** Begin Patch", f"*** Add File: {path}", "+x", "*** End Patch"])
+            return hook.check({"tool_name": "apply_patch", "tool_input": {"command": text}, "cwd": str(self.cwd),
+                               "agent_type": "buddy"}, "codex")
+        for path in (h / ".claude/plans/x.md", h / ".claude/settings.json", h / ".codex/config.toml"):
+            self.assertIsNone(self.claude("Write", {"file_path": str(path), "content": "x"}), path)
+            self.assertIsNone(patch_(path), path)
+            self.assertIsNone(self.bash(f"echo a > {path}"), path)
+        for path in (h / ".claude/.credentials.json", h / ".codex/auth.json"):
+            self.assertIsNotNone(self.claude("Write", {"file_path": str(path), "content": "x"}), path)
+            self.assertIsNotNone(patch_(path), path)
+            self.assertIsNotNone(self.bash(f"echo a > {path}"), path)
 
     def test_apply_patch(self):
         def patch_(path):
@@ -311,7 +342,7 @@ class CodexPath(unittest.TestCase):
         self.assertIsNone(patch_("src/a.py"))
         self.assertIsNotNone(patch_(".env"))
         self.assertIsNotNone(patch_("../a.py"))
-        self.assertIsNotNone(patch_(f"{self.home}/.claude/a.md"))
+        self.assertIsNone(patch_(f"{self.home}/.claude/a.md"))
 
     def claude(self, name, tin, runner="claude"):
         return hook.check({"tool_name": name, "tool_input": tin, "cwd": str(self.cwd), "agent_type": "buddy"}, runner)
@@ -322,9 +353,7 @@ class CodexPath(unittest.TestCase):
                           ("Read", {"file_path": ".env"}), ("Read", {"file_path": f"{self.home}/notes.txt"}),
                           ("Grep", {"pattern": "x", "path": str(self.home)}), ("Glob", {"pattern": "*", "path": "../x"}),
                           ("Bash", {"command": f"echo a > {self.home}/notes.txt"}),
-                          ("Bash", {"command": f"rm {self.home}/.claude/x"}),
                           ("Write", {"file_path": f"{self.home}/notes.txt", "content": "x"}),
-                          ("Edit", {"file_path": f"{self.home}/.codex/a.md", "old_string": "a", "new_string": "b"}),
                           ("Write", {"file_path": ".env", "content": "x"})):
             self.assertIsNotNone(run(name, tin), (name, tin))
         self.assertIn(str(self.home), run("Read", {"file_path": f"{self.home}/notes.txt"}))
@@ -457,7 +486,7 @@ def claude(target, prompt, sub=False):
 
 
 def codex(target, prompt):
-    return {"tool_name": "spawn_agent", "tool_input": {"agent_type": target, "message": prompt}}
+    return {"tool_name": "spawn_agent", "tool_input": {"agent_type": target, "message": prompt, "fork_turns": "none"}}
 
 
 def run_utf8(data, *args, cwd=None):
@@ -502,6 +531,15 @@ class AgentInput(unittest.TestCase):
         self.assertIsNone(self.check(claude("jelly", "자유 문장", sub=True), "claude"))  # Claude 서브에이전트
         self.assertIsNotNone(self.check(codex("nico", "자유 문장"), "codex"))  # director의 researcher 호출
         self.assertIsNotNone(self.check(codex("jelly", "자유 문장"), "codex"))
+
+    def test_codex_fork_denied(self):
+        base = codex("jelly", INPUT_IN)
+        for fork, denied in ((None, True), ("all", True), ("none", False)):
+            tin = {k: v for k, v in base["tool_input"].items() if k != "fork_turns"}
+            if fork:
+                tin["fork_turns"] = fork
+            reason = hook.check({**base, "tool_input": tin}, "codex")
+            self.assertEqual(reason is not None, denied, fork)
 
     def test_other_tools_ignored(self):
         self.assertIsNone(self.check({"tool_name": "Bash", "tool_input": {"command": "ls"}}, "claude"))
@@ -598,6 +636,25 @@ class Entry(unittest.TestCase):
         out = run_utf8({**claude("jelly", "이전 대화 요약"), "agent_type": "buddy"}, "--runner", "claude")
         self.assertIn("입력 문서", json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"])
         self.assertEqual(run_utf8({**claude("jelly", INPUT_IN), "agent_type": "buddy"}, "--runner", "claude"), "")
+
+
+class PlanGaps(unittest.TestCase):
+    def doc(self, target: str, extra: str = "") -> str:
+        return ("## 요구사항 목록\n\n#### 1. a\n\n- 검수: x\n  기대 결과: y\n\n## 작업 계획\n\n"
+                f"{extra}- 문서 갱신 대상: {target}\n\n### 검수 계획\n\n- 검증 명령\n  - `python t.py`: 1\n")
+
+    def gaps(self, text: str) -> list[str]:
+        import sub_plan
+        return [g for g in sub_plan.plan_gaps(text) if "문서 갱신 대상" in g or "채우지" in g]
+
+    def test_indented_fence_placeholder_ignored(self):
+        extra = "- 문구 diff:\n\n  ```diff\n  +<a> b\n  ```\n"
+        self.assertEqual(self.gaps(self.doc("docs/a.md:12", extra)), [])
+
+    def test_doc_target_format(self):
+        self.assertTrue(self.gaps(self.doc("docs/a.md")))
+        self.assertEqual(self.gaps(self.doc("docs/a.md:12 (권한)")), [])
+        self.assertEqual(self.gaps(self.doc('"검색어와 일치 없음"(검색어: 권한)')), [])
 
 
 if __name__ == "__main__":

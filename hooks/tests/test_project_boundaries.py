@@ -25,6 +25,10 @@ class ProjectBoundaries(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
+        # 프로젝트가 OS 임시 폴더 안에 있어도 임시 폴더 허용 판정과 분리한다.
+        patcher = patch.object(sub_path, "TEMP", self.root / "separate-temp")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.project = self.root / "project"
         self.project.mkdir()
         self.other = self.root / "other"
@@ -165,7 +169,7 @@ class ProjectBoundaries(unittest.TestCase):
                     self.assertIsNotNone(check(base / "SKILL.md", True))
                 self.assertIsNotNone(check(self.other / "unrelated.md"))
                 self.assertIsNone(check(settings))
-                self.assertIsNotNone(check(settings, True))
+                self.assertIsNone(check(settings, True))  # 설정 파일 쓰기는 Claude ask·Codex 샌드박스 승인에 맡긴다.
                 self.assertIsNone(check(self.project / "log/state/new.md"))
 
 
