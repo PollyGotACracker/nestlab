@@ -9,34 +9,11 @@
 프로젝트 루트: nestlab/
 가상환경:      nestlab/discord/.venv
 봇 코드:       nestlab/ 아래 로컬 저장소와 같은 상대경로
-규칙 원본:     nestlab/AGENTS.md, nestlab/.claude/agents/
+규칙 원본:     nestlab/AGENTS.global.md, nestlab/.claude/agents/
 Secret:        DISCORD_BOT_CONFIG
 Zone:          us-west1-b
 서비스:        discord-bot
 ```
-
-`nestlab/`은 VM 홈 디렉터리 기준 상대경로다.
-discord-gcp.md의 `저장소 Clone` 절에서 clone한 결과다.
-
-## 파일 업데이트
-
-로컬에서 고친 파일을 VM의 같은 경로에 덮어쓰고 봇을 재시작한다.
-
-- VM 경로: `nestlab/` 뒤에 로컬 프로젝트 루트 기준 상대경로를 붙인 경로
-- 파일 하나가 바뀌면 그 파일을 VM의 같은 경로로 복사한다.
-- 같은 폴더의 여러 파일이 바뀌면 상위 폴더를 통째로 복사한다.
-- 폴더를 복사할 때는 봇이 실행 중 만드는 데이터 파일과 설정 파일을 빼고 올린다.
-- 제외가 어려우면 바뀐 코드 파일만 하나씩 복사한다.
-
-폴더 업로드에서 제외할 경로는 프로젝트 루트 기준 다음과 같다.
-
-- `discord/config.json`: VM 런처가 만드는 설정 링크다.
-- `discord/.venv/`: VM에서 설치한 가상환경이다.
-- `discord/.discord_attachments/`: 첨부 원본이다.
-- `discord/bot/chat_state/`: 대화 기록·요약·사용자 판단 대기다.
-- `discord/bot/reminders.json`: 예약 알림이다.
-- `discord/bot/memory.sqlite3`, `memory.sqlite3-wal`, `memory.sqlite3-shm`: 기억 DB와 같은 폴더의 보조 파일이다.
-- `discord/bot/memory_approval.json`, `discord/bot/archive_workflow.json`: 승인 대기 상태다.
 
 ### Cloud Shell 업로드
 
@@ -78,7 +55,7 @@ sudo systemctl restart discord-bot
 sudo systemctl status discord-bot
 ```
 
-- `AGENTS.md`, 역할의 `AGENTS.md`, 자기·동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
+- `AGENTS.global.md`, 역할의 `AGENTS.md`, 자기·동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
   공통 규칙과 Persona는 프롬프트에 넣고 역할 `AGENTS.md`는 캐릭터 이름을 읽는 원본으로 쓴다.
 - `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`와 자기 역할의 `MEMORY.md`도 같은 방식으로 감지한다.
 - documenter는 `discord/prompts/ARCHIVE.md`도 감지한다.

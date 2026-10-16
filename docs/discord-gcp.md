@@ -29,40 +29,6 @@ CONFIG_SECRET_ID = os.environ.get("CONFIG_SECRET_ID", "DISCORD_BOT_CONFIG")
 다른 값을 쓰면 실행 환경의 `GCP_PROJECT_ID`, `CONFIG_SECRET_ID`를 지정한다.
 상시 실행에서는 같은 환경변수를 systemd 서비스에도 설정한다.
 
-## VM 폴더 구조
-
-`저장소 Clone` 절에서 clone한 저장소 루트는 `nestlab/`이다.
-폴더 구조는 아래와 같다.
-봇은 `nestlab/AGENTS.md`를 공통 규칙으로 읽고 `.claude/agents/`에서 캐릭터 이름과 Persona를 읽는다.
-루트 `AGENTS.md`의 참조 목록을 공통 프롬프트로 읽는 방식은 아니다.
-
-```text
-nestlab/
-├── AGENTS.md
-├── AGENTS.md
-├── .claude/
-│   └── agents/
-│       └── <role>/
-│           ├── AGENTS.md
-│           └── SOUL.md
-└── discord/
-    ├── .venv/              # 가상환경 생성 절차에서 만든다
-    ├── config.json         # run_gcp.py가 실행 중에만 만드는 심볼릭 링크
-    ├── prompts/
-    │   ├── RUNTIME.md
-    │   ├── TURN.md
-    │   ├── CHAT.md
-    │   └── ARCHIVE.md
-    └── bot/
-        └── *.py            # 봇 코드와 GCP 런처
-```
-
-봇 코드 파일은 서로 import하므로 로컬과 같은 폴더에 함께 배포한다.
-`ARCHIVE.md`는 Discord의 진입 지침이고 실제 절차는 설정된 Nodebase GitHub 저장소의 `$repo_name/AGENTS.md`와 `$repo_name/schema/`에서 읽는다.
-`$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
-VM에 로컬 Skill을 설치하거나 schema 파일만 복사하는 것으로 원격 원본을 배포한 것으로 보지 않는다.
-원격 대상 브랜치에 원본 파일을 반영한 뒤 운영 로딩을 별도로 확인한다.
-
 ## Secret Manager API
 
 - 실행 위치: GCP 콘솔
@@ -225,7 +191,6 @@ python -m pip install "aiohttp==3.14.3" "claude-agent-sdk==0.2.159" "discord.py=
 ```
 
 앞의 고정 버전은 로컬 조사 환경의 Python 3.14.0에서 import와 단위 테스트로 확인한 설치 예시다.
-저장소의 lock 파일로 관리되는 버전은 아니며 GCP VM 실행 검증을 뜻하지 않는다.
 `google-cloud-secret-manager`는 GCP 런처가 Secret Manager를 읽는 데 추가로 필요하다.
 설치 결과와 실제 VM에서의 실행은 다음 단계에서 확인한다.
 
