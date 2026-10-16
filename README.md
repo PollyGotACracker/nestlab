@@ -130,7 +130,8 @@ Discord 채널의 웹훅 봇 목록
 │   ├── set_hooks.py               # 전역 설정 설치 도구
 │   ├── set_agents.py              # 에이전트 전역 연결·제거 및 상태 확인 도구
 │   └── set_skills.py              # 스킬 전역 연결·제거 및 상태 확인 도구
-├── AGENTS.md                      # 지침 통합 문서
-├── CLAUDE.md                      # Claude Code 전용 지침 통합 문서
+├── AGENTS.global.md               # 전역 지침
+├── AGENTS.md                      # 저장소 지침
+├── CLAUDE.md                      # Claude Code 전용 저장소 지침
 └── README.md                      # 저장소 정보 문서
 ```
