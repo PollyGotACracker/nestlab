@@ -36,6 +36,8 @@ class ProjectBoundaries(unittest.TestCase):
         self.git("init", str(self.project))
         self.child = self.project / "nested"
         self.child.mkdir()
+        self.hub = self.root / "hub"
+        self.hub.mkdir()
 
     def git(self, *args):
         return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
@@ -98,8 +100,10 @@ class ProjectBoundaries(unittest.TestCase):
         self.assertIsNone(sub_approval.approval_reason("계획 수정", rework, str(self.child)))
         self.assertIsNotNone(sub_approval.approval_reason("계획 수정", rework, str(self.other)))
         review = "작업 종류: 검수\n입력 문서: log/state/same-input.md"
-        self.assertIsNone(sub_approval.approval_reason("계획 수정", review, str(self.child)))
-        self.assertIsNotNone(sub_approval.approval_reason("계획 수정", review, str(self.other)))
+        self.assertIsNotNone(sub_approval.approval_reason("계획 수정", review, str(self.child)))
+        rereview = "작업 종류: 재검수\n입력 문서: log/state/same-input.md"
+        self.assertIsNone(sub_approval.approval_reason("계획 수정", rereview, str(self.child)))
+        self.assertIsNotNone(sub_approval.approval_reason("계획 수정", rereview, str(self.other)))
         sub_approval.remember({"cwd": str(self.child), "session_id": "session"}, "researcher", rework)
         self.assertTrue((sub_docs.active(self.project) / "session.json").is_file())
         self.assertFalse(sub_docs.active(self.other).exists())
@@ -107,10 +111,16 @@ class ProjectBoundaries(unittest.TestCase):
             transcript = self.transcript(self.project, runner, "입력 문서: log/state/same-input.md")
             data = {"cwd": str(self.child), "session_id": runner, "transcript_path": transcript,
                     "agent_type": "rio", "last_assistant_message": "제 실수입니다."}
-            record_incident.record(data, runner)
-            files = list((self.project / "log/incident").glob(f"*-{runner}.md"))
+            # 사건 문서는 세션 저장소와 무관하게 hook 원본 저장소(여기서는 hub)에만 생긴다.
+            with patch.object(record_incident, "INCIDENT_ROOT", self.hub):
+                record_incident.record(data, runner)
+                record_incident.record({**data, "cwd": str(self.other), "session_id": runner + "x"}, runner)
+            files = list((self.hub / "log/incident").glob(f"*-{runner}.md"))
             self.assertEqual(len(files), 1)
             self.assertIn("관련 작업 ID: same", files[0].read_text(encoding="utf-8"))
+            self.assertIn(f"실행 위치: {self.child}", files[0].read_text(encoding="utf-8"))
+            self.assertEqual(len(list((self.hub / "log/incident").glob(f"*-{runner}x.md"))), 1)
+            self.assertFalse((self.project / "log/incident").exists())
             self.assertFalse((self.other / "log/incident").exists())
             for path, denied in (("log/state/new.md", False), ("src/new.py", True),
                                  ("log/state/.active/new.json", True)):
@@ -132,6 +142,20 @@ class ProjectBoundaries(unittest.TestCase):
                            check=True, capture_output=True)
         else:
             path.symlink_to(target, target_is_directory=True)
+
+    def test_other_repo_session_reaches_only_hub_incident_folder(self):
+        (self.hub / "log/incident").mkdir(parents=True)
+        for runner in ("claude", "codex"):
+            for role in ("buddy", "director"):
+                def check(path, tool):
+                    return check_tool_use.check({"cwd": str(self.other), "agent_type": role,
+                        "tool_name": tool, "tool_input": {"file_path": str(self.hub / path), "content": "x"}}, runner)
+                with patch.object(sub_path, "INCIDENT", self.hub / "log/incident"):
+                    for tool in ("Write", "Read"):
+                        self.assertIsNone(check("log/incident/x.md", tool), (runner, role, tool))
+                    self.assertIsNotNone(check("hooks/x.py", "Write"), (runner, role))
+                    self.assertIsNotNone(check("hooks/x.py", "Read"), (runner, role))
+                    self.assertIsNotNone(check("log/state/x.md", "Write"), (runner, role))
 
     def test_skills_links_resources_secrets_and_external_writes(self):
         home = self.root / "home"

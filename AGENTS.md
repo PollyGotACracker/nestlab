@@ -1,6 +1,15 @@
-# 공통 지침
+# 프로젝트 공통 지침
 
-- 작업 시 Claude Code, Codex를 전부 고려한다.
+- 모든 작업 시 Claude Code, Codex를 전부 고려한다.
+- 현재 저장소 관련 지침은 이 문서에만 작성한다.
+
+## 프로젝트 핵심 기능
+
+- 프로젝트 핵심 기능과 전체 동작의 범위는 다음 대상과 그 테스트이다.
+  - 작업 절차를 강제하는 hook과 그 공용 모듈
+  - 작업 절차 Skill과 양식
+  - 설치와 연결 도구, 설정
+  - Discord 봇
 
 ## 경로 목록
 
@@ -13,11 +22,6 @@
 | 프로젝트 공통 지침 | `AGENTS.md`                       |
 |     역할 지침      | `.claude/agents/<role>/AGENTS.md` |
 |     로그 폴더      | `log/`                            |
-|     양식 폴더      | `schema/`                         |
-|     상태 양식      | `schema/log-state.md`             |
-|     입력 양식      | `schema/log-input.md`             |
-|     조사 양식      | `schema/log-research.md`          |
-|     사건 양식      | `schema/log-incident.md`          |
 |     상태 문서      | `log/state/<작업-id>.md`          |
 |     입력 문서      | `log/state/<작업-id>-input.md`    |
 |     조사 문서      | `log/state/<작업-id>-research.md` |

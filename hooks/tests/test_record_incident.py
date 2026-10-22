@@ -21,8 +21,11 @@ class RecordIncident(unittest.TestCase):
         self.dir = Path(self.tmp.name) / "log" / "incident"
         self.root_patch = patch.object(hook, "project_root", return_value=Path(self.tmp.name))
         self.root_patch.start()
+        self.incident_patch = patch.object(hook, "INCIDENT_ROOT", Path(self.tmp.name))
+        self.incident_patch.start()
 
     def tearDown(self):
+        self.incident_patch.stop()
         self.root_patch.stop()
         self.tmp.cleanup()
 
@@ -87,19 +90,29 @@ class RecordIncident(unittest.TestCase):
                    "제 분류 착오였습니다.", "제가 엉뚱한 쪽으로 갔어요.", "계속 망가뜨리고 있습니다.",
                    "앞의 제안은 철회합니다.", "토큰을 크게 낭비했습니다.",
                    "저의 착오였습니다.", "저의 잘못입니다.", "저의 판단 실수입니다.",
-                   "제가 잘못된 판단을 했습니다.")
+                   "제가 잘못된 판단을 했습니다.", "제 판단은 잘못됐습니다.")
         for text in samples:
             self.assertTrue(hook.ADMIT.search(text), text)
 
     def test_block_reason_returned(self):
         reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요."})
         self.assertIn("(놓쳤)", reason)
-        self.assertIn("log/incident/", reason)
+        self.assertIn(str(Path(self.tmp.name) / "log" / "incident"), reason)
         self.assertIn("예방 행동", reason)
 
     def test_block_reason_has_cause_rule(self):
         reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요."})
-        self.assertIn("그 규칙이 지켜지지 않은 원인", reason)
+        self.assertIn("`nestlab-log-incident` Skill", reason)
+
+    def test_execution_location_in_header(self):
+        for cwd, expected in (("/work/other", "- 실행 위치: /work/other"), (None, "- 실행 위치: 미확인")):
+            with self.subTest(cwd=cwd):
+                for old in self.dir.glob("*.md"):
+                    old.unlink()
+                extra = {"cwd": cwd} if cwd else {}
+                lines = self.run_hook("놓쳤어요.", **extra)[0].read_text(encoding="utf-8").splitlines()
+                session = next(i for i, l in enumerate(lines) if l.startswith("- 세션 ID:"))
+                self.assertEqual(lines[session + 1], expected)
 
     def test_stop_hook_active_records_without_block(self):
         reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.",
@@ -115,7 +128,7 @@ class RecordIncident(unittest.TestCase):
                      "스킬을 적용하지 않았습니다.", "지침을 따르지 않았습니다.", "Skill을 읽지 않았습니다."):
             with self.subTest(text=text):
                 self.assertTrue(hook.ADMIT.search(text))
-        for text in ("Codex 세션은 아직 확인하지 않았습니다.", "Skill 원문과 기존 변경은 확인했습니다."):
+        for text in ("Skill 원문과 기존 변경은 확인했습니다."):
             with self.subTest(text=text):
                 self.assertIsNone(hook.ADMIT.search(text))
 
@@ -135,7 +148,6 @@ class RecordIncident(unittest.TestCase):
                 self.assertEqual(self.run_hook(text), [])
 
     def test_unverified_scope_report_ignored(self):
-        self.assertEqual(self.run_hook("Codex 세션은 아직 확인하지 않았습니다."), [])
         self.assertEqual(len(self.run_hook("파일을 확인하지 않고 고쳤습니다.")), 1)
 
     def test_many_types_blocks(self):

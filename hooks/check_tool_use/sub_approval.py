@@ -3,7 +3,7 @@
 - Claude: director가 Agent를 호출할 때 사용자 마지막 메시지가 승인 명령(APPROVAL)으로 끝나지 않으면 deny한다.
 - Codex: spawn_agent에는 PreToolUse가 실행되지 않는다(openai/codex#49736).
   그래서 하위 thread의 도구 호출마다 부모(director) thread의 사용자 마지막 메시지를 확인해 deny한다.
-- 예외: 하위 요청 첫 줄이 IN_SCOPE 중 하나이고 입력 문서 `실행 승인 범위`의 `승인 상태`가 `승인`이면 허용한다.
+- 예외: 하위 요청 첫 줄이 IN_SCOPE(재작업, 재검수) 중 하나이고 입력 문서 `실행 승인 범위`의 `승인 상태`가 `승인`이면 허용한다.
 - researcher가 reviewer를 부르는 하위 호출은 검사하지 않는다.
 - Claude Agent 호출은 대상 역할의 작업 ID를 ACTIVE/<session_id>.json에 남긴다(save_agent_result가 쓴다).
 """
@@ -26,7 +26,7 @@ APPROVAL = re.compile(
     r"|(?:시작|진행|시도|계속|구현|검수|테스트|적용|실행|반영)\s?(?:해|해줘|해 줘|해라|하세요|해 주세요|합니다))"
     r"\s*[.!~]*\s*$")
 APPROVED = re.compile(r"^\s*-\s*승인 상태:\s*승인\s*$")
-IN_SCOPE = ("작업 종류: 재작업", "작업 종류: 검수", "작업 종류: 재검수")
+IN_SCOPE = ("작업 종류: 재작업", "작업 종류: 재검수")
 NEGATION = ("안", "못")
 
 

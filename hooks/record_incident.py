@@ -3,7 +3,7 @@
 사용: python record_incident.py --runner <claude|codex>
 - 검사 대상은 hook 입력의 last_assistant_message이다. 코드 블록, 인라인 코드, 따옴표 인용 안은 검사하지 않는다.
 - 일치하면 세션별 사건 문서 `log/incident/<YYYYMMDD>-<session 앞 8자>.md`에 항목을 추가한다.
-  파일이 없으면 사건 양식의 머리 항목으로 만들고 조치 상태는 `미착수`로 둔다.
+  저장 위치는 세션 저장소와 무관하게 이 hook의 원본 저장소이다.
 - 하위 에이전트 응답(Claude agent_id, Codex 하위 rollout)은 검사하지 않는다.
 - 전체 세션 ID는 머리에, 작업 근거와 응답 위치는 원문 행 번호만 남긴다.
 - 세션 경로를 사용하여 내부적으로 원문을 조회하고, 사용자 메시지와 응답은 경로 제거 뒤 코드 블록에 원문대로 기록한다.
@@ -31,11 +31,14 @@ from sub_role import first_line, resolve_role
 from sub_session import _claude_entry, _codex_entry, norm, session_path, turn
 from save_agent_result import fence_for
 
+# 사건 문서는 세션 저장소와 무관하게 이 hook의 원본 저장소(nestlab)에 저장한다. 테스트가 교체한다.
+INCIDENT_ROOT = Path(__file__).resolve().parents[1]
+
 # 표현 목록 기반 감지이다. 놓치는 표현이 쌓이면 해당 유형에 추가한다.
 ADMIT_TYPES = {
     "직접 인정": (
-        r"죄송|(?<![가-힣])(?:제|저의)(?: [가-힣]+)? (?:실수|잘못|착오)"
-        r"|(?<![가-힣])제가 (?:실수|잘못|착오|틀렸)|(?:실수|잘못)했"
+        r"죄송|(?<![가-힣])(?:제|저의)(?: [가-힣]+(?<![엔에]))? (?:실수|잘못|착오)"
+        r"|(?<![가-힣])제가 (?:실수|잘못|착오|틀렸)|(?:실수|잘못)했|제가 지키지 않"
     ),
     "오해·오판": (
         r"잘못 (?:이해|해석|읽|봤|판단|말씀|맞췄|잡았)|제가 엉뚱"
@@ -43,25 +46,25 @@ ADMIT_TYPES = {
     ),
     "누락·생략": (
         r"놓(?:쳤|치고)|빠뜨|빼먹|누락(?:했|입니다|시켰)|건너뛰었(?!을 (?:수|가능성|지도))|검토하지 않았"
-        r"|(?<![가-힣])제가 생략|안 했(?:습니다|어요)"
+        r"|(?<![가-힣])제가 생략|안 했(?:습니다|어요)|했어야 했"
     ),
     "규칙 위반": (
-        r"위반(?:했|이었)|어(?:겼|긴)|부적절했|(?:절차|허락) 없이"
+        r"위반(?:했|이었)|어(?:겼|긴)|부적절했|(?:절차|허락|근거) 없이"
         r"|임의로|(?<![가-힣])제 판단으로|다르게 하시려면"
         r"|(?:절차|Skill|스킬|지침|규칙|양식|승인|기록|지시)(?:을|를|도|은|는)?"
         r"\s[^.\n]{0,20}?(?:적용하|따르|지키|받|작성하|읽|확인하)지 않았"
     ),
     "검증 부재": (
-        r"확인(?:하지 않고| 안 하고)|(?:확인|근거|검토) 없이(?![^.\n]{0,8}?[도면]\s)"
+        r"확인(?:하지 않고| 안 하고)|(?:확인|근거|검토) 없이(?![^.\n]{0,8}?[도면]\s)|묻지 않|확인한 사실이 아니|확인하지 않"
     ),
     "책임 전가": (
         r"떠넘겼|하실 (?:일은 없|필요는 없)|해결됐다고 할 수 없|원하면|원하시면|계속해야|멈추겠습니다|멈출게요"
     ),
     "결과 손상": (
-        r"망가뜨|철회|낭비(?:했|한 것|시켰)"
+        r"망가뜨|철회|낭비(?:했|한 것|시켰)|거둘게요|거둡니다|거둬들입니다|거두겠습니다|생각하지 않고|손부터 댔"
     ),
     "반복 지적": (
-        r"(?:이미|반복) 지적|제가 또"
+        r"(?:이미|반복) 지적|제가 또|이번 턴(?:에도|도)"
     )
 }
 # 다른 단어의 일부로 나오는 패턴(실제 실수의 '제 실수', 시행착오의 '착오')만 앞 글자 검사를 둔다.
@@ -143,14 +146,7 @@ def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str
 
 
 REASON = """직전 응답에서 실수·위반 인정 표현({hits})을 감지해 사건 문서 {path}에 기록했습니다.
-추측으로 쓰지 말고 아래 순서대로 근거를 확인한 뒤 사건 문서의 `원인과 처리`, `예방 행동` 절을 채우고 직전 응답 내용을 다시 작성하십시오.
-1. 원인 확인: 이 세션 기록, 관련 지침·Skill·hook·설정 파일을 열어 실수를 허용한 공백이나 결함을 `파일:행`으로 특정하십시오.
-2. 외부 근거: 해결 수단이 도구 기능(hook 이벤트, 설정 키, CLI 옵션 등)에 의존하면 공식 문서를 웹 검색으로 확인하고 출처 URL을 남기십시오.
-3. 예방 행동: 준수 기준, 해결 수단(지침|Skill|hook|도구|설정|절차), 바꿀 `파일:행`과 후보 문구를 적으십시오. 확인하지 못한 항목은 미확인으로 표시하십시오.
-   이미 있는 규칙을 어긴 경우 같은 규칙을 다시 쓰는 문구는 예방 행동이 아닙니다. 그 규칙이 지켜지지 않은 원인(다른 규칙과의 충돌, 적용 조건의 모호함, 검사 부재 등)을 찾고, 그 원인을 바꾸는 수단을 제시하십시오.
-4. 다시 작성한 응답에는 원인, 예방 행동, 출처를 요약하고 사건 문서 경로를 적으십시오.
-5. 오탐이면 근거와 함께 오탐이라고 적고 사건 문서에도 표시하십시오.
-6. 수정 적용은 하지 말고 제안으로 남기십시오."""
+`nestlab-log-incident` Skill을 호출해 그 절차대로 사건 문서의 `원인과 처리`, `예방 행동` 절을 채우고 직전 응답 내용을 다시 작성하십시오."""
 
 
 def record(data: dict, runner: str = "claude") -> str | None:
@@ -166,7 +162,7 @@ def record(data: dict, runner: str = "claude") -> str | None:
     now = datetime.now()
     session_id = data.get("session_id") or "unknown"
     sid = session_id[:8]
-    directory = project_root(data.get("cwd")) / "log" / "incident"
+    directory = INCIDENT_ROOT / "log" / "incident"
     path = directory / f"{now:%Y%m%d}-{sid}.md"
     role = resolve_role(data) or "미확인"
     user, task, evidence, response_line = context(transcript, data.get("last_assistant_message") or "", data.get("cwd"))
@@ -176,15 +172,16 @@ def record(data: dict, runner: str = "claude") -> str | None:
             f"# 자동 감지 {now:%Y-%m-%d} {sid}\n\n"
             f"- 사건 ID: {now:%Y%m%d}-{sid}\n"
             f"- 세션 ID: {session_id}\n"
+            f"- 실행 위치: {data.get('cwd') or '미확인'}\n"
             f"- 관련 작업 ID: {task}\n"
-            f"- 발생·확인 시점: {now:%Y-%m-%d %H:%M}\n"
+            f"- 발생·확인 시점: {now:%Y-%m-%d %H:%M:%S}\n"
             f"- 관련 담당: {role}\n"
             f"- 조치 상태: 미착수\n\n"
             f"## 감지 기록\n\n", encoding="utf-8")
     excerpt = without_paths(message)
     request = without_paths(user)
     request_fence, excerpt_fence = fence_for(request), fence_for(excerpt)
-    entry = (f"- {now:%Y-%m-%d %H:%M}\n"
+    entry = (f"- {now:%Y-%m-%d %H:%M:%S}\n"
              f"  - 감지 표현: {', '.join(hits)}\n"
              f"  - 관련 작업 ID: {task}\n"
              f"  - 근거 작업 위치: {evidence}\n"
@@ -209,7 +206,7 @@ def record(data: dict, runner: str = "claude") -> str | None:
             f.write(entry)
     if data.get("stop_hook_active"):
         return None
-    return REASON.format(hits=", ".join(hits), path=f"log/incident/{path.name}")
+    return REASON.format(hits=", ".join(hits), path=str(path))
 
 
 def main() -> int:

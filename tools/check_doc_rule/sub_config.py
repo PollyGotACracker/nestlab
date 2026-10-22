@@ -14,7 +14,6 @@ TARGET_PATTERNS = [
     "AGENTS.md",
     ".claude/agents/*/AGENTS.md",
     "discord/prompts/*.md",
-    "schema/*.md",
     "shared/skills/*/SKILL.md",
 ]
 
@@ -27,7 +26,7 @@ PATH_LIST_SECTION = "경로 목록"
 # Discord 채팅 프롬프트는 런타임 프롬프트의 `Response control` 절을 붙여 만든다.
 SECTION_EXTRA_FILES = {"discord/prompts/CHAT.md": ["discord/prompts/RUNTIME.md"]}
 # 절 참조에 파일이 없을 때 현재 파일과 CORE_FILES 다음으로 찾는 양식 파일의 glob 패턴.
-SCHEMA_PATTERN = "schema/*.md"
+SCHEMA_PATTERN = "shared/skills/nestlab-log-*/SKILL.md"
 
 RULE_ID_SCOPE = "discord/prompts/"
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}

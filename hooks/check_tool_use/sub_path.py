@@ -6,6 +6,7 @@
 - `~/.claude`·`~/.codex`는 읽기·쓰기를 통과시킨다. 쓰기 확인은 Claude 설정 ask와 Codex 샌드박스 승인이 맡고, 인증 파일은 보안 문서 deny로 막는다.
 - 전역 Skill과 연결된 원본·내부 자료 및 local.json은 읽기만 허용한다. Skill 폴더 밖 링크는 차단한다.
 - local.json의 Nodebase 안에는 기존 승인 규칙을 적용한다.
+- nestlab `log/incident/`는 어느 저장소 세션에서든 읽기·쓰기를 허용한다.
 - OS 임시 폴더(`tempfile.gettempdir()`)는 읽기·쓰기를 허용한다. 보안 문서 deny는 임시 폴더에도 적용한다.
 - 대상은 Bash 명령의 경로 토큰, Read·Grep·Glob 경로, apply_patch 대상이다. 스크립트가 직접 여는 파일은 막지 못한다.
 """
@@ -29,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LOCAL_SETTINGS = ROOT / "shared" / "settings" / "local.json"
 WIKI_SKILL = ROOT / "shared" / "skills" / "wiki" / "SKILL.md"
 SKILLS = ROOT / "shared" / "skills"
+INCIDENT = ROOT / "log" / "incident"
 READ_RULE = re.compile(r"^Read\((.+)\)$")
 SPLIT = re.compile(r"[\s;&|<>()=]+")
 TOKEN = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s;&|<>()=\"']+")
@@ -77,6 +79,12 @@ def inside(path: str, base: Path) -> bool:
 def in_temp(path: str) -> bool:
     """8.3 짧은 이름과 긴 이름을 같은 경로로 보도록 realpath로 풀어 비교한다."""
     return inside(norm(os.path.realpath(path), Path(".")), Path(os.path.realpath(TEMP)))
+
+
+def in_incident(path: str) -> bool:
+    """어느 저장소 세션이든 nestlab 사건 문서 폴더는 읽기·쓰기를 허용한다. 링크 탈출은 realpath로 대조한다."""
+    path = norm(path, Path("."))
+    return inside(path, INCIDENT) and inside(norm(os.path.realpath(path), Path(".")), INCIDENT.resolve())
 
 
 def is_secret(path: str, patterns: list[str]) -> bool:
@@ -166,7 +174,7 @@ def check_paths(data: dict, runner: str) -> str | None:
             if not inside(real, nodebase):
                 return f"Nodebase 밖 링크 접근은 허용하지 않습니다: {token}"
             continue
-        if not looks or inside(real, project):
+        if not looks or inside(real, project) or in_incident(path):
             continue
         if not write and any(real == norm(os.path.realpath(p), cwd)
                              for p in (LOCAL_SETTINGS, WIKI_SKILL)):

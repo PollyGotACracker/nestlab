@@ -15,7 +15,7 @@ from pathlib import Path
 
 from sub_approval import APPROVED, approved, last_user
 from sub_docs import project_root
-from sub_path import in_temp
+from sub_path import in_incident, in_temp
 from sub_plan import check_plan
 from sub_research import check_decision, check_raw
 from sub_write import added_lines, read
@@ -34,7 +34,7 @@ def rel(path: Path, root: Path) -> str:
 def check_director_write(data: dict, paths: list[Path]) -> str | None:
     root = project_root(data.get("cwd"))
     user, _ = last_user(data.get("transcript_path"))
-    outside = not paths or any(not rel(path, root).startswith(DIRECTOR) and not in_temp(str(path)) for path in paths)
+    outside = not paths or any(not rel(path, root).startswith(DIRECTOR) and not in_temp(str(path)) and not in_incident(str(path)) for path in paths)
     if outside and not approved(user):
         return "director는 승인 없이 log/ 밖에 쓸 수 없습니다. 사용자 마지막 메시지에 승인이 없습니다."
     if any(rel(path, root).startswith("log/state/.active") for path in paths):

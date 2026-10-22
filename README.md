@@ -120,7 +120,6 @@ Discord 채널의 웹훅 봇 목록
 ├── log/                           # 작업 관련 로그
 │   ├── state/                     # 상태 로그
 │   └── incident/                  # 사건 로그
-├── schema/                        # 문서 작성 절차 및 양식
 ├── shared/
 │   ├── settings/                  # 공통 설정(권한 등)
 │   └── skills/<skill>/SKILL.md    # 공통 skill

@@ -197,9 +197,9 @@ class WriteScope(unittest.TestCase):
 
     def test_decision_needs_research_result(self):
         (self.state / "t-research.md").write_text(RESEARCH, encoding="utf-8")
-        user = "### 확정 결정\n\n1. Windows만 대상으로 한다.\n   - 출처: 사용자 결정 요약\n"
+        user = "### 확정 결정\n\n1. Windows만 대상으로 한다.\n   - 출처: 사용자 메시지 시각 2026-10-22 22:00\n"
         self.assertIsNone(self.write("log/state/t-input.md", user))
-        doc = "### 확정 결정\n\n1. A를 쓴다.\n   - 출처: 조사 문서 결정 1과 사용자 판단 요약\n"
+        doc = "### 확정 결정\n\n1. A를 쓴다.\n   - 출처: 조사 문서 결정 1과 사용자 메시지 시각 2026-10-22 22:00\n"
         self.assertIsNotNone(self.write("log/state/t-input.md", doc))
         (self.state / "t-research.md").write_text(RESEARCH.replace("기록 없음", "결정 1 권고: A"), encoding="utf-8")
         self.assertIsNone(self.write("log/state/t-input.md", doc))
@@ -251,6 +251,12 @@ class WriteScope(unittest.TestCase):
             self.assertIsNotNone(self.agent(prompt, "이 부분 고쳐"), kind)
             path.write_text(INPUT_APPROVED, encoding="utf-8")
             self.assertIsNone(self.agent(prompt, "이 부분 고쳐"), kind)
+
+    def test_review_needs_user_approval(self):
+        (self.state / "t-input.md").write_text(INPUT_APPROVED, encoding="utf-8")
+        prompt = "작업 종류: 검수\n입력 문서: log/state/t-input.md"
+        self.assertIsNotNone(self.agent(prompt, "이 부분 고쳐"))
+        self.assertIsNone(self.agent(prompt, "검수해 줘"))
 
     # 하위 에이전트 호출 승인 (Codex 하위 thread)
     def test_codex_child_needs_parent_approval(self):
@@ -517,15 +523,13 @@ class AgentInput(unittest.TestCase):
         self.assertIsNotNone(self.check(claude("researcher", RESEARCH_IN + "\n추가 설명"), "claude"))
         self.assertIsNone(self.check(claude("researcher", RESEARCH_IN), "claude"))
 
-    def test_documenter_record_request_left_to_other_hook(self):
-        self.assertIsNone(self.check(claude("pepper", "기록 문구"), "claude"))
-        self.assertIsNotNone(self.check(claude("pepper", INPUT_IN), "claude"))
-
-    def test_documenter_takes_state_and_input_doc(self):
-        both = STATE_IN + "\n" + INPUT_IN
-        self.assertIsNone(self.check(claude("pepper", both), "claude"))
-        self.assertIsNone(self.check(claude("documenter", STATE_IN), "claude"))
-        self.assertIsNotNone(self.check(claude("pepper", both + "\n입력 문서: log/state/a-input.md"), "claude"))
+    def test_documenter_takes_kind_and_input_doc_only(self):
+        kind = "작업 종류: 문서 작성\n"
+        self.assertIsNone(self.check(claude("pepper", kind + INPUT_IN), "claude"))
+        self.assertIsNone(self.check(claude("documenter", INPUT_IN), "claude"))
+        for bad in ("기록 문구", STATE_IN, kind + "상태 문서: log/state/a.md", kind + INPUT_IN + "\n절: 요구사항",
+                    kind + INPUT_IN + "\n항목: 1", kind + INPUT_IN + "\n" + INPUT_IN):
+            self.assertIsNotNone(self.check(claude("pepper", bad), "claude"), bad)
 
     def test_caller_detection(self):
         self.assertIsNone(self.check(claude("jelly", "자유 문장", sub=True), "claude"))  # Claude 서브에이전트
@@ -549,9 +553,9 @@ class AgentInput(unittest.TestCase):
             for target in ("Explore", "general-purpose", "custom-agent", "director", "rio", "assistant", "buddy"):
                 with self.subTest(runner=runner, target=target):
                     self.assertIsNone(self.check(make(target, "자유 형식 입력"), runner))
-            for target in sub_call.ROLES - sub_call.DOCUMENTER - sub_call.RESEARCHER:
+            for target in sub_call.ROLES - sub_call.RESEARCHER:
                 with self.subTest(runner=runner, target=target):
-                    good = INPUT_IN if target in sub_call.WORKER_REVIEWER else STATE_IN
+                    good = INPUT_IN
                     self.assertIsNone(self.check(make(target, good), runner))
                     self.assertIsNotNone(self.check(make(target, "자유 형식 입력"), runner))
             for target in sub_call.RESEARCHER:
@@ -578,7 +582,7 @@ class AgentInput(unittest.TestCase):
         self.assertIsNotNone(self.check(claude("ricky", REFUTE + "\n전체 대화: 로그", sub=True), "claude"))
 
     def test_researcher_cannot_call_any_agent(self):
-        for target, prompt in (("ricky", REFUTE), ("reviewer", INPUT_IN), ("jelly", INPUT_IN), ("pepper", STATE_IN)):
+        for target, prompt in (("ricky", REFUTE), ("reviewer", INPUT_IN), ("jelly", INPUT_IN), ("pepper", INPUT_IN)):
             with self.subTest(target=target):
                 data = {**claude(target, prompt, sub=True), "agent_type": "researcher"}
                 self.assertIsNotNone(self.check(data, "claude"))
@@ -597,7 +601,7 @@ class Entry(unittest.TestCase):
         for runner, make in (("claude", claude), ("codex", codex)):
             for cwd in (root, root / "hooks"):
                 for target, prompt, denied in (("jelly", INPUT_IN, False), ("ricky", STATE_IN, True),
-                                               ("pepper", STATE_IN, False), ("nico", RESEARCH_IN, False),
+                                               ("pepper", INPUT_IN, False), ("nico", RESEARCH_IN, False),
                                                ("ricky", REFUTE, False), ("Explore", "자유 입력", False),
                                                ("director", "자유 입력", False), ("rio", "자유 입력", False),
                                                ("assistant", "자유 입력", False), ("buddy", "자유 입력", False)):
