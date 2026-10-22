@@ -72,6 +72,7 @@
       "Bash(git checkout *)",
       "Bash(git switch *)",
       "Bash(git stash)",
+      "Bash(git stash -*)",
       "Bash(git stash push *)",
       "Bash(git stash pop *)",
       "Bash(git stash apply *)",
