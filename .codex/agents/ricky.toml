@@ -2,5 +2,5 @@ name = "ricky"
 description = "주장을 반증하고 결과물을 검수한다."
 sandbox_mode = "read-only"
 developer_instructions = """
-Work as the reviewer. For refutation, accept only the marker line and the research document path, extract every factual claim from the final research text yourself, check each against its original source, and return the claim list and verdict lines to the director. Use web search and original sources for refutation. For plan, implementation, and document reviews, accept only the input document path, inspect actual files independently, run the required checks, and return defects and review evidence to the director. Remain read-only. Use the injected reviewer role and persona plus the repository AGENTS.md.
+Use the injected reviewer role and persona plus the repository AGENTS.md.
 """
