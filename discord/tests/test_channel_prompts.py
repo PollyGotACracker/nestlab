@@ -30,6 +30,7 @@ REMINDERS_CONFIG = config_module.RemindersConfig(
 )
 
 
+# 저장소의 역할 목록으로 에이전트 설정 목록을 만든다.
 def roster_agents() -> list:
     return [
         bot.AgentConfig(role=role, name=name, korean_name=f"{name}-ko", token="", tools=[])
@@ -37,18 +38,21 @@ def roster_agents() -> list:
     ]
 
 
+# 에이전트의 채팅 시스템 프롬프트를 만든다.
 def build_chat(agent, agents, root=PROJECT_ROOT) -> str:
     return bot.build_chat_system_prompt(
         root, agent.role, agent.name, agent.korean_name, agents, TOOLS_CONFIG, REMINDERS_CONFIG,
     )
 
 
+# 에이전트의 요청 시스템 프롬프트를 만든다.
 def build_request(agent, agents, root=PROJECT_ROOT) -> str:
     return bot.build_request_system_prompt(
         root, agent.role, agent.name, agent.korean_name, agents, None, TOOLS_CONFIG, REMINDERS_CONFIG,
     )
 
 
+# id와 부모 id만 가진 가짜 스레드를 만든다.
 def fake_thread(thread_id: int, parent_id: int) -> discord.Thread:
     thread = discord.Thread.__new__(discord.Thread)
     thread.id = thread_id
@@ -57,16 +61,19 @@ def fake_thread(thread_id: int, parent_id: int) -> discord.Thread:
 
 
 class RenderVariantTests(unittest.TestCase):
+    # 일치하는 변형만 남기고 나머지를 지우는지 확인한다.
     def test_keeps_matching_and_removes_other_variants(self) -> None:
         template = "앞\n  {{request:요청 줄}}\n  {{chat:채팅 줄}}\n뒤"
         self.assertEqual(prompts_module.render_variant(template, "request"), "앞\n  요청 줄\n뒤")
         self.assertEqual(prompts_module.render_variant(template, "chat"), "앞\n  채팅 줄\n뒤")
 
+    # 여러 줄 변형이 렌더링되는지 확인한다.
     def test_multiline_variant(self) -> None:
         template = "{{chat:첫 줄\n  둘째 줄}}\n끝"
         self.assertEqual(prompts_module.render_variant(template, "chat"), "첫 줄\n  둘째 줄\n끝")
         self.assertEqual(prompts_module.render_variant(template, "request"), "끝")
 
+    # 닫히지 않은 표식이 오류가 되는지 확인한다.
     def test_broken_markers_raise(self) -> None:
         for template in (
             "{{chat:닫히지 않음\n다음 줄",
@@ -80,6 +87,7 @@ class RenderVariantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             prompts_module.render_variant("본문", "other")
 
+    # 두 종류 템플릿이 모두 렌더링되는지 확인한다.
     def test_templates_render_for_both_kinds(self) -> None:
         for path in (prompts_module.RUNTIME_PROMPT_PATH, config_module.TURN_PROMPT_PATH):
             text = path.read_text(encoding="utf-8")
@@ -91,6 +99,7 @@ class RenderVariantTests(unittest.TestCase):
 
 
 class ChannelKindTests(unittest.TestCase):
+    # 스레드가 부모 채널 종류를 따르는지 확인한다.
     def test_thread_uses_parent_channel(self) -> None:
         cfg = SimpleNamespace(chat_channels={10})
         self.assertTrue(prompts_module.is_chat_channel(SimpleNamespace(id=10), cfg))
@@ -98,6 +107,7 @@ class ChannelKindTests(unittest.TestCase):
         self.assertTrue(prompts_module.is_chat_channel(fake_thread(99, 10), cfg))
         self.assertFalse(prompts_module.is_chat_channel(fake_thread(10, 11), cfg))
 
+    # 하루 채팅 시각이 날짜 시드로 정해지는지 확인한다.
     def test_daily_chat_seed(self) -> None:
         day = date(2026, 10, 2)
         expected = sorted(random.Random(f"{day.isoformat()}:42:chat").sample(range(24 * 60), 3))
@@ -106,6 +116,7 @@ class ChannelKindTests(unittest.TestCase):
 
 
 class ChatSystemPromptTests(unittest.TestCase):
+    # 모든 역할의 채팅 프롬프트가 만들어지는지 확인한다.
     def test_chat_prompt_for_every_role(self) -> None:
         agents = roster_agents()
         common = prompts_module.STYLE_SECTION.sub("", prompts_module.read_common_rules(PROJECT_ROOT), count=1).strip()
@@ -129,6 +140,7 @@ class ChatSystemPromptTests(unittest.TestCase):
                         self.assertIn(f"- {other.korean_name} (내부 ID: {other.name}, 종: ", tail)
                 self.assertNotIn("역할: ", tail)
 
+    # 채팅과 요청 프롬프트가 공통 지침의 모든 제목을 유지하는지 확인한다.
     def test_chat_and_request_prompts_keep_all_common_headings(self) -> None:
         agents = roster_agents()
         common = prompts_module.read_common_rules(PROJECT_ROOT)
@@ -143,6 +155,7 @@ class ChatSystemPromptTests(unittest.TestCase):
 
 
 class CharacterMemoryTests(unittest.TestCase):
+    # 임시 저장소 폴더와 필요한 지침 파일을 만든다.
     def make_root(self) -> Path:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -151,10 +164,11 @@ class CharacterMemoryTests(unittest.TestCase):
         shutil.copy(PROJECT_ROOT / common, root / common)
         role_dir = root / ".claude" / "agents" / "worker"
         role_dir.mkdir(parents=True)
-        for name in (config_module.ROLE_RULES_FILE, "SOUL.md"):
+        for name in (config_module.ROLE_RULES_FILE, config_module.ROLE_MAIN_FILE, "SOUL.md"):
             shutil.copy(PROJECT_ROOT / ".claude" / "agents" / "worker" / name, role_dir / name)
         return root
 
+    # 프롬프트 서명이 채팅 문서와 기억 파일을 감시하는지 확인한다.
     def test_signature_watches_chat_and_memory_files(self) -> None:
         root = self.make_root()
         memory_path = root / ".claude" / "agents" / "worker" / "MEMORY.md"
@@ -170,6 +184,7 @@ class CharacterMemoryTests(unittest.TestCase):
         self.assertIn((str(memory_path), stat.st_mtime_ns, stat.st_size), changed)
         self.assertNotEqual(signature, changed)
 
+    # 기억 파일이 성향 문서 뒤에 들어가는지 확인한다.
     def test_memory_file_is_injected_after_persona(self) -> None:
         root = self.make_root()
         agent = bot.AgentConfig(role="worker", name="jelly", korean_name="젤리", token="", tools=[])
@@ -190,7 +205,9 @@ class CharacterMemoryTests(unittest.TestCase):
 
 
 class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
+    # 가짜 채널과 질의로 한 턴을 실행하고 클라이언트, 프롬프트를 반환한다.
     async def run_turn(self, *, chat: bool):
+        # 채널과 런타임을 가짜 객체로 만든다.
         channel = SimpleNamespace(
             id=123, name="test", guild=SimpleNamespace(name="test"),
             typing=Mock(return_value=AsyncMock()),
@@ -215,10 +232,12 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         prompts: list[str] = []
         options = Mock()
 
+        # 프롬프트를 기록하고 정지 응답을 내는 가짜 질의이다.
         async def fake_query(*, prompt, options):
             prompts.append(prompt)
             yield SimpleNamespace(result="[[next:stop]]", subtype="success", num_turns=1)
 
+        # 봇 의존성을 대체하고 턴을 실행한다.
         with (
             patch.object(bot, "query", fake_query),
             patch.object(bot, "ResultMessage", SimpleNamespace),
@@ -232,6 +251,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
             )
         return client, prompts[0], options.call_args.kwargs["system_prompt"]
 
+    # 요청 턴이 작업 프롬프트를 유지하는지 확인한다.
     async def test_request_turn_keeps_work_prompt(self) -> None:
         client, prompt, system_prompt = await self.run_turn(chat=False)
         client._refresh_request_prompt.assert_called_once()
@@ -239,6 +259,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(system_prompt, {"type": "preset", "preset": "claude_code", "append": "REQUEST"})
         self.assertNotIn("발언 화자:", prompt)
 
+    # 채팅 턴 프롬프트가 화자의 어조 안내로 끝나는지 확인한다.
     async def test_chat_turn_ends_with_speaker_tone_guide(self) -> None:
         _, prompt, _ = await self.run_turn(chat=True)
         tone = bot.read_tone_guide(bot.canonical_role_dir(bot.RULES_ROOT, "worker") / "SOUL.md")
@@ -246,12 +267,14 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tone)
         self.assertIn(f"젤리의 Tone Guide:\n{tone}\n{style}\n", prompt)
 
+    # 서식 규칙이 채팅 시스템 프롬프트에서 턴 프롬프트로 옮겨졌는지 확인한다.
     def test_style_rules_move_from_chat_system_prompt(self) -> None:
         style = bot.read_style_rules(bot.RULES_ROOT)
         agents = roster_agents()
         self.assertNotIn(style, build_chat(agents[0], agents))
         self.assertIn(style, build_request(agents[0], agents))
 
+    # 채팅 턴이 작업용 문장을 뺀 프롬프트를 쓰는지 확인한다.
     async def test_chat_turn_drops_work_sentences(self) -> None:
         client, prompt, system_prompt = await self.run_turn(chat=True)
         client._refresh_chat_prompt.assert_called_once()

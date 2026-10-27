@@ -19,6 +19,7 @@ prompts_module = importlib.import_module("prompts")
 
 
 class ChatResponseControlTests(unittest.TestCase):
+    # 올바른 제어 표식 응답이 파싱되는지 확인한다.
     def test_valid_responses(self) -> None:
         cases = [
             ("안녕하세요.\n[[next:rio]]", ("안녕하세요.", "rio", None)),
@@ -36,6 +37,7 @@ class ChatResponseControlTests(unittest.TestCase):
             with self.subTest(response=response):
                 self.assertEqual(prompts_module.parse_chat_result(response), expected)
 
+    # 다음 화자 없이 대기와 반응 표식만 있는 응답이 파싱되는지 확인한다.
     def test_wait_and_react_without_next(self) -> None:
         cases = [
             ("본문\n[[wait:user]]", ("본문", "stop", None, True)),
@@ -47,6 +49,7 @@ class ChatResponseControlTests(unittest.TestCase):
             with self.subTest(response=response):
                 self.assertEqual(prompts_module.parse_chat_controls(response), expected)
 
+    # 잘못된 제어 표식 응답이 거부되는지 확인한다.
     def test_invalid_responses(self) -> None:
         cases = [
             "[[next:rio]]\n[[next:stop]]",
@@ -71,10 +74,12 @@ class ChatResponseControlTests(unittest.TestCase):
 
 
 class ChatResponseDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    # 가짜 채널과 질의로 한 턴을 실행하고 결과를 반환한다.
     async def run_turn(
         self, response: str, *, reaction_trigger: bool = True, chat_config=None,
         turn_index: int = 1, turn_limit: int = 1, autonomous: bool = False,
     ):
+        # 채널과 런타임을 가짜 객체로 만든다.
         channel = SimpleNamespace(
             id=123, name="test", guild=SimpleNamespace(name="test"),
             typing=Mock(return_value=AsyncMock()),
@@ -100,10 +105,12 @@ class ChatResponseDeliveryTests(unittest.IsolatedAsyncioTestCase):
         prompts = []
         options_factory = Mock()
 
+        # 프롬프트를 기록하고 고정 응답을 내는 가짜 질의이다.
         async def fake_query(*, prompt, options):
             prompts.append(prompt)
             yield SimpleNamespace(result=response, subtype="success", num_turns=1)
 
+        # 봇 의존성을 대체하고 턴을 실행한다.
         with (
             patch.object(bot, "query", fake_query),
             patch.object(bot, "ResultMessage", SimpleNamespace),
@@ -119,6 +126,7 @@ class ChatResponseDeliveryTests(unittest.IsolatedAsyncioTestCase):
         runtime.sdk_options = options_factory.call_args.kwargs
         return next_name, channel, runtime, prompts[0]
 
+    # 설정에서 읽은 SDK 턴 제한이 질의 옵션에 전달되는지 확인한다.
     async def test_loaded_sdk_turn_limit_reaches_options(self) -> None:
         for value in (None, 4):
             with self.subTest(value=value):
@@ -132,6 +140,7 @@ class ChatResponseDeliveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("max_turns", runtime.sdk_options)
                 self.assertEqual(runtime.sdk_options["max_turns"], value)
 
+    # 잘못된 제어 표식이 든 응답이 Discord로 가지 않는지 확인한다.
     async def test_invalid_control_never_reaches_discord(self) -> None:
         for response in (
             "본문\n[[next:rio]]\n[[next:stop]]",
@@ -144,6 +153,7 @@ class ChatResponseDeliveryTests(unittest.IsolatedAsyncioTestCase):
                 channel.get_partial_message.assert_not_called()
                 runtime.append_chat.assert_not_called()
 
+    # 반응만 있는 응답과 프롬프트 규약을 확인한다.
     async def test_reaction_only_and_prompt_contract(self) -> None:
         next_name, channel, runtime, prompt = await self.run_turn("[[react:👍]]\n[[next:stop]]")
         self.assertEqual(next_name, "stop")
@@ -151,6 +161,7 @@ class ChatResponseDeliveryTests(unittest.IsolatedAsyncioTestCase):
         channel.get_partial_message.return_value.add_reaction.assert_awaited_once_with("👍")
         runtime.append_chat.assert_called_once()
 
+    # 본문만 전송되고 제어 표식은 전송되지 않는지 확인한다.
     async def test_only_body_is_sent(self) -> None:
         next_name, channel, runtime, _ = await self.run_turn("본문\n[[react:👍]]\n[[next:rio]]")
         self.assertEqual(next_name, "rio")
@@ -158,12 +169,14 @@ class ChatResponseDeliveryTests(unittest.IsolatedAsyncioTestCase):
         channel.get_partial_message.return_value.add_reaction.assert_awaited_once_with("👍")
         self.assertNotIn("[[", runtime.append_chat.call_args.args[2])
 
+    # 다음 화자 지정이 없는 본문은 전송하고 대화를 멈추는지 확인한다.
     async def test_body_without_next_is_sent_and_stops(self) -> None:
         next_name, channel, runtime, _ = await self.run_turn("본문", reaction_trigger=False)
         self.assertEqual(next_name, "stop")
         channel.send.assert_awaited_once_with("본문")
         runtime.append_chat.assert_called_once()
 
+    # 본문 없는 넘김은 전송하지 않는지 확인한다.
     async def test_handoff_without_body_is_not_sent(self) -> None:
         next_name, channel, runtime, _ = await self.run_turn(
             "[[next:jelly]]", reaction_trigger=False, turn_index=1, turn_limit=6,

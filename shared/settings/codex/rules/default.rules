@@ -4,6 +4,12 @@
 # 규칙에 맞는 명령은 sandbox_mode와 무관하게 이 결정을 따른다. 규칙이 없는 명령은 샌드박스 안에서 실행된다.
 # 여러 규칙이 맞으면 가장 엄격한 결정(forbidden > prompt > allow)을 적용한다.
 
+prefix_rule(pattern=["git", ["status", "diff", "log", "show", "ls-files", "ls-tree"]], decision="allow")
+prefix_rule(pattern=["rg"], decision="allow")
+prefix_rule(pattern=[["cat", "ls", "grep", "head", "tail", "find", "wc", "date"]], decision="allow")
+prefix_rule(pattern=["sed", "-n"], decision="allow")
+prefix_rule(pattern=[["Get-Content", "Get-ChildItem", "Get-Item", "Select-String", "Select-Object", "Group-Object", "Sort-Object", "Measure-Object", "Format-Table", "Format-List", "Out-String"]], decision="allow")
+
 prefix_rule(pattern=["git", "commit"], decision="prompt")
 prefix_rule(pattern=["git", "add"], decision="prompt")
 prefix_rule(pattern=["git", "push"], decision="prompt")
@@ -63,9 +69,16 @@ prefix_rule(pattern=["git", "remote", "rename"], decision="prompt")
 prefix_rule(pattern=["git", "remote", "set-url"], decision="prompt")
 prefix_rule(pattern=["rm"], decision="prompt")
 prefix_rule(pattern=["rmdir"], decision="prompt")
+prefix_rule(pattern=["python"], decision="prompt")
+prefix_rule(pattern=["python3"], decision="prompt")
+prefix_rule(pattern=["py"], decision="prompt")
+prefix_rule(pattern=["node"], decision="prompt")
+prefix_rule(pattern=["perl"], decision="prompt")
+prefix_rule(pattern=["ruby"], decision="prompt")
+prefix_rule(pattern=["mv"], decision="allow")
+prefix_rule(pattern=["cp"], decision="allow")
+prefix_rule(pattern=["mkdir"], decision="allow")
 
-prefix_rule(pattern=["sed"], decision="forbidden")
-prefix_rule(pattern=["cd"], decision="forbidden")
 prefix_rule(pattern=["git", "rebase"], decision="forbidden")
 prefix_rule(pattern=["git", "revert"], decision="forbidden")
 prefix_rule(pattern=["git", "cherry-pick"], decision="forbidden")

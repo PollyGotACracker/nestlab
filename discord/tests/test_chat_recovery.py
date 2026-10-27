@@ -21,6 +21,7 @@ bot = importlib.import_module("bot")
 prompts_module = importlib.import_module("prompts")
 
 
+# 채팅 설정만 가진 가짜 실행 객체를 만든다.
 def make_runtime() -> bot.Runtime:
     config = SimpleNamespace(
         chat=SimpleNamespace(history_max_lines=20, history_hours=24, line_max_chars=10000),
@@ -30,6 +31,7 @@ def make_runtime() -> bot.Runtime:
 
 
 class HandoffAndEvidenceTests(unittest.TestCase):
+    # 넘김 설명은 지우고 본문 내용은 남기는지 확인한다.
     def test_handoff_explanation_is_suppressed_but_content_is_kept(self) -> None:
         self.assertEqual(bot.suppress_handoff_body("제 담당이 아니라 리오에게 넘기겠습니다.", "rio"), "")
         self.assertEqual(bot.suppress_handoff_body("확인 결과는 이렇습니다.", "rio"), "확인 결과는 이렇습니다.")
@@ -39,6 +41,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
             "확인 결과는 정상입니다.",
         )
 
+    # 보고된 넘김 문구가 모두 지워지는지 확인한다.
     def test_reported_handoff_phrases_are_suppressed(self) -> None:
         cases = [
             "리오가 판단할 몫이라고 리키가 넘겼으니 제가 답할 내용은 없습니다.",
@@ -48,6 +51,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(bot.suppress_handoff_body(text, "rio"), "")
 
+    # 도구 URL이 실제 사용과 결과와 함께 남는지 확인한다.
     def test_tool_urls_are_kept_with_actual_use_and_result(self) -> None:
         uses: dict[str, tuple[str, list[str]]] = {}
         records: list[str] = []
@@ -68,6 +72,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         self.assertIn("확인 web_fetch", rendered)
         self.assertIn("https://docs.example.com/a", rendered)
 
+    # 서버 도구 호출이 실패하면 미확인으로 처리되는지 확인한다.
     def test_failed_server_tool_result_is_unverified(self) -> None:
         uses = {"1": ("web_fetch", ["https://docs.example.com/missing"])}
         records: list[str] = []
@@ -83,6 +88,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         self.assertIn("실패·미확인 web_fetch", rendered)
         self.assertNotIn("확인 web_fetch", rendered.replace("실패·미확인 web_fetch", ""))
 
+    # 결과에 URL이 없어도 성공한 조회가 입력 URL을 확인으로 처리하는지 확인한다.
     def test_successful_fetch_confirms_input_url_when_result_omits_it(self) -> None:
         uses = {"1": ("web_fetch", ["https://docs.example.com/a"])}
         records: list[str] = []
@@ -93,6 +99,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         bot.collect_tool_evidence(success, uses, records)
         self.assertIn("확인 web_fetch: https://docs.example.com/a", bot.render_tool_evidence(records))
 
+    # 라우터가 실패하면 답장 대상을 대체 화자로 쓰는지 확인한다.
     def test_reply_target_is_fallback_when_router_fails(self) -> None:
         client = SimpleNamespace(
             runtime=SimpleNamespace(
@@ -109,6 +116,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, message)), "rio")
 
+    # 무작위 선택 전에 마지막 답장 화자를 대체로 쓰는지 확인한다.
     def test_last_replier_is_fallback_before_random_pick(self) -> None:
         history = [(1, 0.0, "폴리", "a", 1), (2, 0.0, "rio", "b", 2), (3, 0.0, "jelly", "c", 3),
                    (4, 0.0, "폴리", "d", 4), (5, 0.0, "pepper", "e", 5), (6, 0.0, "rio", "f", 6)]
@@ -125,6 +133,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         runtime.chat_history_for.return_value = []
         self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, message)), "jelly")
 
+    # 멘션이 우선하고 그 밖에는 라우터 결과를 쓰는지 확인한다.
     def test_mention_wins_and_router_result_is_used(self) -> None:
         route = AsyncMock(return_value="pepper")
         client = SimpleNamespace(
@@ -136,25 +145,33 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         route.assert_not_awaited()
         self.assertEqual(asyncio.run(bot.AgentBot._chat_target_name(client, plain)), "pepper")
 
+    # 라우터 모델이 메시지당 한 번만 호출되는지 확인한다.
     def test_router_model_is_called_once_per_message(self) -> None:
+        # 라우터 설정과 호출 기록을 준비한다.
         runtime = make_runtime()
         runtime.config.agents = [SimpleNamespace(name="rio", korean_name="리오")]
         runtime.config.chat.router_model = "m"
         calls = Mock(return_value="rio")
 
+        # 호출 횟수를 세고 고정 화자를 반환하는 가짜 라우터이다.
         async def fake(channel_id: int, text: str) -> str:
             calls()
             return "rio"
 
+        # 라우터 요청을 가짜 함수로 바꾼다.
         runtime._request_chat_router = fake
 
+        # 같은 메시지에 대해 라우팅을 여러 번 동시에 요청한다.
         async def run() -> list:
             return await asyncio.gather(*(runtime.route_chat_target(1, 5, "hi") for _ in range(6)))
 
+        # 여러 번 라우팅해도 모델 호출이 한 번인지 확인한다.
         self.assertEqual(asyncio.run(run()), ["rio"] * 6)
         self.assertEqual(calls.call_count, 1)
 
+    # 라우터 응답에서 명단 순서상 첫 화자를 고르는지 확인한다.
     def test_router_answer_picks_first_roster_id(self) -> None:
+        # 라우터 설정과 발언자 목록을 준비한다.
         runtime = make_runtime()
         runtime.config.agents = [
             SimpleNamespace(name="assistant", korean_name="버디"),
@@ -163,29 +180,38 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         runtime.config.chat.router_model = "m"
         runtime.render_chat_history = lambda channel_id: ""
 
+        # 고정 결과를 내는 가짜 질의를 만든다.
         def fake_query(answer: str):
+            # 고정 결과 메시지 하나를 내는 비동기 생성기이다.
             async def gen(**kwargs):
                 yield bot.ResultMessage(
                     subtype="success", duration_ms=0, duration_api_ms=0, is_error=False,
                     num_turns=1, session_id="s", result=answer,
                 )
+            # 만든 생성기를 반환한다.
             return gen
 
+        # 응답 문자열마다 고른 발언자를 확인한다.
         for answer, expected in (("`researcher` (assistant 아님)", "researcher"), ("assistant입니다", "assistant"),
                                  ("assistants", None), ("모름", None), ("니코", "researcher"),
                                  ("버디입니다", "assistant")):
             with patch.object(bot, "query", fake_query(answer)), patch.object(bot, "log_token_usage"):
                 self.assertEqual(asyncio.run(runtime._request_chat_router(1, "hi")), expected)
 
+    # 라우터가 실패하면 None을 반환하는지 확인한다.
     def test_router_failure_returns_none(self) -> None:
+        # 라우터 실패를 준비한다.
         runtime = make_runtime()
 
+        # 항상 예외를 던지는 가짜 라우터이다.
         async def boom(channel_id: int, text: str) -> str:
             raise RuntimeError("x")
 
+        # 라우터 요청을 실패하는 함수로 바꾸고 결과가 None인지 확인한다.
         runtime._request_chat_router = boom
         self.assertIsNone(asyncio.run(runtime.route_chat_target(1, 6, "hi")))
 
+    # 요약 시험용 화자 명단을 가진 실행 객체를 만든다.
     def _digest_runtime(self):
         runtime = make_runtime()
         runtime.config.agents = [
@@ -198,22 +224,28 @@ class HandoffAndEvidenceTests(unittest.TestCase):
             runtime.append_chat(1, "rio", "자기 말", 12)
         return runtime
 
+    # 다른 화자의 발언이 요약으로 바뀌어 공유되는지 확인한다.
     def test_other_speaker_text_becomes_digest_and_is_shared(self) -> None:
+        # 요약 런타임과 호출 기록을 준비한다.
         runtime = self._digest_runtime()
         calls = Mock()
 
+        # 호출 횟수를 세고 고정 요약을 반환하는 가짜 요약기이다.
         async def fake(channel_id: int, items: list) -> dict:
             calls()
             return {seq: "요지 문장" for seq, _, _ in items}
 
+        # 요약 요청을 가짜 함수로 바꾼다.
         runtime._request_chat_digest = fake
 
+        # 여러 화자의 기록 렌더링을 동시에 요청한다.
         async def run() -> list:
             with patch.object(bot, "save_chat_state"):
                 return await asyncio.gather(
                     runtime.render_speaker_history(1, "rio"), runtime.render_speaker_history(1, "rio"),
                 )
 
+        # 두 발언자의 기록이 같은 요약을 쓰는지 확인한다.
         first, second = asyncio.run(run())
         self.assertEqual(first, second)
         self.assertNotIn("했슴다", first)
@@ -224,17 +256,22 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         self.assertIn("질문", first)
         self.assertEqual(calls.call_count, 1)
 
+    # 요약이 실패하면 원문을 쓰는지 확인한다.
     def test_digest_failure_falls_back_to_original(self) -> None:
+        # 요약 런타임을 준비한다.
         runtime = self._digest_runtime()
 
+        # 항상 예외를 던지는 가짜 요약기이다.
         async def boom(channel_id: int, items: list) -> dict:
             raise RuntimeError("x")
 
+        # 요약 요청을 실패하는 함수로 바꾸고 원문이 남는지 확인한다.
         runtime._request_chat_digest = boom
         with patch.object(bot, "save_chat_state"):
             text = asyncio.run(runtime.render_speaker_history(1, "rio"))
         self.assertIn("했슴다", text)
 
+    # 어조 안내 절을 원문 그대로 읽는지 확인한다.
     def test_tone_guide_section_is_read_verbatim(self) -> None:
         soul = DISCORD_ROOT.parent / ".claude" / "agents" / "researcher" / "SOUL.md"
         tone = prompts_module.read_tone_guide(soul)
@@ -244,6 +281,7 @@ class HandoffAndEvidenceTests(unittest.TestCase):
 
 
 class RuntimeRecoveryTests(unittest.TestCase):
+    # 중복 처리, 대기 상태, 삭제된 메시지 정리가 동작하는지 확인한다.
     def test_duplicate_pending_and_deleted_message_cleanup(self) -> None:
         runtime = make_runtime()
         self.assertTrue(runtime.claim_user_message(100))
@@ -262,6 +300,7 @@ class RuntimeRecoveryTests(unittest.TestCase):
         self.assertNotIn(1, runtime.chat_last_user_message)
         self.assertEqual(runtime.chat_pending[1], 0)
 
+    # 나뉜 메시지 묶음이 조각 하나의 삭제로 모두 지워지는지 확인한다.
     def test_split_message_group_is_removed_by_any_chunk(self) -> None:
         runtime = make_runtime()
         with patch.object(bot, "save_chat_state"):
@@ -271,6 +310,7 @@ class RuntimeRecoveryTests(unittest.TestCase):
 
 
 class ConversationTraceTests(unittest.IsolatedAsyncioTestCase):
+    # 잠금 대기가 취소되어도 대기 상태가 남지 않는지 확인한다.
     async def test_cancelled_lock_waiter_does_not_leave_pending(self) -> None:
         runtime = make_runtime()
         runtime.clients = {"jelly": SimpleNamespace(_handle_chat_turn=AsyncMock(return_value="stop"))}
@@ -291,6 +331,7 @@ class ConversationTraceTests(unittest.IsolatedAsyncioTestCase):
         lock.release()
         self.assertEqual(runtime.chat_pending[1], 0)
 
+    # 대화 종료 사유가 모델 정지와 다른 사유를 구분하는지 확인한다.
     async def test_end_reason_distinguishes_model_stop(self) -> None:
         runtime = make_runtime()
         runtime.config.chat.max_turns = 2
@@ -302,6 +343,7 @@ class ConversationTraceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PromptLocationTests(unittest.TestCase):
+    # 턴 프롬프트 파일을 감시하고 재확인 규약을 담는지 확인한다.
     def test_turn_prompt_is_watched_and_contains_recheck_contract(self) -> None:
         prompt = (DISCORD_ROOT / "prompts" / "TURN.md").read_text(encoding="utf-8")
         with patch.object(prompts_module, "canonical_role_dir", return_value=DISCORD_ROOT):

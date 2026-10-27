@@ -33,6 +33,7 @@ FORUM_TAGS_MAX = 5
 
 # 도구 인자로 받은 메시지 ID를 정수로 바꾼다. Discord ID는 JavaScript 정수 범위를 넘어 문자열로 받는다.
 def parse_message_id(value: Any) -> int | None:
+    # 값을 양의 정수 메시지 ID로 바꾼다.
     try:
         message_id = int(str(value).strip())
     except (TypeError, ValueError):
@@ -44,6 +45,7 @@ def parse_message_id(value: Any) -> int | None:
 def build_director_server(
     channel: discord.abc.Messageable, runtime: "Runtime", agent: AgentConfig
 ) -> tuple[str, list[str], Any] | None:
+    # 도구 목록을 시작한다.
     tools = []
 
     # 현재 채널에 투표를 올린다.
@@ -62,6 +64,7 @@ def build_director_server(
         },
     )
     async def poll_create(args: dict[str, Any]) -> dict[str, Any]:
+        # 투표 질문과 선택지를 검사하고 투표를 만든다.
         question = str(args.get("question", "")).strip()
         answers = [str(a).strip() for a in args.get("answers", []) if str(a).strip()]
         hours = args.get("hours")
@@ -92,6 +95,7 @@ def build_director_server(
         )
         return tool_text("투표를 올렸습니다.")
 
+    # 도구 이름 목록을 시작하고 투표 도구를 등록한다.
     tool_names = []
     if hasattr(discord, "Poll"):
         tools.append(poll_create)
@@ -113,6 +117,7 @@ def build_director_server(
         },
     )
     async def thread_create(args: dict[str, Any]) -> dict[str, Any]:
+        # 스레드 이름과 첫 글을 검사하고 스레드를 만든다.
         name = str(args.get("name", "")).strip()
         if not name or len(name) > THREAD_NAME_MAX:
             return tool_text(f"스레드 이름은 1~{THREAD_NAME_MAX}자여야 합니다.")
@@ -157,9 +162,12 @@ def build_director_server(
         },
     )
     async def message_pin(args: dict[str, Any]) -> dict[str, Any]:
+        # 메시지 id를 확인한다.
         message_id = parse_message_id(args.get("message_id"))
         if message_id is None:
             return tool_text("message_id가 올바르지 않습니다.")
+
+        # 메시지를 고정한다. 실패하면 오류 문장을 반환한다.
         try:
             await channel.get_partial_message(message_id).pin()
         except discord.HTTPException as exc:
@@ -167,6 +175,7 @@ def build_director_server(
             return tool_text(f"메시지를 고정하지 못했습니다: {exc}")
         return tool_text("메시지를 고정했습니다.")
 
+    # 스레드와 고정 도구를 등록하고 서버를 반환한다.
     tools += [thread_create, message_pin]
     tool_names += ["mcp__director__thread_create", "mcp__director__message_pin"]
     return "director", tool_names, create_sdk_mcp_server(
@@ -178,6 +187,7 @@ def build_director_server(
 def build_history_server(
     channel: discord.abc.Messageable, runtime: "Runtime", agent: AgentConfig
 ) -> tuple[str, list[str], Any] | None:
+    # 채널 기록 한도를 꺼낸다.
     history_max = runtime.config.tools.channel_history_max
     line_max_chars = runtime.config.chat.line_max_chars
 
@@ -188,17 +198,22 @@ def build_history_server(
         {"limit": int},
     )
     async def channel_history(args: dict[str, Any]) -> dict[str, Any]:
+        # 조회 개수를 한도 안으로 정한다.
         try:
             limit = int(args.get("limit", history_max))
         except (TypeError, ValueError):
             limit = history_max
         limit = max(1, min(limit, history_max))
+
+        # 채널 기록을 읽는다.
         id_to_name = runtime.bot_id_to_name()
         try:
             messages = [m async for m in channel.history(limit=limit)]
         except discord.HTTPException as exc:
             log.warning("channel history failed agent=%s: %s", agent.name, exc)
             return tool_text("채널 기록을 읽지 못했습니다.")
+
+        # 오래된 메시지부터 화자와 본문을 한 줄로 만든다.
         lines = []
         for m in reversed(messages):
             name = id_to_name.get(m.author.id)
@@ -209,6 +224,7 @@ def build_history_server(
             lines.append(f"[{m.created_at:%Y-%m-%d %H:%M}] [{speaker}] {body}")
         return tool_text("\n".join(lines) or "메시지가 없습니다.")
 
+    # 도구를 묶어 history 서버를 반환한다.
     return "history", ["mcp__history__channel_history"], create_sdk_mcp_server(
         name="history", version="1.0.0", tools=[channel_history]
     )
@@ -228,6 +244,7 @@ CHANNEL_TYPE_LABELS = {
 def build_server_channels_server(
     channel: discord.abc.Messageable, runtime: "Runtime", agent: AgentConfig
 ) -> tuple[str, list[str], Any] | None:
+    # 서버 정보가 없으면 서버를 만들지 않는다.
     guild = getattr(channel, "guild", None)
     if guild is None:
         return None
@@ -241,6 +258,7 @@ def build_server_channels_server(
         {},
     )
     async def server_channels(args: dict[str, Any]) -> dict[str, Any]:
+        # 서버의 카테고리별 채널을 순회하며 볼 수 있는 채널 줄을 만든다.
         lines = []
         total = 0
         for category, channels in guild.by_category():
@@ -263,6 +281,8 @@ def build_server_channels_server(
                 if tags:
                     line += f" 태그: {', '.join(tag.name for tag in tags)}"
                 lines.append(line)
+
+        # 생략한 채널 수를 더해 반환한다.
         if total > len(lines):
             lines.append(f"(외 {total - len(lines)}개 생략)")
         return tool_text(f"서버: {guild.name}\n" + ("\n".join(lines) or "볼 수 있는 채널이 없습니다."))
@@ -283,6 +303,7 @@ def build_server_channels_server(
         },
     )
     async def forum_post(args: dict[str, Any]) -> dict[str, Any]:
+        # 포럼 이름, 제목, 내용, 태그를 검사하고 글을 만든다.
         forum_name = str(args.get("forum", "")).strip().lstrip("#")
         title = str(args.get("title", "")).strip()
         content = str(args.get("content", "")).strip()
@@ -329,6 +350,7 @@ def build_server_channels_server(
         runtime.append_chat(channel.id, agent.name, f"(포럼 글 작성) #{forum.name} / {title} / 태그: {tag_text}")
         return tool_text(f"#{forum.name}에 '{title}' 글을 올렸습니다. 태그: {tag_text}")
 
+    # 기본 채널 도구와 documenter 전용 도구를 등록한다.
     channel_tools = [server_channels, forum_post]
     channel_tool_names = ["mcp__channels__server_channels", "mcp__channels__forum_post"]
     if agent.role == "documenter" and runtime.config.archive_forum_id is not None:
@@ -340,15 +362,20 @@ def build_server_channels_server(
             {"title": str, "content": str},
         )
         async def archive_thread_start(args: dict[str, Any]) -> dict[str, Any]:
+            # 제목과 첫 글을 확인한다.
             title = str(args.get("title", "")).strip()
             content = str(args.get("content", "")).strip()
             if not title or len(title) > THREAD_NAME_MAX:
                 return tool_text(f"제목은 1~{THREAD_NAME_MAX}자여야 합니다.")
             if not content:
                 return tool_text("첫 글 내용이 필요합니다.")
+
+            # 아카이브 포럼 채널을 확인한다.
             forum = guild.get_channel(runtime.config.archive_forum_id)
             if not isinstance(forum, discord.ForumChannel):
                 return tool_text("archive_forum_id가 ForumChannel을 가리키지 않습니다.")
+
+            # 원문 사용자 메시지와 작업 자료로 게시글을 만들어 올리고 첨부 파일을 옮긴다.
             try:
                 original = runtime.chat_last_user_message.get(channel.id)
                 original_text = original.content.strip() if original is not None else ""
@@ -365,6 +392,8 @@ def build_server_channels_server(
                         await created.thread.send(files=files[start:start + 10])
             except discord.HTTPException as exc:
                 return tool_text(f"archive thread를 만들지 못했습니다: {exc}")
+
+            # 채팅 기록에 남기고 결과를 알린다.
             runtime.append_chat(created.thread.id, agent.name, post_text, created.message.id)
             runtime.append_chat(
                 channel.id,
@@ -372,9 +401,11 @@ def build_server_channels_server(
                 f"(저장소 작업 게시글 생성) #{forum.name} / {title}",
             )
             return tool_text(f"#{forum.name}에 저장소 작업 게시글을 만들었습니다: {created.thread.mention}")
+        # 저장소 스레드 시작 도구를 등록한다.
         channel_tools.append(archive_thread_start)
         channel_tool_names.append("mcp__channels__archive_thread_start")
 
+    # 도구를 묶어 channels 서버를 반환한다.
     return "channels", channel_tool_names, create_sdk_mcp_server(
         name="channels", version="1.0.0", tools=channel_tools
     )
@@ -390,6 +421,7 @@ ROLE_TOOL_BUILDERS = {
 
 # 역할에 실제로 붙는 전용 도구 이름을 반환한다. 도구 연결부와 같은 조건을 쓴다.
 def role_tool_names(role: str, archive_repository: "ArchiveRepositoryConfig | None") -> list[str]:
+    # 역할별 도구 이름을 정한다.
     if role == "director":
         names = ["mcp__director__poll_create"] if hasattr(discord, "Poll") else []
         names += ["mcp__director__thread_create", "mcp__director__message_pin"]
@@ -399,4 +431,6 @@ def role_tool_names(role: str, archive_repository: "ArchiveRepositoryConfig | No
         names = REMINDER_TOOL_NAMES
     else:
         names = []
+
+    # 서버 이름 접두어를 뗀 도구 이름을 반환한다.
     return [name.rsplit("__", 1)[-1] for name in names]

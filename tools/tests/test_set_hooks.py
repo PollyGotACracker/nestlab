@@ -27,6 +27,7 @@ BEGIN = "# >>> nestlab >>>"
 
 
 class SetHooksTest(unittest.TestCase):
+    # 임시 홈과 설정 원본을 준비한다.
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.home = self.tmp / "home"
@@ -41,9 +42,11 @@ class SetHooksTest(unittest.TestCase):
         (self.settings / "codex/config.example.toml").write_text(CODEX, encoding="utf-8")
         (self.settings / "codex/rules/default.rules").write_text('prefix_rule(pattern=["rm"], decision="prompt")\n', encoding="utf-8")
 
+    # 임시 홈 기준으로 설치를 실행하는 보조 함수이다.
     def run_install(self):
         set_hooks.install(self.settings, self.bashrc, self.home)
 
+    # 자리표시가 실제 경로로 채워지는지 확인한다.
     def test_fills_placeholders(self):
         self.run_install()
         for rel in ("claude/settings.json", "codex/config.toml"):
@@ -52,6 +55,7 @@ class SetHooksTest(unittest.TestCase):
             self.assertNotIn("<PYTHON>", text)
             self.assertIn(set_hooks.ROOT.as_posix(), text)
 
+    # bashrc 블록이 추가와 교체되고 사용자 줄이 보존되는지 확인한다.
     def test_bashrc_block_is_appended_replaced_and_user_lines_kept(self):
         self.bashrc.parent.mkdir(parents=True, exist_ok=True)
         self.bashrc.write_text("export X=1\n", encoding="utf-8")
@@ -61,6 +65,7 @@ class SetHooksTest(unittest.TestCase):
         self.assertTrue(text.startswith("export X=1\n"))
         self.assertEqual(text.count(BEGIN), 1)
 
+    # Claude 설정 병합이 사용자 항목을 보존하고 반복 실행해도 같은지 확인한다.
     def test_claude_merge_keeps_user_items_and_is_idempotent(self):
         path = self.home / ".claude/settings.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +83,7 @@ class SetHooksTest(unittest.TestCase):
         self.assertEqual(len(data["hooks"]["Stop"]), 2)
         self.assertEqual(data["hooks"]["Stop"][0]["hooks"][0]["command"], "user")
 
+    # Codex 설정 병합이 사용자 항목을 보존하고 반복 실행해도 같은지 확인한다.
     def test_codex_merge_keeps_user_items_and_is_idempotent(self):
         path = self.home / ".codex/config.toml"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,6 +107,30 @@ class SetHooksTest(unittest.TestCase):
         self.assertTrue(first_rules.startswith('prefix_rule(pattern=["rg"]'))
         self.assertIn('pattern=["rm"]', first_rules)
 
+    # 예제 [features]의 새 키는 추가되고 사용자 값은 보존되는지 확인한다.
+    def test_codex_features_keys_added_and_user_values_kept(self):
+        path = self.home / ".codex/config.toml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("[features]\nhooks = false\n", encoding="utf-8")
+        example = self.settings / "codex/config.example.toml"
+        example.write_text(CODEX.replace("hooks = true\n", "hooks = true\nnew_flag = true\n", 1), encoding="utf-8")
+        self.run_install()
+        self.assertEqual(tomllib.loads(path.read_text(encoding="utf-8"))["features"], {"hooks": False, "new_flag": True})
+
+    # 예제 [windows] 키가 사용자 값을 덮어쓰고 표가 없으면 추가되는지 확인한다.
+    def test_codex_windows_table_overwritten_and_added(self):
+        path = self.home / ".codex/config.toml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        example = self.settings / "codex/config.example.toml"
+        example.write_text(CODEX.replace("[[hooks.Stop]]", '[windows]\nsandbox = "elevated"\n\n[[hooks.Stop]]', 1), encoding="utf-8")
+        path.write_text('[windows]\nsandbox = "unelevated"\n\n[features]\nhooks = true\n', encoding="utf-8")
+        self.run_install()
+        self.assertEqual(tomllib.loads(path.read_text(encoding="utf-8"))["windows"], {"sandbox": "elevated"})
+        path.write_text("[features]\nhooks = true\n", encoding="utf-8")
+        self.run_install()
+        self.assertEqual(tomllib.loads(path.read_text(encoding="utf-8"))["windows"], {"sandbox": "elevated"})
+
+    # 원본에서 지우거나 바꾼 항목이 전역 설정에 반영되는지 확인한다.
     def test_removed_and_changed_items_propagate_to_global(self):
         path = self.home / ".claude/settings.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +154,7 @@ class SetHooksTest(unittest.TestCase):
         self.assertEqual(data["model"], "m")
         self.assertEqual(data["permissions"]["deny"], ["Read(u)", "Read(b)"])
 
+    # 실제 예제 파일을 임시 홈에 설치할 수 있는지 확인한다.
     def test_real_example_files_install_into_temp_home(self):
         real = self.tmp / "real"
         shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
@@ -133,11 +164,14 @@ class SetHooksTest(unittest.TestCase):
         self.assertNotIn("<NESTLAB>", text)
         self.assertNotIn("<PYTHON>", text)
         data = tomllib.loads(text)
+        self.assertEqual(data["personality"], "none")
+        self.assertTrue(data["features"]["default_mode_request_user_input"])
         for groups in data["hooks"].values():
             for group in groups:
                 for h in group["hooks"]:
                     self.assertEqual(h["commandWindows"], "& " + h["command"], h["command"])
 
+    # 설치 결과 줄이 대상 파일 내용에서 만들어지는지 확인한다.
     def test_install_returns_result_lines_from_target_files(self):
         real = self.tmp / "real"
         shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
@@ -159,18 +193,27 @@ class SetHooksTest(unittest.TestCase):
         self.assertIn(f'sandbox_mode = "{cfg["sandbox_mode"]}"', lines[3])
         self.assertTrue(lines[4].startswith("- ~/.codex/rules/default.rules: prefix_rule "))
 
+    # hooks 항목이 없는 빈 그룹이 있어도 nestlab hook 명령만 세는지 확인한다.
+    def test_count_hooks_ignores_group_without_hooks(self):
+        hooks = {"UserPromptSubmit": [{}],
+                 "Stop": [{"hooks": [{"command": "py nestlab/hooks/a.py"}, {"command": "other"}]}]}
+        self.assertEqual(set_hooks.count_hooks(hooks), 1)
+
+    # Codex 폴더가 없으면 건너뛰는지 확인한다.
     def test_missing_codex_home_is_skipped(self):
         shutil.rmtree(self.home / ".codex")
         lines = set_hooks.install(self.settings, self.bashrc, self.home)
         self.assertFalse((self.home / ".codex").exists())
         self.assertTrue(any("건너뜀" in l and ".codex" in l for l in lines))
 
+    # Claude 폴더가 없으면 건너뛰는지 확인한다.
     def test_missing_claude_home_is_skipped(self):
         shutil.rmtree(self.home / ".claude")
         lines = set_hooks.install(self.settings, self.bashrc, self.home)
         self.assertFalse((self.home / ".claude").exists())
         self.assertTrue(any("건너뜀" in l and ".claude" in l for l in lines))
 
+    # 설정 파일이 깨져 있으면 main이 종료 코드 1로 실패를 알리는지 확인한다.
     def test_main_reports_failure_with_exit_1(self):
         bad = self.home / ".claude/settings.json"
         bad.parent.mkdir(parents=True, exist_ok=True)

@@ -27,6 +27,5 @@ __pycache__/
 *.pyc
 
 ## Hook state files
-log/state/.active/
 log/incident/*
 !log/incident/.gitkeep

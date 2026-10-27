@@ -6,7 +6,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/add_statusline.py\"",
+    "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/show_statusline.py\"",
     "padding": 0,
     "statusMessage": "Nestlab 에이전트 상태줄 이름 표시"
   },
@@ -34,8 +34,8 @@
       "Bash(date *)",
       "Bash(wc *)",
       "Bash(ls *)",
-      "Bash(mv *)",
-      "Bash(cp *)",
+      "Bash(mkdir *)",
+      "Bash",
       "Bash(python -m unittest *)",
       "Bash(python3 -m unittest *)",
       "Bash(py -m unittest *)",
@@ -124,12 +124,14 @@
       "Bash(git remote rename *)",
       "Bash(git remote set-url *)",
       "Bash(rm *)",
-      "Bash(rmdir *)"
+      "Bash(rmdir *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(py *)",
+      "Bash(node *)"
     ],
     "deny": [
       "Agent(fork)",
-      "Bash(sed *)",
-      "Bash(cd *)",
       "Bash(git rebase *)",
       "Bash(git revert *)",
       "Bash(git cherry-pick *)",
@@ -196,7 +198,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent|Edit|Write|NotebookEdit|Bash|Read|Grep|Glob",
+        "matcher": "Agent|Edit|Write|NotebookEdit|Bash|Read|Grep|Glob|AskUserQuestion",
         "hooks": [
           {
             "type": "command",
@@ -211,9 +213,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_research.py\"",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_handback_report.py\"",
             "timeout": 10,
             "statusMessage": "Nestlab 조사 결과 저장"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/allow_approved_request.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Nestlab 승인 창 자동 허용"
           }
         ]
       }
@@ -223,7 +237,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_agent_result.py\" --runner claude",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_subagent_result.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 결과 원문 저장"
           }
@@ -259,9 +273,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/record_incident.py\" --runner claude",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_invalid_response.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 사건 감지"
+          },
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_workflow_response.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Nestlab 응답 검사"
           }
         ]
       }

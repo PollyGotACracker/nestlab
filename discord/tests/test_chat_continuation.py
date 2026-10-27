@@ -20,6 +20,7 @@ config_module = importlib.import_module("config")
 
 
 class ChatSettingsTests(unittest.TestCase):
+    # 최소 턴 설정이 필요하지 않고 쓰이지도 않는지 확인한다.
     def test_minimum_turn_settings_are_not_required_or_consumed(self) -> None:
         raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
         original = config_module.load_settings_sections(raw)
@@ -27,11 +28,13 @@ class ChatSettingsTests(unittest.TestCase):
             raw["chat"][name] = "unused legacy value"
         self.assertEqual(config_module.load_settings_sections(raw), original)
 
+    # SDK 턴 제한을 생략할 수 있는지 확인한다.
     def test_sdk_turn_limit_can_be_omitted(self) -> None:
         raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
         del raw["chat"]["sdk_max_turns"]
         self.assertIsNone(config_module.load_settings_sections(raw)["chat"].sdk_max_turns)
 
+    # SDK 턴 제한의 양수 값이 유지되는지 확인한다.
     def test_sdk_turn_limit_preserves_positive_values(self) -> None:
         for value in (1, 4, 12):
             with self.subTest(value=value):
@@ -39,6 +42,7 @@ class ChatSettingsTests(unittest.TestCase):
                 raw["chat"]["sdk_max_turns"] = value
                 self.assertEqual(config_module.load_settings_sections(raw)["chat"].sdk_max_turns, value)
 
+    # SDK 턴 제한의 0 이하 값과 null을 거부하는지 확인한다.
     def test_sdk_turn_limit_rejects_nonpositive_values_and_null(self) -> None:
         for value in (0, -1, None):
             with self.subTest(value=value):
@@ -47,6 +51,7 @@ class ChatSettingsTests(unittest.TestCase):
                 with self.assertRaises((ValueError, TypeError)):
                     config_module.load_settings_sections(raw)
 
+    # 다른 설정 항목은 계속 필수인지 확인한다.
     def test_other_settings_remain_required(self) -> None:
         original = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
         for section, cls in config_module.SETTINGS_SECTIONS.items():
@@ -62,6 +67,7 @@ class ChatSettingsTests(unittest.TestCase):
                     self.assertIn(f"{section}.{item.name}", str(raised.exception))
                     self.assertNotIn("chat.sdk_max_turns", str(raised.exception))
 
+    # 최대 턴 수가 양수여야 하는지 확인한다.
     def test_maximum_turns_still_requires_positive_value(self) -> None:
         raw = json.loads((DISCORD_ROOT / "config.example.json").read_text(encoding="utf-8"))
         raw["chat"]["max_turns"] = 0
@@ -70,6 +76,7 @@ class ChatSettingsTests(unittest.TestCase):
 
 
 class ChatContinuationTests(unittest.IsolatedAsyncioTestCase):
+    # 가짜 클라이언트를 가진 가짜 실행 객체를 만든다.
     def make_runtime(self, next_name):
         return SimpleNamespace(
             chat_lock_for=Mock(return_value=asyncio.Lock()), chat_pending={},
@@ -80,11 +87,13 @@ class ChatContinuationTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
+    # 채팅 대화를 한 번 실행한다.
     async def run_conversation(self, runtime, **kwargs):
         await bot.run_chat_conversation(
             runtime, 123, starter_name="jelly", seed="test", **kwargs,
         )
 
+    # 정지와 잘못된 다음 화자 지정이 첫 턴에서 대화를 끝내는지 확인한다.
     async def test_stop_and_invalid_next_end_first_turn(self) -> None:
         for autonomous in (False, True):
             for next_name in ("stop", None, "jelly", "unknown"):
@@ -94,18 +103,21 @@ class ChatContinuationTests(unittest.IsolatedAsyncioTestCase):
                     runtime.clients["jelly"]._handle_chat_turn.assert_awaited_once()
                     runtime.clients["rio"]._handle_chat_turn.assert_not_awaited()
 
+    # 올바른 다음 화자 지정이 대화를 잇는지 확인한다.
     async def test_valid_followup_continues(self) -> None:
         runtime = self.make_runtime("rio")
         await self.run_conversation(runtime, autonomous=False)
         runtime.clients["rio"]._handle_chat_turn.assert_awaited_once()
         self.assertEqual(runtime.clients["rio"]._handle_chat_turn.call_args.kwargs["turn_index"], 2)
 
+    # 한 턴 반응은 대화를 잇지 않는지 확인한다.
     async def test_single_turn_reaction_never_continues(self) -> None:
         runtime = self.make_runtime("rio")
         await self.run_conversation(runtime, autonomous=False, single_turn=True)
         runtime.clients["rio"]._handle_chat_turn.assert_not_awaited()
         self.assertTrue(runtime.clients["jelly"]._handle_chat_turn.call_args.kwargs["reaction_trigger"])
 
+    # 최대 턴 수에 도달하면 대화가 끝나는지 확인한다.
     async def test_maximum_turns_ends_conversation(self) -> None:
         runtime = self.make_runtime("rio")
         runtime.config.chat.max_turns = 3
@@ -114,13 +126,17 @@ class ChatContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.clients["jelly"]._handle_chat_turn.await_count, 2)
         self.assertEqual(runtime.clients["rio"]._handle_chat_turn.await_count, 1)
 
+    # 대기 중인 사용자 입력이 있으면 후속 턴을 막는지 확인한다.
     async def test_pending_user_input_prevents_followup(self) -> None:
+        # 사용자 입력이 끼어드는 대화를 준비한다.
         runtime = self.make_runtime("rio")
 
+        # 사용자 입력이 도착한 것으로 표시하는 가짜 턴이다.
         async def receive_user_input(*args, **kwargs):
             runtime.chat_pending[123] = 1
             return "rio"
 
+        # 대화를 실행하고 다음 발언자가 호출되지 않았는지 확인한다.
         runtime.clients["jelly"]._handle_chat_turn.side_effect = receive_user_input
         await self.run_conversation(runtime, autonomous=False)
         runtime.clients["rio"]._handle_chat_turn.assert_not_awaited()

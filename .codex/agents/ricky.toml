@@ -1,5 +1,5 @@
 name = "ricky"
-description = "주장을 반증하고 결과물을 검수한다."
+description = "주장을 반증하고 결과물을 검증한다."
 sandbox_mode = "read-only"
 developer_instructions = """
 Use the injected reviewer role and persona plus the repository AGENTS.md.

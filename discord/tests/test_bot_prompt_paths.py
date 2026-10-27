@@ -45,21 +45,22 @@ def build_prompt(agent, agents: list) -> str:
 
 
 class BotPromptPathTests(unittest.TestCase):
-    def test_system_prompt_excludes_role_guideline(self) -> None:
+    # 시스템 프롬프트에 역할 폴더의 MAIN.md가 들어가고 SUB.md는 들어가지 않는지 확인한다.
+    def test_system_prompt_includes_main_guideline(self) -> None:
         agents = roster_agents()
         for agent in agents:
             with self.subTest(role=agent.role):
                 prompt = build_prompt(agent, agents)
-                role_source = (PROJECT_ROOT / ".claude" / "agents" / agent.role / "AGENTS.md").read_text(encoding="utf-8")
-                role_body = role_source.split("---", 2)[2].strip()
-                first_item = next(line for line in role_body.splitlines() if line.strip() and not line.startswith("#"))
-                self.assertNotIn("# Local project role", prompt)
-                self.assertNotIn(role_body, prompt)
-                self.assertNotIn(first_item, prompt)
+                role_dir = PROJECT_ROOT / ".claude" / "agents" / agent.role
+                main_body = (role_dir / "MAIN.md").read_text(encoding="utf-8").strip()
+                self.assertIn(main_body, prompt)
+                if (role_dir / "SUB.md").is_file():
+                    self.assertNotIn((role_dir / "SUB.md").read_text(encoding="utf-8").strip(), prompt)
                 self.assertIn("# Global rules", prompt)
                 self.assertIn("# Persona", prompt)
                 self.assertIn("# Discord chat runtime", prompt)
 
+    # 시스템 프롬프트에 공통 원칙이 들어가는지 확인한다.
     def test_system_prompt_includes_global_principles(self) -> None:
         agents = roster_agents()
         for agent in agents:
@@ -69,6 +70,7 @@ class BotPromptPathTests(unittest.TestCase):
                     any(line.startswith("@AGENTS.") for line in prompt.splitlines())
                 )
 
+    # 명단에 성향 문서의 정체성이 들어가는지 확인한다.
     def test_roster_includes_soul_identity(self) -> None:
         agents = roster_agents()
         reviewer = next(agent for agent in agents if agent.role == "reviewer")
@@ -78,6 +80,7 @@ class BotPromptPathTests(unittest.TestCase):
             with self.subTest(item=item):
                 self.assertIn(item, prompt)
 
+    # 프롬프트 서명이 명단의 성향 문서를 감시하는지 확인한다.
     def test_signature_includes_roster_personas(self) -> None:
         worker_soul = PROJECT_ROOT / ".claude" / "agents" / "worker" / "SOUL.md"
         stat = worker_soul.stat()
@@ -86,16 +89,20 @@ class BotPromptPathTests(unittest.TestCase):
         signature = bot.prompt_source_signature(PROJECT_ROOT, "reviewer", ("reviewer", "worker"))
         self.assertIn(entry, signature)
 
+    # documenter 프롬프트가 정해진 원본 파일을 읽는지 확인한다.
     def test_documenter_prompt_reads_canonical_files(self) -> None:
+        # 프롬프트 원본 파일 경로와 서명을 구한다.
         runtime_path = DISCORD_ROOT / "prompts" / "RUNTIME.md"
         archive_path = DISCORD_ROOT / "prompts" / "ARCHIVE.md"
         signature = bot.prompt_source_signature(PROJECT_ROOT, "documenter")
 
+        # 원본 파일마다 서명에 상태가 들어 있는지 확인한다.
         for path in (runtime_path, archive_path):
             with self.subTest(path=path):
                 stat = path.stat()
                 self.assertIn((str(path), stat.st_mtime_ns, stat.st_size), signature)
 
+        # documenter 프롬프트를 만들어 원본 내용이 들어 있는지 확인한다.
         repository = config_module.ArchiveRepositoryConfig(owner="example", repo="archive", token="")
         agent = bot.AgentConfig(
             role="documenter", name="documenter", korean_name="기록자", token="", tools=[]

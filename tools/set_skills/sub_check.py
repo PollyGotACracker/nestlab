@@ -12,12 +12,15 @@ from sub_symlink import is_link
 # 파일을 바꾸지 않는다.
 # 모두 연결됨이면 0, 아니면 1을 반환한다.
 def check() -> int:
+    # 스킬 목록을 읽고 이름별 개수를 센다.
     skills = read_skills()
     counts: dict[str, int] = {}
 
+    # 상태별 건수를 센다.
     def count(state: str) -> None:
         counts[state] = counts.get(state, 0) + 1
 
+    # 링크 폴더마다 skill 연결 상태와 원본이 없어진 링크를 출력한다.
     for label, folder, tools, _ in LINK_DIRS:
         print(f"[{label}] {folder}  ({tools})")
         if not folder.parent.is_dir():
@@ -31,6 +34,7 @@ def check() -> int:
             count("끊어진 링크")
             print(f"  {entry.name:<20} 끊어진 링크 (원본 없음)")
 
+    # 링크를 만들지 않는 폴더에 같은 이름 skill이 있으면 중복으로 출력한다.
     for label, folder in DUPLICATE_DIRS:
         found = [s for s in skills if (folder / s.name).exists() or is_link(folder / s.name)]
         if not found:
@@ -40,6 +44,7 @@ def check() -> int:
             count("중복")
             print(f"  {skill.name:<20} {entry_state(folder / skill.name, skill)}")
 
+    # Hermes 설정에 external_dirs가 있는지 확인한다.
     print(f"[Hermes] {HERMES_CONFIG}")
     if not HERMES_CONFIG.parent.is_dir():
         print("  미설치")
@@ -52,6 +57,7 @@ def check() -> int:
             print("  external_dirs에 ~/.agents/skills 없음. config.yaml에 아래 내용을 추가한다.")
             print("    " + HERMES_LINE.replace("\n", "\n    "))
 
+    # 상태별 건수를 출력하고 모두 연결됨이 아니면 1을 반환한다.
     print()
     for state, n in counts.items():
         print(f"{state}: {n}건")

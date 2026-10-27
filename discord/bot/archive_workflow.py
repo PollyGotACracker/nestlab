@@ -17,6 +17,7 @@ BRANCH_PATTERN = re.compile(r"^(feat|bug|chore|docs)/[1-9][0-9]*$")
 
 # 사용자 문자열 대신 허용 타입과 GitHub Issue 번호로 안전한 ref를 만든다.
 def make_branch_name(issue_type: str, issue_number: int) -> str:
+    # 이슈 유형과 번호로 branch 이름을 만들고 형식을 검사한다.
     branch = f"{issue_type}/{issue_number}"
     if not BRANCH_PATTERN.fullmatch(branch):
         raise ValueError("작업 브랜치는 <feat|bug|chore|docs>/<양의 이슈 번호> 형식이어야 합니다.")
@@ -25,11 +26,14 @@ def make_branch_name(issue_type: str, issue_number: int) -> str:
 
 # 원격 Issue 템플릿의 frontmatter와 사용자에게 보여줄 본문을 분리한다.
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    # 머리말 구분자가 없으면 본문만 반환한다.
     if not text.startswith("---"):
         return {}, text.strip()
     parts = text.split("---", 2)
     if len(parts) != 3:
         return {}, text.strip()
+
+    # 머리말의 key: value 줄을 읽는다.
     values: dict[str, str] = {}
     for line in parts[1].splitlines():
         if ":" in line:
@@ -69,9 +73,12 @@ class ArchiveWorkflowStore:
     # 손상된 상태는 승인 대상으로 복원하지 않고 빈 상태로 격리한다.
     @classmethod
     def load(cls, path: Path) -> "ArchiveWorkflowStore":
+        # 빈 저장소 객체를 만들고 파일이 없으면 그대로 반환한다.
         store = cls(path)
         if not path.is_file():
             return store
+
+        # 저장 파일의 스레드 항목을 복원한다. 읽을 수 없으면 빈 저장소를 반환한다.
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             for key, value in raw.get("threads", {}).items():
@@ -94,6 +101,7 @@ class ArchiveWorkflowStore:
 
     # 부분 기록이 승인 대상으로 오인되지 않도록 임시 파일을 원자 교체한다.
     def save(self) -> None:
+        # 임시 파일에 쓰고 권한을 좁힌다.
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         data = {"threads": {str(key): asdict(value) for key, value in self.threads.items()}}
@@ -102,11 +110,16 @@ class ArchiveWorkflowStore:
             os.chmod(temporary, 0o600)
         except OSError:
             pass
+
+        # 임시 파일로 원본을 교체한다.
         os.replace(temporary, self.path)
 
     # 현재 단계에 맞는 미리보기만 교체하며 GitHub는 호출하지 않는다.
     def stage(self, kind: str, thread_id: int, requester_id: int, data: dict[str, Any]) -> Pending:
+        # 스레드의 작업 흐름 상태를 구한다.
         workflow = self.thread(thread_id)
+
+        # 종류별로 pending 데이터를 검증한다.
         if kind == "issue":
             issue_type = data.get("issue_type")
             expected_path = f".github/ISSUE_TEMPLATE/{issue_type}.md"
@@ -164,6 +177,8 @@ class ArchiveWorkflowStore:
             }
         else:
             raise ValueError("알 수 없는 pending 종류입니다.")
+
+        # 검증한 데이터로 pending을 만들어 저장한다.
         pending = Pending(kind, uuid.uuid4().hex, thread_id, requester_id, data)
         workflow.pending = pending
         self.save()
@@ -171,6 +186,7 @@ class ArchiveWorkflowStore:
 
     # 요청자 본인의 활성 pending만 승인 대상으로 반환한다.
     def pending_for(self, thread_id: int, requester_id: int) -> Pending:
+        # 스레드의 대기 건과 요청자를 확인해 대기 건을 돌려준다.
         pending = self.thread(thread_id).pending
         if pending is None or pending.status != "pending":
             raise ValueError("승인할 pending이 없습니다.")
@@ -180,6 +196,7 @@ class ArchiveWorkflowStore:
 
     # pending만 폐기하고 이미 생성된 외부 객체는 변경하지 않는다.
     def cancel(self, thread_id: int, requester_id: int) -> None:
+        # 대기 건을 취소 상태로 바꾸고 저장한다.
         pending = self.pending_for(thread_id, requester_id)
         pending.status = "cancelled"
         self.save()

@@ -14,8 +14,7 @@ from sub_config import (
     KIND_RULE_ID,
     KIND_SECTION,
     NEGATIVE,
-    CROSS_REF,
-    PATH_LIST_FILE,
+    PATH_LIST_FILES,
     PATH_LIST_SECTION,
     ROOT,
     RULE_ID,
@@ -33,15 +32,17 @@ def check_file(
     names: set[str],
     heading_cache: dict[Path, set[str]],
 ) -> list[tuple[str, int, str, str]]:
+    # 파일 종류별 검사 조건을 정한다.
     path = ROOT / rel
     violations: list[tuple[str, int, str, str]] = []
     in_fence = False
     check_rule_id = rel.startswith(RULE_ID_SCOPE)
-    is_path_list_file = rel == PATH_LIST_FILE
+    is_path_list_file = rel in PATH_LIST_FILES
     is_skill = path.name == "SKILL.md"
     # 열려 있는 경로 목록 제목의 수준. 절 밖이면 None이다.
     path_list_level: int | None = None
 
+    # 줄마다 코드 블록 밖에서 경로, 직접 경로, 절 참조를 검사한다.
     for lineno, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
         if FENCE.match(line):
             in_fence = not in_fence
@@ -54,6 +55,7 @@ def check_file(
                 elif path_list_level is not None and level <= path_list_level:
                     path_list_level = None
 
+            # 코드 표기 경로가 실제로 있는지 확인한다.
             for match in INLINE_CODE.finditer(line):
                 candidate = as_repo_path(match.group(1), names)
                 if candidate and not path_exists(candidate, path.parent, names):
@@ -69,6 +71,7 @@ def check_file(
                     ):
                         violations.append((rel, lineno, KIND_DIRECT, token))
 
+            # 절 참조가 가리키는 제목이 있는지 확인한다.
             for match in SECTION_REF.finditer(line):
                 targets = section_targets(line, match.start(), path, names)
                 if targets is None:
@@ -83,25 +86,27 @@ def check_file(
                     shown = ", ".join(t.relative_to(ROOT).as_posix() for t in targets)
                     violations.append((rel, lineno, KIND_SECTION, f"{title} -> {shown}"))
 
+        # Rule ID와 부정형 표현은 코드 블록 안에서도 검사한다.
         if check_rule_id:
             for match in RULE_ID.finditer(line):
                 violations.append((rel, lineno, KIND_RULE_ID, match.group(0)))
 
-        if not in_fence:
-            for match in CROSS_REF.finditer(line):
-                violations.append((rel, lineno, KIND_CROSS, match.group(0)))
-
+        # 부정 표현을 위반으로 모은다.
         for match in NEGATIVE.finditer(line):
             violations.append((rel, lineno, KIND_NEGATIVE, match.group(0)))
 
+    # 위반 목록을 반환한다.
     return violations
 
 
 # (검사 대상 파일, 일치하는 파일이 없는 패턴)을 반환한다.
 # 파일은 패턴 순서를 유지한다.
 def find_targets() -> tuple[list[str], list[str]]:
+    # 검사 대상과 누락 목록을 시작한다.
     targets: list[str] = []
     missing: list[str] = []
+
+    # 패턴마다 일치하는 파일을 모으고, 없으면 missing에 넣는다.
     for pattern in TARGET_PATTERNS:
         found = sorted(
             p.relative_to(ROOT).as_posix() for p in ROOT.glob(pattern) if p.is_file()

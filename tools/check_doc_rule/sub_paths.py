@@ -27,9 +27,12 @@ def build_name_index() -> set[str]:
 
 # 중괄호 선택지(`{a,b}`)를 모든 조합의 패턴으로 펼친다.
 def expand_braces(pattern: str) -> list[str]:
+    # 중괄호가 없으면 그대로 반환한다.
     match = re.search(r"\{([^{}]*)\}", pattern)
     if not match:
         return [pattern]
+
+    # 선택지마다 앞뒤를 이어 다시 펼친다.
     head, tail = pattern[: match.start()], pattern[match.end() :]
     results: list[str] = []
     for option in match.group(1).split(","):
@@ -48,15 +51,20 @@ def has_repo_ext(segment: str) -> bool:
 # 슬래시 없는 이름은 저장소 파일 확장자가 있어야 한다.
 # 슬래시 경로는 끝 슬래시, 저장소 파일 확장자, 저장소에 있는 첫 구간 중 하나가 있어야 한다.
 def as_repo_path(token: str, names: set[str]) -> str | None:
+    # 행 번호를 떼고 경로가 아닌 토큰을 걸러낸다.
     token = LINE_SUFFIX.sub("", token.strip())
     if not token or "<" in token or ">" in token or "$" in token:
         return None
     if "://" in token or not PATH_CHARS.match(token):
         return None
+
+    # 슬래시 없는 이름은 저장소 파일 확장자로 판정한다.
     if "/" not in token:
         return token if has_repo_ext(token) else None
     if not re.search(r"[A-Za-z]", token):
         return None
+
+    # 슬래시 경로는 끝 슬래시, 확장자, 상대 표기, 저장소의 첫 구간 중 하나로 판정한다.
     first = token.split("/", 1)[0]
     last = token.rstrip("/").rsplit("/", 1)[-1]
     if (

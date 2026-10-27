@@ -19,6 +19,7 @@ import set_agents
 
 
 class SetAgentsTest(unittest.TestCase):
+    # 임시 폴더와 원본 폴더를 준비한다.
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -28,6 +29,7 @@ class SetAgentsTest(unittest.TestCase):
         self.home.mkdir()
         self.dest = self.home / ".codex" / "agents"
 
+    # link 모드를 실행해 종료 코드와 출력을 보관하는 보조 함수이다.
     def link(self) -> int:
         links = [("Codex", self.source, self.dest)]
         with mock.patch.object(set_agents, "LINKS", links), contextlib.redirect_stdout(io.StringIO()) as out:
@@ -35,11 +37,13 @@ class SetAgentsTest(unittest.TestCase):
         self.out = out.getvalue()
         return code
 
+    # 도구 설정 폴더가 없으면 건너뛰는지 확인한다.
     def test_missing_tool_home_is_skipped(self):
         self.assertEqual(self.link(), 0)
         self.assertFalse((self.home / ".codex").exists())
         self.assertIn("건너뜀", self.out)
 
+    # 도구 설정 폴더가 있으면 링크를 만드는지 확인한다.
     def test_existing_tool_home_gets_link(self):
         (self.home / ".codex").mkdir()
         self.assertEqual(self.link(), 0)

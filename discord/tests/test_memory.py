@@ -1,5 +1,4 @@
 """서버 장기기억·persona 기억·채널 요약·전체 삭제·토큰 로그를 가짜 query와 가짜 Discord로 확인한다.
-
 실제 모델과 GitHub API는 호출하지 않는다.
 """
 
@@ -51,6 +50,7 @@ JELLY = next(agent for agent in AGENTS if agent.name == "jelly")
 RIO = next(agent for agent in AGENTS if agent.name == "rio")
 
 
+# 기본값에 덮어쓸 값을 반영한 채팅 설정 객체를 만든다.
 def chat_config(**overrides) -> SimpleNamespace:
     values = dict(history_max_lines=500, history_hours=12, line_max_chars=2000,
                   max_turns=4, turn_delay_seconds=0, sdk_max_turns=1)
@@ -58,6 +58,7 @@ def chat_config(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
+# 시험용 전체 설정 객체를 만든다.
 def make_config(**overrides) -> SimpleNamespace:
     values = dict(
         chat=chat_config(), agents=AGENTS,
@@ -73,18 +74,22 @@ def make_config(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
+# 404 NotFound 예외를 만든다.
 def not_found() -> discord.NotFound:
     return discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), "missing")
 
 
+# 403 Forbidden 예외를 만든다.
 def forbidden() -> discord.Forbidden:
     return discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "forbidden")
 
 
+# 500 HTTPException 예외를 만든다.
 def http_error() -> discord.HTTPException:
     return discord.HTTPException(SimpleNamespace(status=500, reason="Server Error"), "boom")
 
 
+# 가짜 Discord 메시지 객체를 만든다.
 def make_message(message_id, channel, *, author_id=USER, bot_author=False, content="", attachments=(), created=None):
     return SimpleNamespace(
         id=message_id, channel=channel, guild=channel.guild,
@@ -94,6 +99,7 @@ def make_message(message_id, channel, *, author_id=USER, bot_author=False, conte
     )
 
 
+# 실행 객체의 채팅 기록에 줄 하나를 추가한다.
 def add_line(runtime, seq, age_hours, speaker, content, message_id=None, channel_id=CHANNEL) -> None:
     runtime.chat_history_for(channel_id).append(
         (seq, time.time() - age_hours * 3600, speaker, content, message_id)
@@ -101,10 +107,13 @@ def add_line(runtime, seq, age_hours, speaker, content, message_id=None, channel
     runtime.chat_seq[channel_id] = max(runtime.chat_seq.get(channel_id, 0), seq)
 
 
+# 도구 등록 데코레이터를 바꿔 기억 도구 모음을 만든다.
 def build_tools(runtime, channel, agent, trigger, requester_id=None):
+    # 도구 등록 데코레이터를 대신하는 가짜 함수이다.
     def decorator(name, description, schema):
         return lambda handler: handler
 
+    # 도구 데코레이터를 대체하고 기억 서버를 만든다.
     with patch.object(memory_module, "tool", decorator), \
             patch.object(memory_module, "create_sdk_mcp_server", side_effect=lambda **kwargs: kwargs):
         built = bot.build_memory_server(channel, runtime, agent, trigger, requester_id)
@@ -114,13 +123,17 @@ def build_tools(runtime, channel, agent, trigger, requester_id=None):
     return {handler.__name__: handler for handler in server["tools"]}, names
 
 
+# 도구 결과의 첫 텍스트를 반환한다.
 def tool_output(result) -> str:
     return result["content"][0]["text"]
 
 
+# 고정 출력을 순서대로 내는 가짜 요약 질의를 만든다.
 def fake_summary_query(outputs, prompts=None, before=None):
+    # 출력 목록을 순서대로 내보내는 반복자를 만든다.
     items = iter(outputs)
 
+    # 프롬프트를 기록하고 다음 고정 출력을 내는 가짜 질의이다.
     async def fake_query(*, prompt, options):
         if prompts is not None:
             prompts.append(prompt)
@@ -134,10 +147,12 @@ def fake_summary_query(outputs, prompts=None, before=None):
             total_cost_usd=0.002,
         )
 
+    # 만든 가짜 query 함수를 반환한다.
     return fake_query
 
 
 class FakeForum:
+    # 스레드 목록을 가진 가짜 포럼을 만든다.
     def __init__(self, threads=(), archived=(), fail_archived=False):
         self.id = FORUM
         self.guild = SimpleNamespace(id=GUILD)
@@ -145,6 +160,7 @@ class FakeForum:
         self.archived = list(archived)
         self.fail_archived = fail_archived
 
+    # 보관된 스레드를 차례로 내보낸다. 실패 설정이면 예외를 던진다.
     async def archived_threads(self, limit=None):
         if self.fail_archived:
             raise http_error()
@@ -153,12 +169,14 @@ class FakeForum:
 
 
 class FakeThread:
+    # 메시지 목록을 가진 가짜 스레드를 만든다.
     def __init__(self, thread_id, messages=(), fail=False, during=None):
         self.id = thread_id
         self.messages = list(messages)
         self.fail = fail
         self.during = during
 
+    # 메시지를 차례로 내보내고 중간 동작을 실행한다.
     async def history(self, limit=None, oldest_first=False):
         for message in self.messages:
             yield message
@@ -169,14 +187,17 @@ class FakeThread:
 
 
 class FakeSession:
+    # 비동기 컨텍스트에 진입하면 자신을 반환한다.
     async def __aenter__(self):
         return self
 
+    # 비동기 컨텍스트를 나가며 예외를 삼키지 않는다.
     async def __aexit__(self, *args):
         return False
 
 
 class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
+    # 임시 저장소, 실행 객체, 가짜 채널을 준비한다.
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -201,7 +222,9 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
         }
         self.runtime = self.make_runtime()
 
+    # 가짜 채널을 만든다.
     def make_channel(self, channel_id, guild_id, *, archive=False, parent_id=None):
+        # 없는 메시지와 권한 없는 메시지에 예외를 던지는 가짜 조회이다.
         async def fetch_message(message_id):
             if message_id in self.missing:
                 raise not_found()
@@ -209,6 +232,7 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
                 raise forbidden()
             return SimpleNamespace(id=message_id)
 
+        # 채널 가짜 객체를 만들어 반환한다.
         return SimpleNamespace(
             id=channel_id, name=f"c{channel_id}", guild=SimpleNamespace(id=guild_id, name="guild"),
             parent_id=parent_id, parent=None, archive=archive,
@@ -216,6 +240,7 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
             typing=Mock(return_value=AsyncMock()), fetch_message=fetch_message,
         )
 
+    # 시험용 설정과 저장소를 가진 실행 객체를 만든다.
     def make_runtime(self, **config_overrides):
         runtime = bot.Runtime(
             config=make_config(**config_overrides), archive_workflow=object(),
@@ -229,6 +254,7 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
         runtime.ready.set()
         return runtime
 
+    # 실행 객체를 가진 가짜 봇 클라이언트를 만든다.
     def make_client(self, runtime, name="buddy", channels=None):
         lookup = self.channels if channels is None else channels
         return SimpleNamespace(
@@ -238,16 +264,20 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
             _is_memory_handler=lambda: True,
         )
 
+    # 서버의 기억 내용을 정렬해 반환한다.
     def contents(self, runtime=None, guild_id=GUILD, kinds=memory_store.LONG_TERM_KINDS, agent=None):
         rows = (runtime or self.runtime).memory.search(
             guild_id, kinds, [], 100, agent=agent, require_match=False,
         )
         return sorted(row["content"] for row in rows)
 
+    # 캐릭터 기억 내용을 정렬해 반환한다.
     def persona_contents(self, agent="jelly", guild_id=GUILD):
         return sorted(row["content"] for row in self.runtime.memory.list_persona(guild_id, agent))
 
+    # 가짜 질의로 한 턴을 실행한다.
     async def run_turn(self, agent, *, trigger=None, usage=None, response="[[next:stop]]"):
+        # 채널과 클라이언트를 가짜 객체로 만든다.
         channel = self.channels[CHANNEL]
         client = SimpleNamespace(
             runtime=self.runtime, _refresh_request_prompt=Mock(), get_channel=Mock(return_value=channel),
@@ -257,11 +287,13 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
         prompts: list[str] = []
         options = Mock()
 
+        # 프롬프트를 기록하고 고정 응답을 내는 가짜 질의이다.
         async def fake_query(*, prompt, options):
             prompts.append(prompt)
             yield SimpleNamespace(result=response, subtype="success", num_turns=1,
                                   usage=usage, total_cost_usd=0.01)
 
+        # 봇 의존성을 대체하고 턴을 실행한다.
         with (
             patch.object(bot, "query", fake_query),
             patch.object(bot, "ResultMessage", SimpleNamespace),
@@ -276,6 +308,7 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
             )
         return prompts[0], options.call_args.kwargs
 
+    # 가짜 요약 질의로 요약을 한 번 실행한다.
     async def run_summary(self, outputs, prompts=None, before=None):
         with (
             patch.object(summary_module, "query", fake_summary_query(outputs, prompts, before)),
@@ -284,6 +317,7 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
         ):
             await bot.run_channel_summary(self.runtime, CHANNEL)
 
+    # 예약된 비동기 작업이 끝나도록 이벤트 루프를 여러 번 양보한다.
     async def settle(self) -> None:
         for _ in range(20):
             await asyncio.sleep(0)
@@ -303,12 +337,14 @@ class ConfigAndRestartTests(MemoryTestBase):
         self.assertEqual(config_module.memory_settings(SimpleNamespace()), config_module.MemoryConfig())
         self.assertEqual(config_module.summary_settings(SimpleNamespace()), config_module.SummaryConfig())
 
+    # 재시작 뒤에도 기억이 남는지 확인한다.
     def test_memories_survive_restart(self) -> None:
         self.runtime.memory.add(GUILD, memory_store.KIND_EXPLICIT, "재시작 후에도 남는 기억", sources=[(1, CHANNEL)])
         self.runtime.memory.close()
         restarted = self.make_runtime()
         self.assertEqual(self.contents(restarted), ["재시작 후에도 남는 기억"])
 
+    # 불러온 순번이 가장 큰 값을 따르는지 확인한다.
     def test_loaded_seq_uses_largest_value(self) -> None:
         memory_module.CHAT_STATE_DIR.mkdir(parents=True, exist_ok=True)
         bot.chat_state_path(CHANNEL).write_text(json.dumps({
@@ -331,6 +367,7 @@ class GuildIsolationTests(MemoryTestBase):
         self.assertIn("싫어함", result)
         self.assertNotIn("좋아함", result)
 
+    # 캐릭터 기억이 캐릭터와 서버별로 분리되는지 확인한다.
     async def test_persona_memory_is_per_character_and_guild(self) -> None:
         store = self.runtime.memory
         store.add(GUILD, memory_store.KIND_PERSONA_EVENT, "젤리가 매운 라면을 먹었다", agent="jelly", sources=[(3, CHANNEL)])
@@ -367,6 +404,7 @@ class ArchiveTests(MemoryTestBase):
                 self.assertEqual(bot.capture_archive_message(self.runtime, message), expected)
         self.assertEqual(self.contents(), ["캐릭터 글", "허용 사용자 글\n[첨부: plan.png]"])
 
+    # 메시지 수정이 아카이브 기억에 반영되는지 확인한다.
     async def test_edit_updates_archive_memory(self) -> None:
         thread = self.channels[THREAD]
         bot.capture_archive_message(self.runtime, make_message(1, thread, content="처음 글"))
@@ -375,31 +413,38 @@ class ArchiveTests(MemoryTestBase):
         await bot.AgentBot.on_raw_message_edit(client, payload)
         self.assertEqual(self.contents(), ["고친 글"])
 
+    # 최근 삭제된 메시지를 기억하지 않는지 확인한다.
     def test_recently_deleted_message_is_not_captured(self) -> None:
         self.runtime.record_deleted({1})
         self.assertFalse(bot.capture_archive_message(self.runtime, make_message(1, self.channels[THREAD], content="글")))
 
+    # 가짜 포럼으로 아카이브 동기화를 실행한다.
     async def sync(self, forum) -> None:
         client = self.make_client(self.runtime, channels={**self.channels, FORUM: forum})
         with patch.object(bot.discord, "ForumChannel", FakeForum):
             await memory_module.sync_archive_forum(client)
 
+    # 동기화가 추가와 삭제를 처리하면서 동기화 중 생긴 변경을 보존하는지 확인한다.
     async def test_sync_adds_and_removes_and_preserves_live_changes(self) -> None:
+        # 채널과 저장소를 준비하고 기존 기억을 넣는다.
         thread = self.channels[THREAD]
         store = self.runtime.memory
         store.upsert_archive(GUILD, 999, FORUM, THREAD, "user7", "사라진 글")
 
+        # 동기화 중 새 메시지는 보존하고, 동기화 중 삭제된 메시지는 다시 넣지 않는다.
         def during_sync():
             # 동기화 중 새 메시지는 보존하고, 동기화 중 삭제된 메시지는 다시 넣지 않는다.
             bot.capture_archive_message(self.runtime, make_message(777, thread, content="동기화 중 새 글"))
             bot.handle_deleted_messages(self.runtime, {502})
 
+        # 활성 글과 보관 글을 동기화하고 결과를 확인한다.
         active = FakeThread(THREAD, [make_message(501, thread, content="활성 글"),
                                      make_message(502, thread, content="삭제될 글")], during=during_sync)
         archived = FakeThread(201, [make_message(601, thread, content="보관 글")])
         await self.sync(FakeForum([active], [archived]))
         self.assertEqual(self.contents(), ["동기화 중 새 글", "보관 글", "활성 글"])
 
+    # 동기화 오류가 나면 삭제를 건너뛰는지 확인한다.
     async def test_sync_error_skips_deletion(self) -> None:
         thread = self.channels[THREAD]
         self.runtime.memory.upsert_archive(GUILD, 999, FORUM, THREAD, "user7", "남아야 할 글")
@@ -410,6 +455,7 @@ class ArchiveTests(MemoryTestBase):
                                   fail_archived=True))
         self.assertEqual(self.contents(), ["남아야 할 글", "활성 글"])
 
+    # 시작 시 동기화가 한 번만 실행되는지 확인한다.
     async def test_startup_runs_once(self) -> None:
         client = SimpleNamespace(
             user=SimpleNamespace(id=1), agent=SimpleNamespace(name="buddy"), runtime=self.runtime,
@@ -432,18 +478,21 @@ class DeleteTests(MemoryTestBase):
             self.runtime.append_chat(CHANNEL, "user7", "방금 말 기억해", 50)
             self.runtime.append_chat(CHANNEL, "jelly", "긴 답변", 60, message_ids=[60, 61, 62])
 
+    # 기억 저장 도구를 호출하고 결과 문장을 반환한다.
     async def save(self, target, trigger=50, scope="guild"):
         tools, _ = build_tools(self.runtime, self.channels[CHANNEL], JELLY, trigger)
         return tool_output(await tools["memory_save"]({
             "content": "사용자는 매운 음식을 좋아한다", "target_message_id": str(target), "scope": scope,
         }))
 
+    # 메시지 삭제 이벤트를 처리한다.
     async def delete(self, message_id, channel_id=CHANNEL, channels=None):
         client = self.make_client(self.runtime, channels=channels)
         await bot.AgentBot.on_raw_message_delete(
             client, SimpleNamespace(channel_id=channel_id, message_id=message_id),
         )
 
+    # 요청 메시지나 대상 메시지를 지우면 기억이 사라지는지 확인한다.
     async def test_request_or_target_deletion_removes_memory(self) -> None:
         self.assertIn("기억했습니다", await self.save(40, trigger=50))
         await self.delete(50)
@@ -456,23 +505,27 @@ class DeleteTests(MemoryTestBase):
         self.assertNotIn("기억했습니다", await self.save(40, trigger=55))
         self.assertEqual(self.contents(), [])
 
+    # 나뉜 메시지 조각을 지워도 기억이 사라지는지 확인한다.
     async def test_split_chunk_deletion_removes_memory(self) -> None:
         await self.save(60)
         self.runtime.chat_message_groups.clear()
         await self.delete(62)
         self.assertEqual(self.contents(), [])
 
+    # 등록되지 않은 채널에서 지워도 기억이 사라지는지 확인한다.
     async def test_unregistered_channel_deletion_still_removes_memory(self) -> None:
         await self.save(40)
         await self.delete(40, channel_id=UNREGISTERED_CHANNEL, channels={})
         self.assertEqual(self.contents(), [])
 
+    # 스레드를 지우면 그 스레드의 기억이 사라지는지 확인한다.
     async def test_thread_deletion_removes_memories(self) -> None:
         self.runtime.memory.upsert_archive(GUILD, 501, FORUM, THREAD, "user7", "스레드 글")
         self.runtime.memory.add(GUILD, memory_store.KIND_EXPLICIT, "스레드 요청", channel_id=THREAD, sources=[(502, THREAD)])
         await bot.AgentBot.on_raw_thread_delete(self.make_client(self.runtime), SimpleNamespace(thread_id=THREAD))
         self.assertEqual(self.contents(), [])
 
+    # 요약 대상 줄이 메시지 삭제로 지워지는지 확인한다.
     async def test_summary_target_line_deleted_by_remove_message(self) -> None:
         add_line(self.runtime, 90, 3, "user7", "오래된 요약 대상 줄", 90)
         self.runtime.chat_summaries[CHANNEL] = "기존 요약"
@@ -480,6 +533,7 @@ class DeleteTests(MemoryTestBase):
         self.assertNotIn(90, [entry[4] for entry in self.runtime.chat_history_for(CHANNEL)])
         self.assertEqual(self.runtime.chat_summaries[CHANNEL], "기존 요약")
 
+    # 시작 점검이 NotFound인 원본의 기억만 지우는지 확인한다.
     async def test_startup_check_deletes_only_not_found(self) -> None:
         store = self.runtime.memory
         store.add(GUILD, memory_store.KIND_EXPLICIT, "원본 없음", sources=[(70, CHANNEL)])
@@ -500,12 +554,15 @@ class PersonaExtractionTests(MemoryTestBase):
         add_line(self.runtime, 2, 3, "jelly", "캬~ 떡볶이 좋슴다", 12)
         add_line(self.runtime, 3, 0.1, "user7", "최근 대화", 15)
 
+    # 요약 출력 dict를 만든다.
     def output(self, *events):
         return {"summary": "떡볶이 약속", "persona_events": list(events)}
 
+    # 캐릭터 사건 dict를 만든다.
     def event(self, agent="jelly", source=("12",), content="사용자와 떡볶이를 먹었다", kind="event"):
         return {"agent": agent, "kind": kind, "content": content, "source_message_ids": list(source)}
 
+    # 올바른 캐릭터 사건은 저장하고 잘못된 사건은 거부하는지 확인한다.
     async def test_valid_events_saved_and_invalid_rejected(self) -> None:
         await self.run_summary([self.output(
             self.event(),
@@ -517,11 +574,13 @@ class PersonaExtractionTests(MemoryTestBase):
         )])
         self.assertEqual(self.persona_contents(), ["떡볶이는 매운 맛을 고른다", "사용자와 떡볶이를 먹었다"])
 
+    # 실패 뒤 재시도로 성공하는지 확인한다.
     async def test_retry_then_success(self) -> None:
         await self.run_summary([RuntimeError("1"), {"summary": ""}, self.output(self.event())])
         self.assertEqual(self.persona_contents(), ["사용자와 떡볶이를 먹었다"])
         self.assertEqual(self.runtime.chat_summaries[CHANNEL], "떡볶이 약속")
 
+    # 최대 시도 횟수 뒤에 포기하는지 확인한다.
     async def test_abandon_after_max_attempts(self) -> None:
         self.runtime.chat_summaries[CHANNEL] = "이전 요약"
         with self.assertLogs("agent_team", logging.WARNING) as captured:
@@ -531,12 +590,15 @@ class PersonaExtractionTests(MemoryTestBase):
         self.assertEqual(self.runtime.chat_summaries[CHANNEL], "이전 요약")
         self.assertEqual([entry[4] for entry in self.runtime.chat_history_for(CHANNEL)], [15])
 
+    # 저장 전에 원본이 지워지면 저장하지 않는지 확인한다.
     async def test_source_deleted_before_save_is_not_stored(self) -> None:
+        # 질의 도중 원본 메시지를 삭제 처리한다.
         def delete_during_call():
             bot.handle_deleted_messages(self.runtime, {12})
             with patch.object(bot, "save_chat_state"):
                 self.runtime.remove_message(CHANNEL, 12)
 
+        # 요약 중 원본이 삭제되면 저장하지 않는지 확인한다.
         await self.run_summary([self.output(self.event())], before=delete_during_call)
         self.assertEqual(self.persona_contents(), [])
 
@@ -551,6 +613,7 @@ class AttachmentTests(MemoryTestBase):
             os.utime(path, (old, old))
         return path
 
+    # 단일 삭제, 일괄 삭제, 미등록 채널 삭제가 첨부 파일을 지우는지 확인한다.
     async def test_single_bulk_and_unregistered_deletes_remove_files(self) -> None:
         single, bulk_a, bulk_b, unregistered = (self.touch(i) for i in (1, 2, 3, 4))
         client = self.make_client(self.runtime)
@@ -565,6 +628,7 @@ class AttachmentTests(MemoryTestBase):
         for path in (single, bulk_a, bulk_b, unregistered):
             self.assertFalse(path.exists())
 
+    # 삭제 뒤에 저장된 첨부 파일이 제거되는지 확인한다.
     def test_saved_after_delete_is_removed(self) -> None:
         self.runtime.record_deleted({5})
         path = self.touch(5)
@@ -575,6 +639,7 @@ class AttachmentTests(MemoryTestBase):
         self.assertTrue(kept.exists())
         self.assertIn((6, CHANNEL), self.runtime.memory.attachment_sources())
 
+    # 시작 시 만료, 누락, 차단된 첨부 파일을 정리하는지 확인한다.
     async def test_startup_cleanup(self) -> None:
         expired = self.touch(7, age_hours=13)
         missing = self.touch(8)
@@ -605,11 +670,13 @@ class ToolAndPromptTests(MemoryTestBase):
                 self.assertIn("공용 기억", tool_output(await tools["memory_search"]({"query": "떡볶이"})))
                 self.assertIn("없습니다", tool_output(await tools["persona_memory_list"]({})))
 
+    # 서버나 저장소가 없으면 기억 도구가 없는지 확인한다.
     def test_no_guild_or_store_means_no_tools(self) -> None:
         channel = SimpleNamespace(id=CHANNEL, guild=SimpleNamespace(name="guild"))
         self.assertIsNone(bot.build_memory_server(channel, self.runtime, JELLY))
         self.assertIsNone(bot.build_memory_server(self.channels[CHANNEL], SimpleNamespace(memory=None), JELLY))
 
+    # 기억 저장이 사용자 턴과 알려진 메시지 id에서만 되는지 확인한다.
     async def test_memory_save_only_in_user_turn_and_known_ids(self) -> None:
         with patch.object(bot, "save_chat_state"):
             self.runtime.append_chat(CHANNEL, "user7", "기억해 줘", 50)
@@ -628,6 +695,7 @@ class ToolAndPromptTests(MemoryTestBase):
         self.assertEqual(self.persona_contents("jelly"), ["자기 설정"])
         self.assertEqual(self.persona_contents("rio"), ["리오 설정"])
 
+    # 프롬프트에 넣는 기억의 양 제한을 확인한다.
     def test_injection_limits(self) -> None:
         for index in range(10):
             self.runtime.memory.add(GUILD, memory_store.KIND_EXPLICIT, f"떡볶이 {index} " + "가" * 500,
@@ -642,6 +710,7 @@ class ToolAndPromptTests(MemoryTestBase):
         block = bot.render_persona_settings_block(self.runtime, GUILD, "jelly")
         self.assertLessEqual(block.count("설"), settings.persona_setting_max_chars)
 
+    # 프롬프트의 기억 줄에 작성자가 표시되는지 확인한다.
     def test_prompt_memory_line_shows_author(self) -> None:
         self.runtime.memory.upsert_archive(GUILD, 701, FORUM, THREAD, "jelly", "떡볶이 작성자 있는 글")
         self.runtime.memory.upsert_archive(GUILD, 702, FORUM, THREAD, "", "떡볶이 작성자 없는 글")
@@ -650,6 +719,7 @@ class ToolAndPromptTests(MemoryTestBase):
         self.assertIn("작성 jelly)", lines["떡볶이 작성자 있는 글"])
         self.assertIn("작성 미상)", lines["떡볶이 작성자 없는 글"])
 
+    # 치환된 값 안의 자리표시자를 다시 치환하지 않는지 확인한다.
     async def test_placeholders_are_not_reexpanded(self) -> None:
         self.assertEqual(
             bot.fill_template("A $memory B $history", {"$memory": "$history", "$history": "H"}),
@@ -671,6 +741,7 @@ class ToolAndPromptTests(MemoryTestBase):
         self.assertTrue(append.startswith("SYSTEM"))
         self.assertIn("젤리 설정 $self_name", append)
 
+    # 모든 역할의 실행 프롬프트에 기억 블록이 있는지 확인한다.
     def test_runtime_prompt_has_memory_block_for_every_role(self) -> None:
         project_root = DISCORD_ROOT.parent
         for agent in AGENTS:
@@ -688,6 +759,7 @@ class ToolAndPromptTests(MemoryTestBase):
 class UploadTests(MemoryTestBase):
     # C8: GitHub API를 가짜로 대체한 `승인`·`취소` 메시지 처리, PR 생성, 삭제 갱신 표시, archive 충돌.
     def setUp(self) -> None:
+        # 기억 한 건과 GitHub 가짜 호출을 준비한다.
         super().setUp()
         self.memory_id = self.runtime.memory.add(
             GUILD, memory_store.KIND_PERSONA_EVENT, "젤리가 떡볶이를 먹었다", agent="jelly", sources=[(80, CHANNEL)],
@@ -707,6 +779,7 @@ class UploadTests(MemoryTestBase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+        # 승인 상태와 에이전트 가짜 객체를 준비한다.
         self.approvals = self.runtime.memory_approvals
         self.jelly = SimpleNamespace(agent=JELLY, runtime=self.runtime)
         self.rio = SimpleNamespace(agent=RIO, runtime=self.runtime)
@@ -714,14 +787,17 @@ class UploadTests(MemoryTestBase):
             agent=next(agent for agent in AGENTS if agent.role == "documenter"), runtime=self.runtime,
         )
 
+    # 캐릭터 기억 목록 도구를 호출하고 결과 문장을 반환한다.
     async def list_memories(self, trigger=1, requester=USER, channel_id=CHANNEL) -> str:
         tools, _ = build_tools(self.runtime, self.channels[channel_id], JELLY, trigger, requester)
         return tool_output(await tools["persona_memory_list"]({}))
 
+    # 메시지를 보내 기억 승인 처리를 실행한다.
     async def send(self, message_id, text, *, client=None, author=USER, channel_id=CHANNEL) -> bool:
         message = make_message(message_id, self.channels[channel_id], author_id=author, content=text)
         return await bot.AgentBot._handle_memory_approval(client or self.jelly, message)
 
+    # PR 생성 호출 횟수를 반환한다.
     def pr_count(self) -> int:
         return self.github["github_create_pr"].await_count
 
@@ -734,6 +810,7 @@ class UploadTests(MemoryTestBase):
         self.runtime.archive_workflow = store
         return pending
 
+    # 사용자 턴이 아니면 업로드 제안을 하지 않는지 확인한다.
     async def test_u1_no_offer_outside_user_turn(self) -> None:
         output = await self.list_memories(trigger=None)
         self.assertIn("사용자 메시지에 답하는 턴이 아니라", output)
@@ -743,6 +820,7 @@ class UploadTests(MemoryTestBase):
         self.assertFalse(await self.send(1, "승인"))
         self.assertEqual(self.pr_count(), 0)
 
+    # 다른 메시지나 다른 사용자의 승인은 아무것도 하지 않는지 확인한다.
     async def test_u2_other_message_or_user_does_nothing(self) -> None:
         output = await self.list_memories()
         self.assertIn("`승인`", output)
@@ -754,6 +832,7 @@ class UploadTests(MemoryTestBase):
         self.assertIsNotNone(self.approvals.active(CHANNEL))
         self.assertFalse(self.runtime.memory.get(self.memory_id)["uploaded"])
 
+    # 요청자의 승인이 PR을 하나 만드는지 확인한다.
     async def test_u3_requester_approval_creates_one_pr(self) -> None:
         await self.list_memories()
         self.assertTrue(await self.send(1, "승인"))
@@ -770,6 +849,7 @@ class UploadTests(MemoryTestBase):
         )
         self.assertEqual(self.approvals.approvals[CHANNEL].status, "done")
 
+    # 기억 명령이 정확히 일치하는 메시지 내용만 인정하는지 확인한다.
     async def test_memory_commands_require_exact_message_content(self) -> None:
         await self.list_memories()
         approval = self.approvals.active(CHANNEL)
@@ -784,6 +864,7 @@ class UploadTests(MemoryTestBase):
         self.channels[CHANNEL].send.assert_not_awaited()
         self.assertFalse(self.runtime.memory.get(self.memory_id)["uploaded"])
 
+    # 승인을 반복해도 중복 처리가 없는지 확인한다.
     async def test_u4_repeated_approval_has_no_duplicate(self) -> None:
         await self.list_memories()
         self.assertTrue(await self.send(1, "승인"))
@@ -791,6 +872,7 @@ class UploadTests(MemoryTestBase):
         self.assertFalse(await self.send(2, "승인"))
         self.assertEqual(self.pr_count(), 1)
 
+    # 취소가 제안을 지우는지 확인한다.
     async def test_u5_cancel_removes_offer(self) -> None:
         await self.list_memories()
         self.assertTrue(await self.send(1, "취소"))
@@ -800,7 +882,9 @@ class UploadTests(MemoryTestBase):
         self.assertFalse(await self.send(2, "승인"))
         self.assertEqual(self.pr_count(), 0)
 
+    # 삭제가 동기화 표시를 남기고 다음 승인에 반영되는지 확인한다.
     async def test_u6_delete_marks_sync_and_next_approval_applies(self) -> None:
+        # 목록을 만들고 승인한 뒤 삭제 반영 표시를 확인한다.
         await self.list_memories()
         await self.send(1, "승인")
         self.assertEqual(self.pr_count(), 1)
@@ -812,6 +896,7 @@ class UploadTests(MemoryTestBase):
         saved = json.loads(self.approvals.path.read_text(encoding="utf-8"))
         self.assertEqual(saved["sync_needed"], ["jelly"])
 
+        # 다음 승인에 삭제 반영이 적용되는지 확인한다.
         output = await self.list_memories(trigger=2)
         self.assertIn("원본 삭제 반영 포함", output)
         self.assertTrue(self.approvals.active(CHANNEL).sync)
@@ -820,6 +905,7 @@ class UploadTests(MemoryTestBase):
         self.assertNotIn("떡볶이", self.github["github_put_file"].call_args.args[3])
         self.assertEqual(self.approvals.sync_needed, set())
 
+    # 다른 봇은 승인 메시지를 소비만 하는지 확인한다.
     async def test_u7_other_bot_only_consumes(self) -> None:
         await self.list_memories()
         self.assertTrue(await self.send(1, "승인", client=self.rio))
@@ -829,6 +915,7 @@ class UploadTests(MemoryTestBase):
         self.assertTrue(await self.send(1, "승인"))
         self.assertEqual(self.pr_count(), 1)
 
+    # 다시 불러올 때 실행 중 상태가 실패로 바뀌는지 확인한다.
     def test_u8_reload_turns_executing_into_failed(self) -> None:
         path = Path(self.tmp.name) / "reload.json"
         store = bot.MemoryApprovalStore(path)
@@ -843,7 +930,9 @@ class UploadTests(MemoryTestBase):
         self.assertIsNone(loaded.active(CHANNEL))
         self.assertFalse(path.with_suffix(".tmp").exists())
 
+    # 아카이브 충돌 상태에서 승인하면 아무것도 실행하지 않는지 확인한다.
     async def test_u9_archive_conflict_approval_runs_nothing(self) -> None:
+        # 저장소 기억 승인을 준비하고 충돌 응답을 확인한다.
         await self.list_memories(channel_id=THREAD)
         archive_pending = self.stage_archive_pending()
         self.assertIsNotNone(self.approvals.active(THREAD))
@@ -862,6 +951,7 @@ class UploadTests(MemoryTestBase):
         self.assertIn("저장소 작업 승인 대기가 있어", output)
         self.assertIsNone(self.approvals.active(THREAD))
 
+    # 아카이브 충돌 상태에서 취소하면 둘 다 취소되는지 확인한다.
     async def test_u10_archive_conflict_cancel_cancels_both(self) -> None:
         await self.list_memories(channel_id=THREAD)
         archive_pending = self.stage_archive_pending()
@@ -873,6 +963,7 @@ class UploadTests(MemoryTestBase):
         self.assertIsNone(self.approvals.active(THREAD))
         self.assertEqual(self.pr_count(), 0)
 
+    # 아카이브 명령이 기억 전용 승인을 통과시키는지 확인한다.
     async def test_archive_command_passes_memory_only_approval(self) -> None:
         await self.list_memories(channel_id=THREAD)
         self.runtime.archive_workflow = importlib.import_module("archive_workflow").ArchiveWorkflowStore(
@@ -886,6 +977,7 @@ class UploadTests(MemoryTestBase):
         self.assertTrue(await bot.AgentBot._handle_memory_approval(self.jelly, message))
         self.assertEqual(self.pr_count(), 1)
 
+    # 기억 전용 아카이브 스레드가 정확하지 않은 명령을 거부하는지 확인한다.
     async def test_memory_only_archive_thread_rejects_non_exact_commands(self) -> None:
         await self.list_memories(channel_id=THREAD)
         self.runtime.archive_workflow = importlib.import_module("archive_workflow").ArchiveWorkflowStore(
@@ -901,6 +993,7 @@ class UploadTests(MemoryTestBase):
         self.channels[THREAD].send.assert_not_awaited()
         self.assertEqual(self.pr_count(), 0)
 
+    # 충돌 상태의 명령이 정확히 일치하는 내용만 인정하는지 확인한다.
     async def test_conflicting_commands_require_exact_message_content(self) -> None:
         await self.list_memories(channel_id=THREAD)
         archive_pending = self.stage_archive_pending()
@@ -920,6 +1013,7 @@ class UploadTests(MemoryTestBase):
         self.channels[THREAD].send.assert_not_awaited()
         self.assertEqual(self.pr_count(), 0)
 
+    # 아카이브 단독 취소가 명령 정규화를 유지하는지 확인한다.
     async def test_archive_only_cancel_keeps_command_normalization(self) -> None:
         for text in ("<@999> 취소", " 취소", "취소 ", "취소\n"):
             with self.subTest(text=text):
@@ -931,6 +1025,7 @@ class UploadTests(MemoryTestBase):
                 self.assertIsNone(self.approvals.active(THREAD))
         self.assertEqual(self.pr_count(), 0)
 
+    # 아카이브 단독 승인이 명령 정규화를 유지하는지 확인한다.
     async def test_archive_only_approval_keeps_command_normalization(self) -> None:
         with patch.object(bot, "github_apply_change_set", AsyncMock(return_value="commit-sha")) as apply:
             for text in ("<@999> 승인", " 승인", "승인 ", "승인\n"):
@@ -950,6 +1045,7 @@ class UploadTests(MemoryTestBase):
                     apply.reset_mock()
         self.assertEqual(self.pr_count(), 0)
 
+    # PR 생성이 실패하면 실패로 표시하는지 확인한다.
     async def test_u11_failure_marks_failed(self) -> None:
         self.github["github_create_pr"].side_effect = bot.aiohttp.ClientError("network down")
         await self.list_memories()
@@ -974,13 +1070,17 @@ class SummaryTests(MemoryTestBase):
         add_line(runtime, 7, 0.1, "user7", "넘친 줄", 7)
         self.assertEqual(runtime.summary_target_count(CHANNEL), 3)
 
+    # 요약 예약 조건과 동시에 한 작업만 도는지 확인한다.
     async def test_schedule_conditions_and_single_task(self) -> None:
+        # 오래된 대화 줄과 차단 이벤트를 준비한다.
         add_line(self.runtime, 1, 3, "user7", "오래된 줄", 1)
         gate = asyncio.Event()
 
+        # 신호가 올 때까지 기다리는 가짜 요약 작업이다.
         async def blocked(runtime, channel_id):
             await gate.wait()
 
+        # 조건에 따라 요약이 하나만 예약되는지 확인한다.
         with patch.object(bot, "run_channel_summary", blocked):
             self.assertFalse(self.runtime.maybe_schedule_summary(CHANNEL))
             self.runtime.summary_due_since[CHANNEL] = time.time() - 61 * 60
@@ -996,6 +1096,7 @@ class SummaryTests(MemoryTestBase):
             await runtime.summary_tasks[CHANNEL]
         run.assert_awaited_once()
 
+    # 요약 대상이 성공 전까지 남고 도구 줄이 제외되는지 확인한다.
     async def test_targets_stay_until_success_and_tool_lines_excluded(self) -> None:
         add_line(self.runtime, 1, 3, "user7", "오래된 사용자 줄", 11)
         add_line(self.runtime, 2, 3, "jelly", bot.EVIDENCE_HEADER + "\n- 사용 WebSearch: https://old.example")
@@ -1015,6 +1116,7 @@ class SummaryTests(MemoryTestBase):
         self.assertIn("이전 대화 요약: 요요", prompt)
         self.assertNotIn("오래된 사용자 줄", prompt)
 
+    # 요약 시도 전에는 history_hours가 지난 줄도 지우지 않는지 확인한다.
     async def test_history_hours_waits_for_summary_attempts(self) -> None:
         # 장기 정지 뒤 재시작처럼 history_hours보다 오래된 줄도 요약 시도 전에는 지우지 않는다.
         add_line(self.runtime, 1, 13, "user7", "정지 전 줄", 11)
@@ -1032,6 +1134,7 @@ class SummaryTests(MemoryTestBase):
         self.assertTrue(self.runtime.prune_chat_history(CHANNEL))
         self.assertEqual([entry[0] for entry in self.runtime.chat_history_for(CHANNEL)], [2])
 
+    # 요약이 재시작 뒤에도 남는지 확인한다.
     async def test_summary_survives_restart(self) -> None:
         self.runtime.chat_summaries[CHANNEL] = "재시작 요약"
         self.runtime.append_chat(CHANNEL, "user7", "본문", 50)
@@ -1055,6 +1158,7 @@ class WipeTests(MemoryTestBase):
         self.other_bot = SimpleNamespace(agent=SimpleNamespace(name="rio"), runtime=self.runtime)
         self.channel = self.channels[CHANNEL]
 
+    # 채팅 지우기 명령 메시지를 보내 처리 결과를 반환한다.
     async def command(self, message_id, text, *, client=None, author=USER, delay=0):
         message = make_message(
             message_id, self.channel, author_id=author, content=text,
@@ -1062,10 +1166,12 @@ class WipeTests(MemoryTestBase):
         )
         return await bot.AgentBot._handle_chat_wipe_command(client or self.handler, message)
 
+    # 채팅 기록과 요약이 그대로 남았는지 확인한다.
     def assert_kept(self) -> None:
         self.assertEqual(len(self.runtime.chat_history_for(CHANNEL)), 1)
         self.assertEqual(self.runtime.chat_summaries[CHANNEL], "지울 요약")
 
+    # 확인하면 채널 기록을 지우되 기억은 남기는지 확인한다.
     async def test_confirm_wipes_channel_but_keeps_memories(self) -> None:
         self.assertTrue(await self.command(1, bot.CHAT_WIPE_COMMAND))
         self.assertTrue(await self.command(1, bot.CHAT_WIPE_COMMAND, client=self.other_bot))
@@ -1082,6 +1188,7 @@ class WipeTests(MemoryTestBase):
         self.assertEqual(self.persona_contents(), ["남을 캐릭터 기억"])
         self.channel.send.assert_awaited_with(bot.CHAT_WIPE_DONE)
 
+    # 취소와 만료 시 기록이 남는지 확인한다.
     async def test_cancel_and_expiry(self) -> None:
         await self.command(1, bot.CHAT_WIPE_COMMAND)
         self.assertTrue(await self.command(2, bot.CHAT_WIPE_CANCEL))
@@ -1092,6 +1199,7 @@ class WipeTests(MemoryTestBase):
         self.assertNotIn(CHANNEL, self.runtime.chat_wipe_requests)
         self.assert_kept()
 
+    # 봇 메시지를 명령으로 처리하지 않는지 확인한다.
     async def test_bot_messages_are_not_commands(self) -> None:
         message = make_message(1, self.channel, author_id=1002, bot_author=True, content=bot.CHAT_WIPE_COMMAND)
         self.assertFalse(await bot.AgentBot._handle_chat_wipe_command(self.handler, message))
@@ -1109,6 +1217,7 @@ class TokenLogTests(MemoryTestBase):
         self.assertIn('"input_tokens": 10', line)
         self.assertIn("total_cost_usd=0.01", line)
 
+    # 요약 호출이 토큰 사용량을 로그에 남기는지 확인한다.
     async def test_summary_call_logs_usage(self) -> None:
         add_line(self.runtime, 1, 3, "user7", "오래된 줄", 11)
         with self.assertLogs("agent_team", logging.INFO) as captured:

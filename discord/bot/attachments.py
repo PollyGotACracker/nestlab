@@ -28,6 +28,7 @@ TEXT_ATTACHMENT_EXTENSIONS = {
 def read_hooks(agent_name: str) -> dict[str, list[HookMatcher]]:
     # Read 대상이 첨부 폴더 밖이면 거부 결정을 반환한다.
     async def restrict_read(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
+        # 첨부 폴더 안의 경로인지 확인한다.
         raw = str(input_data.get("tool_input", {}).get("file_path", ""))
         path = Path(raw) if Path(raw).is_absolute() else AGENT_ROOT / raw
         try:
@@ -35,6 +36,8 @@ def read_hooks(agent_name: str) -> dict[str, list[HookMatcher]]:
                 return {}
         except (OSError, RuntimeError):
             pass
+
+        # 첨부 폴더 밖 읽기는 deny한다.
         log.warning("read blocked agent=%s path=%s", agent_name, raw)
         return {
             "hookSpecificOutput": {
@@ -44,6 +47,7 @@ def read_hooks(agent_name: str) -> dict[str, list[HookMatcher]]:
             }
         }
 
+    # Read 도구에 읽기 제한 hook을 연결한다.
     return {"PreToolUse": [HookMatcher(matcher="Read", hooks=[restrict_read])]}
 
 
@@ -53,8 +57,11 @@ LINK_PATTERN = re.compile(r"https?://\S+")
 # 메시지의 링크 미리보기(임베드)를 대화 기록에 붙일 텍스트로 만든다. 링크가 없으면 None을 반환한다.
 # Discord는 미리보기를 메시지가 올라온 뒤 늦게 붙이기도 해서, 비어 있으면 잠시 기다렸다 다시 가져온다.
 async def fetch_link_previews(message: discord.Message, links: LinksConfig) -> str | None:
+    # 링크가 없는 메시지는 건너뛴다.
     if not LINK_PATTERN.search(message.content):
         return None
+
+    # 임베드가 생길 때까지 정해진 횟수만큼 메시지를 다시 조회한다.
     embeds = list(message.embeds)
     for _ in range(links.preview_retries):
         if embeds:
@@ -65,6 +72,7 @@ async def fetch_link_previews(message: discord.Message, links: LinksConfig) -> s
         except discord.HTTPException:
             return None
 
+    # 임베드마다 제목, 작성자, 설명을 모아 미리보기 줄을 만든다.
     lines = []
     for embed in embeds:
         parts = []
@@ -83,6 +91,7 @@ async def fetch_link_previews(message: discord.Message, links: LinksConfig) -> s
 
 # 첨부가 텍스트 문서인지 형식과 확장자로 판정한다.
 def is_text_attachment(attachment: discord.Attachment) -> bool:
+    # content type과 확장자로 텍스트 첨부인지 판정한다.
     content_type = (attachment.content_type or "").split(";")[0].strip()
     if content_type.startswith("text/") or content_type == "application/json":
         return True
@@ -102,19 +111,24 @@ class SavedDocument:
 async def save_attachments(
     message: discord.Message, base_dir: Path, config: Config
 ) -> tuple[list[Path], list[SavedDocument]]:
+    # 이미지와 문서 첨부를 나누고 저장할 첨부가 없으면 끝낸다.
     images = [a for a in message.attachments if (a.content_type or "").startswith(IMAGE_CONTENT_TYPE_PREFIX)]
     documents = [a for a in message.attachments if a not in images and is_text_attachment(a)]
     if not images and not documents:
         return [], []
 
+    # 저장 폴더를 만들고 오래된 첨부를 지운다.
     dest_dir = base_dir / IMAGE_ATTACHMENT_DIRNAME
     dest_dir.mkdir(parents=True, exist_ok=True)
     prune_old_attachments(dest_dir, datetime.now().timestamp(), config.chat.history_hours * 3600)
 
     # 첨부 하나를 저장하고 저장 경로를 반환한다. 실패하면 None을 반환한다.
     async def save(attachment: discord.Attachment) -> Path | None:
+        # 파일 이름을 정리하고 저장 경로를 정한다.
         safe_name = Path(attachment.filename).name or "attachment"
         dest_path = dest_dir / f"{message.id}_{attachment.id}_{safe_name}"
+
+        # 첨부 파일을 저장한다. 실패하면 None을 반환한다.
         try:
             await attachment.save(dest_path)
         except discord.HTTPException:
@@ -122,6 +136,7 @@ async def save_attachments(
             return None
         return dest_path
 
+    # 이미지와 문서를 저장하고 경로를 모은다.
     image_paths = [path for path in [await save(a) for a in images] if path is not None]
     saved_documents: list[SavedDocument] = []
     for attachment in documents:
@@ -141,6 +156,7 @@ def format_bytes(size: int) -> str:
 
 # 첨부 문서를 대화 기록용 문구로 만든다. 앞부분만 넣고, 나머지는 Read로 열 경로를 적는다.
 def build_document_trigger_text(documents: list[SavedDocument], preview_chars: int) -> str:
+    # 첨부 문서마다 본문이나 크기 초과 안내를 이어 붙여 트리거 문장을 만든다.
     parts = []
     for doc in documents:
         size = format_bytes(doc.size)
@@ -163,6 +179,7 @@ def build_document_trigger_text(documents: list[SavedDocument], preview_chars: i
 
 # 첨부 폴더에서 수정 시각이 ttl_seconds보다 오래된 파일을 지운다.
 def prune_old_attachments(dest_dir: Path, now: float, ttl_seconds: int) -> None:
+    # 저장 기한이 지난 첨부 파일을 지운다.
     for path in dest_dir.iterdir():
         try:
             if path.is_file() and now - path.stat().st_mtime > ttl_seconds:
@@ -179,10 +196,12 @@ CAPTION_SYSTEM_PROMPT = (
     "- 이미지 한 장당 2~4문장으로 설명만 출력한다."
 )
 
-
 # 페르소나 없는 별도 호출로 이미지 설명을 한 번 만든다. 실패하면 None을 반환한다.
 async def caption_images(paths: list[Path], model: str) -> str | None:
+    # 이미지 경로 목록 문장을 만든다.
     lines = "\n".join(f"- {path}" for path in paths)
+
+    # 읽기만 허용하는 질의 옵션을 만든다.
     options = ClaudeAgentOptions(
         system_prompt=CAPTION_SYSTEM_PROMPT,
         tools=["Read"],
@@ -197,6 +216,8 @@ async def caption_images(paths: list[Path], model: str) -> str | None:
         stderr=log_sdk_stderr,
         max_buffer_size=10 * 1024 * 1024,
     )
+
+    # 질의 결과 텍스트를 받는다. 실패하면 None을 반환한다.
     result = ""
     try:
         async for sdk_message in query(prompt=f"아래 이미지를 설명한다:\n{lines}", options=options):
@@ -211,6 +232,7 @@ async def caption_images(paths: list[Path], model: str) -> str | None:
 # 이미지가 있는 사용자 메시지를 대화 기록용 트리거 문구로 만든다.
 # 설명을 맨 앞에 두어 기록 길이 제한으로 잘릴 때도 설명이 남게 한다.
 def build_image_trigger_text(text: str, caption: str | None, paths: list[Path]) -> str:
+    # 이미지 설명, 파일 경로 안내, 본문을 이어 트리거 문장을 만든다.
     header = f"[이미지 설명] {caption}" if caption else "[이미지 설명 실패]"
     lines = "\n".join(f"- {path}" for path in paths)
     note = f"[첨부 이미지 경로] 세부 확인이 필요할 때만 Read로 연다:\n{lines}"
@@ -219,33 +241,40 @@ def build_image_trigger_text(text: str, caption: str | None, paths: list[Path]) 
 
 # 긴 본문을 Discord 한도에 맞게 나눈다.
 def split_message(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
-    """조각 경계에서 fenced code block을 닫고 다시 열며 본문을 나눈다."""
+    # 글자 수가 한도 이하이면 나누지 않는다.
     if len(text) <= limit:
         return [text]
 
+    # 조각 목록과 현재 조각, 코드 블록 상태를 시작한다.
     chunks: list[str] = []
     current = ""
     fence: str | None = None
 
     # 지금까지 모은 조각을 코드 블록을 닫아 결과에 넣는다.
     def flush() -> None:
+        # 바깥 함수의 현재 조각을 갱신 대상으로 선언하고 비었으면 끝낸다.
         nonlocal current
         if not current:
             return
+
+        # 닫히지 않은 코드 펜스를 닫아 조각을 추가한다.
         body = current.rstrip()
         if fence and not body.endswith("```"):
             body += "\n```"
         chunks.append(body)
         current = (fence + "\n") if fence else ""
 
+    # 줄 단위로 읽으며 코드 블록 경계를 추적한다.
     for raw_line in text.splitlines(keepends=True):
         stripped = raw_line.lstrip()
         fence_line = stripped.startswith("```")
 
+        # 현재 조각이 한도를 넘으면 먼저 내보낸다.
         reserve = 4 if fence else 0
         if len(current) + len(raw_line) + reserve > limit:
             flush()
 
+        # 한 줄이 한도보다 길면 한도에 맞춰 자른다.
         if len(raw_line) > limit - 8:
             remaining = raw_line
             while remaining:
@@ -257,6 +286,7 @@ def split_message(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
         else:
             current += raw_line
 
+        # 코드 블록 여닫음 상태를 바꾼다.
         if fence_line:
             token = stripped.rstrip("\r\n")
             if fence is None:
@@ -264,10 +294,12 @@ def split_message(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
             else:
                 fence = None
 
+    # 남은 조각을 코드 블록을 닫아 추가한다.
     if current.strip():
         body = current.rstrip()
         if fence and not body.endswith("```"):
             body += "\n```"
         chunks.append(body)
 
+    # 빈 조각을 빼고 반환한다.
     return [chunk for chunk in chunks if chunk]

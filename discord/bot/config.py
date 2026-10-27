@@ -28,6 +28,7 @@ TURN_PROMPT_PATH = HERE.parent / "prompts" / "TURN.md"
 # 지침 파일 이름. 공통 지침은 저장소 루트, 역할 지침은 .claude/agents/<role>/, archive 지침은 Nodebase 저장소 루트에 있다.
 COMMON_RULES_FILE = "AGENTS.global.md"
 ROLE_RULES_FILE = "AGENTS.md"
+ROLE_MAIN_FILE = "MAIN.md"
 ARCHIVE_RULES_FILE = "AGENTS.md"
 DISCORD_LIMIT = 2000
 CHAT_STATE_DIR = HERE / "chat_state"
@@ -52,6 +53,7 @@ def log_sdk_stderr(line: str) -> None:
 
 # 모델 호출 1회의 ResultMessage 사용량과 비용을 로그 한 줄로 남긴다.
 def log_token_usage(kind: str, result_message: Any, **context: Any) -> None:
+    # 토큰 사용량과 비용을 로그에 남긴다.
     usage = getattr(result_message, "usage", None)
     usage_text = json.dumps(usage, ensure_ascii=False, sort_keys=True) if isinstance(usage, dict) else "none"
     context_text = " ".join(f"{key}={value}" for key, value in context.items())
@@ -156,6 +158,7 @@ SETTINGS_SECTIONS = {
 
 # 설정 항목들을 읽는다. 빠진 키는 모두 모아 한 번에 알린다.
 def load_settings_sections(raw: dict[str, Any]) -> dict[str, Any]:
+    # 섹션별로 항목 값을 읽는다. 없는 항목은 기본값을 쓰거나 누락으로 모은다.
     missing: list[str] = []
     values: dict[str, dict[str, Any]] = {}
     for section, cls in SETTINGS_SECTIONS.items():
@@ -175,13 +178,18 @@ def load_settings_sections(raw: dict[str, Any]) -> dict[str, Any]:
                 continue
             value = section_raw[item.name]
             values[section][item.name] = str(value) if item.type == "str" else int(value)
+
+    # 누락된 키가 있으면 한꺼번에 알린다.
     if missing:
         raise ValueError("config에 없는 키: " + ", ".join(missing))
 
+    # 섹션 객체를 만들고 effort 값을 확인한다.
     settings = {section: cls(**values[section]) for section, cls in SETTINGS_SECTIONS.items()}
     chat: ChatConfig = settings["chat"]
     if chat.effort not in CHAT_EFFORTS:
         raise ValueError(f"chat.effort는 {', '.join(CHAT_EFFORTS)} 중 하나여야 합니다.")
+
+    # 항목마다 값의 범위를 확인한다.
     for section in settings:
         for item in fields(SETTINGS_SECTIONS[section]):
             value = getattr(settings[section], item.name)
@@ -229,11 +237,14 @@ class MemoryConfig:
 
 # 선택 설정 절 하나를 읽는다. 절이나 키가 없으면 기본값을 쓰고, 있는 값은 형식을 검사한다.
 def load_optional_section(raw: dict[str, Any], section: str, cls: type) -> Any:
+    # 섹션이 없으면 기본값 객체를 반환한다.
     section_raw = raw.get(section)
     if section_raw is None:
         return cls()
     if not isinstance(section_raw, dict):
         raise ValueError(f"{section}는 객체여야 합니다.")
+
+    # 있는 항목만 읽어 값을 확인한다.
     values: dict[str, Any] = {}
     for item in fields(cls):
         if item.name not in section_raw:
@@ -321,6 +332,7 @@ class Config:
     # config.json 파일을 읽고 검증해 Config 인스턴스를 만든다.
     @classmethod
     def load(cls, path: Path) -> "Config":
+        # 설정 파일을 읽고 알 수 없는 키를 막는다.
         raw = json.loads(path.read_text(encoding="utf-8"))
         unknown = sorted(key for key in raw if key not in CONFIG_TOP_LEVEL_KEYS)
         if unknown:
@@ -387,6 +399,7 @@ class Config:
                 + ", ".join(str(v) for v in sorted(overlap))
             )
 
+        # 더 이상 쓰지 않는 chat 설정을 막고 설정 절을 읽는다.
         chat_raw = raw.get("chat", {})
         if "auto_conversations_per_day" in chat_raw:
             raise ValueError(
@@ -395,6 +408,7 @@ class Config:
             )
         settings = load_settings_sections(raw)
 
+        # 보관 저장소 설정을 읽는다.
         archive_repo_raw = raw.get("archive_repository")
         archive_repository = (
             ArchiveRepositoryConfig(
@@ -414,10 +428,12 @@ class Config:
             if archive_forum_id in chat_channels:
                 raise ValueError("archive_forum_id는 chat_channels에 등록할 수 없습니다.")
 
+        # 에이전트 목록을 만들고 documenter 필수 조건을 확인한다.
         agents = [AgentConfig(**item) for item in raw["agents"]]
         if archive_forum_id is not None and not any(agent.role == "documenter" for agent in agents):
             raise ValueError("archive_forum_id에는 documenter 역할 에이전트가 필요합니다.")
 
+        # 읽은 값으로 설정 객체를 반환한다.
         return cls(
             request_channels=request_channels,
             chat_channels=chat_channels,
@@ -441,6 +457,7 @@ class Config:
     # 채널에서 쓸 (모델, effort)를 반환한다. 스레드는 부모 채널(포럼 등)의 값을 따른다.
     # archive_forum_id 채널은 override가 없으면 기본 모델 대신 ARCHIVE_DEFAULT_MODEL을 쓴다.
     def chat_model_for(self, channel: Any) -> tuple[str, str]:
+        # 스레드이면 부모 채널을 기준으로 채널별 모델과 effort를 고른다.
         channel_id = channel.id
         if isinstance(channel, discord.Thread) and channel.parent_id is not None:
             channel_id = channel.parent_id

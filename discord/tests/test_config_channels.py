@@ -28,12 +28,14 @@ def example_raw(**overrides) -> dict:
 
 
 class ConfigChannelTests(unittest.TestCase):
+    # 원본 설정 dict를 임시 파일로 쓰고 설정을 읽어 반환한다.
     def load(self, raw: dict):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
             return config_module.Config.load(path)
 
+    # 채널 항목 형식과 하루 횟수 기본값을 확인한다.
     def test_id_items_and_per_day_default(self) -> None:
         cfg = self.load(example_raw(chat_channels=[
             "10", 11, {"id": 12}, {"id": "13", "per_day": 2, "topic": "야구"},
@@ -43,12 +45,14 @@ class ConfigChannelTests(unittest.TestCase):
         self.assertEqual(cfg.chat_topics, {13: "야구"})
         self.assertTrue(cfg.is_agent_channel(10))
 
+    # 문자열이나 정수가 아닌 채널 id를 거부하는지 확인한다.
     def test_channel_ids_reject_non_string_or_integer_types(self) -> None:
         for value in (10.9, 10.0, True, False, None, [], {}):
             for item in (value, {"id": value}):
                 with self.subTest(item=item), self.assertRaises(ValueError):
                     self.load(example_raw(chat_channels=[item]))
 
+    # 중복 채널 id가 하나로 합쳐지는지 확인한다.
     def test_duplicate_ids_are_merged(self) -> None:
         cfg = self.load(example_raw(chat_channels=[
             {"id": "10", "per_day": 3}, 10, {"id": "10", "topic": "음악"},
@@ -57,6 +61,7 @@ class ConfigChannelTests(unittest.TestCase):
         self.assertEqual(cfg.chat_per_day, {10: 3})
         self.assertEqual(cfg.chat_topics, {10: "음악"})
 
+    # 채팅 채널만 있으면 요청 채널이 없는 것으로 처리하는지 확인한다.
     def test_only_chat_channels_means_no_request_channels(self) -> None:
         raw = example_raw(chat_channels=["10"])
         del raw["request_channels"]
@@ -64,6 +69,7 @@ class ConfigChannelTests(unittest.TestCase):
         self.assertEqual(cfg.request_channels, set())
         self.assertEqual(cfg.chat_channels, {10})
 
+    # 알 수 없는 최상위 키를 거부하는지 확인한다.
     def test_unknown_top_level_keys_are_rejected(self) -> None:
         raw = example_raw(zeta=1, alpha=[])
         with self.assertRaises(ValueError) as caught:
@@ -77,10 +83,12 @@ class ConfigChannelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "알 수 없는 설정 키: .*chat_channels에 적는다"):
             self.load(legacy)
 
+    # 요청 채널과 채팅 채널의 겹침을 거부하는지 확인한다.
     def test_overlap_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "request_channels와 chat_channels에 같은 채널이 있습니다: 1"):
             self.load(example_raw(chat_channels=["1"]))
 
+    # 아카이브 포럼이 채팅 채널에만 있는 설정을 거부하는지 확인한다.
     def test_archive_forum_only_in_chat_is_rejected(self) -> None:
         raw = example_raw(archive_forum_id="20", chat_channels=["20"])
         with self.assertRaises(ValueError):
@@ -89,10 +97,12 @@ class ConfigChannelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "chat_channels"):
             self.load(raw)
 
+    # 채널이 모두 비어 있는 설정을 거부하는지 확인한다.
     def test_empty_channels_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "request_channels나 chat_channels에 Discord 채널을"):
             self.load(example_raw(request_channels=[], chat_channels=[]))
 
+    # 잘못된 채널 항목을 거부하는지 확인한다.
     def test_invalid_items_are_rejected(self) -> None:
         for item, pattern in (
             ({"per_day": 1}, "chat_channels의 항목에 id가 없습니다"),
@@ -102,6 +112,7 @@ class ConfigChannelTests(unittest.TestCase):
             with self.subTest(item=item), self.assertRaisesRegex(ValueError, pattern):
                 self.load(example_raw(chat_channels=[item]))
 
+    # 이전 설정 키 auto_conversations_per_day를 거부하는지 확인한다.
     def test_auto_conversations_per_day_is_rejected(self) -> None:
         raw = example_raw()
         raw["chat"]["auto_conversations_per_day"] = 2

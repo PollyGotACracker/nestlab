@@ -31,8 +31,11 @@ def github_repo_url(cfg: ArchiveRepositoryConfig) -> str:
 async def github_get_file(
     session: aiohttp.ClientSession, cfg: ArchiveRepositoryConfig, path: str, branch: str | None = None
 ) -> tuple[str | None, str | None]:
+    # 파일 내용 조회 URL과 인자를 만든다.
     url = f"{github_repo_url(cfg)}/contents/{quote(path, safe='/')}"
     params = {"ref": branch} if branch else None
+
+    # 조회하고 없으면 None을 반환한다.
     async with session.get(url, headers=github_headers(cfg), params=params) as resp:
         if resp.status == 404:
             return None, None
@@ -52,6 +55,7 @@ async def github_put_file(
     sha: str | None,
     branch: str,
 ) -> None:
+    # 저장 요청 본문을 만든다.
     payload: dict[str, Any] = {
         "message": message,
         "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
@@ -59,6 +63,8 @@ async def github_put_file(
     }
     if sha is not None:
         payload["sha"] = sha
+
+    # 파일을 저장한다.
     async with session.put(f"{github_repo_url(cfg)}/contents/{path}", headers=github_headers(cfg), json=payload) as resp:
         resp.raise_for_status()
 
@@ -72,7 +78,10 @@ async def github_delete_file(
     sha: str,
     branch: str,
 ) -> None:
+    # 삭제 요청 본문을 만든다.
     payload = {"message": message, "sha": sha, "branch": branch}
+
+    # 파일을 삭제한다.
     async with session.delete(f"{github_repo_url(cfg)}/contents/{path}", headers=github_headers(cfg), json=payload) as resp:
         resp.raise_for_status()
 
@@ -81,6 +90,7 @@ async def github_delete_file(
 async def github_branch_sha(
     session: aiohttp.ClientSession, cfg: ArchiveRepositoryConfig, branch: str
 ) -> str | None:
+    # 브랜치 ref를 조회한다. 없으면 None을 반환한다.
     url = f"{github_repo_url(cfg)}/git/ref/heads/{quote(branch, safe='/')}"
     async with session.get(url, headers=github_headers(cfg)) as resp:
         if resp.status == 404:
@@ -94,6 +104,7 @@ async def github_branch_sha(
 async def github_create_branch(
     session: aiohttp.ClientSession, cfg: ArchiveRepositoryConfig, branch: str, sha: str
 ) -> None:
+    # branch 생성 요청을 GitHub에 보내고 실패하면 예외를 낸다.
     payload = {"ref": f"refs/heads/{branch}", "sha": sha}
     async with session.post(f"{github_repo_url(cfg)}/git/refs", headers=github_headers(cfg), json=payload) as resp:
         resp.raise_for_status()
@@ -103,6 +114,7 @@ async def github_create_branch(
 async def github_find_open_pr(
     session: aiohttp.ClientSession, cfg: ArchiveRepositoryConfig, branch: str, base: str
 ) -> str | None:
+    # 열린 PR 목록을 조회해 첫 PR의 주소를 돌려준다.
     params = {"state": "open", "head": f"{cfg.owner}:{branch}", "base": base}
     async with session.get(f"{github_repo_url(cfg)}/pulls", headers=github_headers(cfg), params=params) as resp:
         resp.raise_for_status()
@@ -114,6 +126,7 @@ async def github_find_open_pr(
 async def github_create_pr(
     session: aiohttp.ClientSession, cfg: ArchiveRepositoryConfig, branch: str, base: str, title: str, body: str
 ) -> str:
+    # PR 생성 요청을 GitHub에 보내고 만든 PR의 주소를 돌려준다.
     payload = {"title": title, "head": branch, "base": base, "body": body}
     async with session.post(f"{github_repo_url(cfg)}/pulls", headers=github_headers(cfg), json=payload) as resp:
         resp.raise_for_status()
@@ -129,7 +142,10 @@ async def github_create_issue(
     body: str,
     labels: list[str],
 ) -> tuple[int, str]:
+    # 이슈 요청 본문을 만든다.
     payload = {"title": title, "body": body, "labels": labels}
+
+    # 이슈를 만들고 번호와 URL을 반환한다.
     async with session.post(f"{github_repo_url(cfg)}/issues", headers=github_headers(cfg), json=payload) as resp:
         resp.raise_for_status()
         data = await resp.json()
@@ -146,6 +162,7 @@ async def github_apply_change_set(
     message: str,
     operations: list[dict[str, Any]],
 ) -> str:
+    # 작업 브랜치가 Stage 이후 바뀌었으면 적용을 중단한다.
     if await github_branch_sha(session, cfg, branch) != source_sha:
         raise ValueError("작업 브랜치가 Stage 이후 변경되어 적용을 중단했습니다.")
 
@@ -214,6 +231,7 @@ async def github_apply_change_set(
 
 # 작업 브랜치와 출발 브랜치 인자를 검사한다. 문제가 있으면 사유 문자열을 반환한다.
 def check_archive_branches(branch: str, base: str) -> str | None:
+    # branch와 base의 누락과 동일 여부를 검사해 오류 문구를 돌려준다.
     if not branch or not base:
         return "branch(작업 브랜치)와 base(출발 브랜치)는 사용자에게 물어본 이름으로 모두 넣어야 합니다."
     if branch == base:
@@ -225,9 +243,12 @@ def check_archive_branches(branch: str, base: str) -> str | None:
 async def ensure_archive_branch(
     session: aiohttp.ClientSession, cfg: ArchiveRepositoryConfig, branch: str, base: str
 ) -> str | None:
+    # 출발 브랜치가 있는지 확인한다.
     base_sha = await github_branch_sha(session, cfg, base)
     if base_sha is None:
         return f"출발 브랜치 {base}가 저장소에 없습니다."
+
+    # 대상 브랜치가 없으면 출발 브랜치에서 만든다.
     if await github_branch_sha(session, cfg, branch) is None:
         await github_create_branch(session, cfg, branch, base_sha)
     return None
@@ -248,10 +269,12 @@ def build_archive_server(
 ):
     # ArchiveReader 메서드를 호출하고 결과나 오류를 도구 결과로 바꾼다.
     async def reader_call(method: str, **kwargs) -> dict[str, Any]:
+        # 저장소 읽기를 호출하고 오류는 오류 결과로 반환한다.
         try:
             async with aiohttp.ClientSession() as session:
                 # 저장소 API 경로를 GET으로 읽는다. 없으면 None을 반환한다.
                 async def get_json(path: str, params=None):
+                    # GitHub API를 GET으로 호출하고 404이면 None을 돌려준다.
                     async with session.get(
                         github_repo_url(cfg) + path, headers=github_headers(cfg), params=params,
                     ) as resp:
@@ -264,6 +287,7 @@ def build_archive_server(
                 async def branch_sha(branch: str):
                     return await github_branch_sha(session, cfg, branch)
 
+                # 읽기 메서드를 호출한다.
                 result = await getattr(ArchiveReader(get_json, branch_sha), method)(**kwargs)
             return tool_text(json.dumps(result, ensure_ascii=False))
         except (ValueError, aiohttp.ClientError) as exc:
@@ -330,13 +354,18 @@ def build_archive_server(
         },
     )
     async def archive_read(args: dict[str, Any]) -> dict[str, Any]:
+        # 경로와 브랜치 인자를 읽는다.
         path = str(args.get("path", "")).strip()
         branch = str(args.get("branch") or "").strip() or None
+
+        # 파일을 조회한다. 조회 오류는 오류 문장으로 반환한다.
         try:
             async with aiohttp.ClientSession() as session:
                 content, sha = await github_get_file(session, cfg, path, branch)
         except aiohttp.ClientResponseError as exc:
             return tool_text(github_error_text(exc))
+
+        # 파일이 없으면 없음을 알리고, 있으면 내용을 반환한다.
         if content is None:
             where = f" (브랜치 {branch})" if branch else ""
             return tool_text(f"{path} 파일이 없습니다{where}.")
@@ -349,6 +378,7 @@ def build_archive_server(
         {"branch": str},
     )
     async def archive_branch(args: dict[str, Any]) -> dict[str, Any]:
+        # branch의 최신 SHA를 조회해 도구 결과로 돌려준다.
         branch = str(args.get("branch", "")).strip()
         try:
             async with aiohttp.ClientSession() as session:
@@ -362,13 +392,16 @@ def build_archive_server(
         # 변경안을 승인 대기 상태로 보관한다.
         @tool(name, description, schema)
         async def stage(args: dict[str, Any]) -> dict[str, Any]:
+            # 변경안을 보관하고 보관 결과나 오류를 도구 결과로 돌려준다.
             try:
                 pending = workflow.stage(kind, thread_id, requester_id, args)
             except (ValueError, PermissionError) as exc:
                 return tool_text(str(exc))
             return tool_text(f"{kind} 변경안을 보관했습니다. pending_id={pending.pending_id}. 사용자의 '승인' 또는 '취소'를 기다립니다.")
+        # 만든 Stage 도구를 반환한다.
         return stage
 
+    # Issue Stage 도구를 만든다.
     issue_stage = stage_tool(
         "archive_issue_stage", "Issue 제목, 본문, 타입과 원격 템플릿 정보를 승인 대기로 보관한다.",
         {
@@ -390,6 +423,7 @@ def build_archive_server(
         {"title": str, "body": str, "template_path": str, "template_sha": str}, "pr",
     )
 
+    # 도구를 묶어 archive 서버를 반환한다.
     return create_sdk_mcp_server(
         name="archive",
         version="1.0.0",

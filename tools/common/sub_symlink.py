@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 
-
 # 링크(symlink 또는 junction)인지 확인한다.
 def is_link(path: Path) -> bool:
     return path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction())
@@ -25,14 +24,18 @@ def link_target(path: Path) -> Path | None:
 
 # symlink를 먼저 시도하고, Windows에서 권한이 없으면 junction을 만든다.
 def make_link(src: Path, dst: Path) -> str:
+    # symlink를 먼저 시도하고 실패하면 junction으로 바꾼다.
     try:
+        # symlink를 먼저 만든다.
         dst.symlink_to(src, target_is_directory=True)
         return "symlink"
     except OSError:
+        # Windows가 아니면 오류를 그대로 던지고, Windows이면 junction을 만든다.
         if sys.platform != "win32":
             raise
         import _winapi
 
+        # junction을 만든다.
         _winapi.CreateJunction(str(src), str(dst))
         return "junction"
 

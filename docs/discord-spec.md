@@ -453,8 +453,8 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 `MEMORY.md`가 없으면 오류 없이 없는 파일로 감시한다.
 documenter는 `discord/prompts/ARCHIVE.md`도 변경 감지 대상에 포함하며, 지식 저장소 설정이 있을 때 해당 문서를 지식 안내로 읽는다.
 
-로컬 Skill은 `shared/skills/wiki/SKILL.md`를 통해 파일 원본에 연결한다.
-Discord는 이 Skill의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 전용 도구로 원격의 같은 schema 경로에 연결한다.
+로컬 스킬은 `shared/skills/wiki/SKILL.md`를 통해 파일 원본에 연결한다.
+Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 전용 도구로 원격의 같은 schema 경로에 연결한다.
 절차 본문은 Nodebase 원격 저장소의 `$repo_name/schema/`에만 유지한다.
 
 실행 가능한 에이전트 목록은 `.claude/agents/*/AGENTS.md`의 `name`에서 읽는다. 설정의 `name`이 이 값과 다르면 시작하지 않는다.

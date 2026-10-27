@@ -18,7 +18,7 @@ Obsidian Archive: [Nodebase 저장소](https://github.com/PollyGotACracker/nodeb
 | director   | rio(리오)    | 프로젝트 작업: 저장소 사전 조사, 판단·승인 조율, 전체 흐름 |
 | researcher | nico(니코)   | 프로젝트 작업: 외부 조사, 비교, 계획 초안                  |
 | worker     | jelly(젤리)  | 프로젝트 작업: 구현                                        |
-| reviewer   | ricky(리키)  | 프로젝트 작업: 자료 및 주장 반증, 구현·문서 검수           |
+| reviewer   | ricky(리키)  | 프로젝트 작업: 자료 및 주장 반증, 구현·문서 검증           |
 | documenter | pepper(페퍼) | 프로젝트 작업: 기록, 지침·문서 작성, Archive 작업          |
 
 각 에이전트의 역할과 persona는 .claude/agents/ 폴더를 참고한다.
@@ -76,7 +76,7 @@ Discord 채널의 웹훅 봇 목록
 
 - [전역 설정 설치](docs/setup.md#전역-설정-설치)
 - [에이전트 연결](docs/setup.md#에이전트-연결)
-- [Skill 연결](docs/setup.md#skill-연결)
+- [스킬 연결](docs/setup.md#skill-연결)
 
 ## 환경별 연결
 
@@ -91,10 +91,11 @@ Discord 채널의 웹훅 봇 목록
 - OpenClaw: [docs/openclaw.md](docs/openclaw.md)
 - Hermes: [docs/hermes.md](docs/hermes.md)
 
-### 추가 사용 Skill 목록
+### 추가 사용 스킬 목록
 
 - [Anthropics/skills](https://github.com/anthropics/skills)
 - [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)
+- [inkeep/open-knowledge-skills](https://github.com/inkeep/open-knowledge-skills)
 
 ## 폴더 구조
 
@@ -124,13 +125,8 @@ Discord 채널의 웹훅 봇 목록
 │   ├── settings/                  # 공통 설정(권한 등)
 │   └── skills/<skill>/SKILL.md    # 공통 skill
 ├── tools/                         # 직접 실행 스크립트
-│   ├── <script_name>/             # 해당 스크립트의 모듈 폴더
-│   ├── check_doc_rule.py          # 에이전트 문서 지침 준수 확인 도구
-│   ├── set_hooks.py               # 전역 설정 설치 도구
-│   ├── set_agents.py              # 에이전트 전역 연결·제거 및 상태 확인 도구
-│   └── set_skills.py              # 스킬 전역 연결·제거 및 상태 확인 도구
 ├── AGENTS.global.md               # 전역 지침
 ├── AGENTS.md                      # 저장소 지침
-├── CLAUDE.md                      # Claude Code 전용 저장소 지침
+├── CLAUDE.md                      # AGENTS.md를 읽는 Claude Code 진입점
 └── README.md                      # 저장소 정보 문서
 ```

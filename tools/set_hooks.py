@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 """bashrc 블록 설치, 설정 원본 자리표시 채우기, 전역 설정 병합을 한다.
 
-install: 한 번에 아래를 처리한다. 다시 실행해도 결과가 같고 사용자 항목은 보존한다.
-         1. shared/settings/bashrc.sh 블록을 ~/.bashrc에 추가하거나 교체한다.
-         2. shared/settings/ 의 *.example.* 에서 <NESTLAB>(저장소 경로)과 <PYTHON>(실행한 Python 경로)을 채워
-            ignore된 settings.json, config.toml을 만든다.
-         3. 덮어쓰기 전의 기존 settings.json 항목(지난 설치분)을 전역 settings.json에서 먼저 뺀다.
-            그 뒤 만든 파일과 rules/default.rules를 ~/.claude/settings.json, ~/.codex/config.toml,
-            ~/.codex/rules/default.rules에 병합한다. 권한 목록은 shared/settings/ 파일에만 있고 여기서는 옮기기만 한다.
-            config.toml은 전역 approvals_reviewer 줄을 지운다.
-
-테스트: tools/tests/test_set_hooks.py
+호출자: 사용자(`python tools/set_hooks.py install`)
+입력: 명령줄 인자 install 하나
+반환: 설치 결과 줄을 stdout에 출력하고, 실패하면 stderr에 사유를 쓰고 종료 코드 1을 반환한다.
+한계: 설치한 설정이 Claude Code와 Codex에서 실제로 동작하는지는 설치 후 세션에서 확인해야 한다.
 """
 from __future__ import annotations
 
@@ -20,13 +14,17 @@ import sys
 import tomllib
 from pathlib import Path
 
+# 저장소 모듈 import 오류 메시지도 UTF-8로 나오도록 먼저 설정한다.
+for stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8")
+
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / "shared" / "settings"
 BASHRC = Path.home() / ".bashrc"
 # 예제 파일에서 만들 실제 설정 파일이다.
 FILLED = [("claude/settings.example.json", "claude/settings.json"),
           ("codex/config.example.toml", "codex/config.toml")]
-# ponytail: hook 그룹을 값 동일성으로만 비교한다. 저장소 경로가 바뀌면 이전 경로 항목이 남는다.
 BEGIN, END = "# >>> nestlab >>>", "# <<< nestlab <<<"
 PREFIX_RE = re.compile(r"^prefix_rule[(]", re.M)
 BLOCK_RE = re.compile(re.escape(BEGIN) + ".*?" + re.escape(END), re.S)
@@ -60,8 +58,7 @@ def merge_json(dst: dict, src: dict) -> None:
             dst[key] = value
 
 
-# config.toml 최상위 키를 예제 값으로 맞추고 전역 approvals_reviewer 줄을 지운다.
-# [features] hooks가 없으면 추가하고, hook 표는 마커 블록으로 교체한다.
+# old와 값이 같은 항목을 dst에서 지운다. hook 그룹은 값 동일성으로만 비교하므로 저장소 경로가 바뀌면 이전 경로 항목이 남는다.
 def prune_json(dst: dict, old: dict) -> None:
     for key, value in old.items():
         if key not in dst:
@@ -78,11 +75,16 @@ def prune_json(dst: dict, old: dict) -> None:
             del dst[key]
 
 
+# config.toml 최상위 키를 예제 값으로 맞추고 전역 approvals_reviewer 줄을 지운다.
+# 예제 [features]의 키가 없으면 추가하고, [windows] 키를 덮어쓰며, hook 표는 마커 블록으로 교체한다.
 def merge_config(old: str, example: str) -> str:
+    # 첫 표 앞의 최상위 키 영역을 나누고 approvals_reviewer 줄을 지운다.
     m = re.search(r"^\[", old, re.M)
     cut = m.start() if m else len(old)
     head, rest = old[:cut], old[cut:]
     head = re.sub(r"^approvals_reviewer\s*=.*\n?", "", head, flags=re.M)
+
+    # 예제의 최상위 키를 같은 이름 줄에 덮어쓰고 없으면 앞에 추가한다.
     for key, value in tomllib.loads(example).items():
         if isinstance(value, dict):
             continue
@@ -91,39 +93,63 @@ def merge_config(old: str, example: str) -> str:
         if not n:
             head = line + head
     text = head + rest
-    if "hooks" not in tomllib.loads(text).get("features", {}):
+
+    # 예제 [features]의 키 중 사용자 설정에 없는 키를 추가하고 hook 표를 마커 블록으로 교체한다.
+    have = tomllib.loads(text).get("features", {})
+    lines = "".join(f"{key} = {json.dumps(value)}\n"
+                    for key, value in tomllib.loads(example).get("features", {}).items() if key not in have)
+    if lines:
         m = re.search(r"^\[features\][^\n]*\n", text, re.M)
         if m:
-            text = text[:m.end()] + "hooks = true\n" + text[m.end():]
+            text = text[:m.end()] + lines + text[m.end():]
         else:
-            text = text.rstrip("\n") + "\n\n[features]\nhooks = true\n"
+            text = text.rstrip("\n") + "\n\n[features]\n" + lines
+    # 예제 [windows]의 키를 사용자 설정 [windows] 표의 같은 키 줄에 덮어쓰고, 표나 키가 없으면 추가한다.
+    for key, value in tomllib.loads(example).get("windows", {}).items():
+        line = f"{key} = {json.dumps(value, ensure_ascii=False)}\n"
+        m = re.search(r"^\[windows\][^\n]*\n", text, re.M)
+        if not m:
+            text = text.rstrip("\n") + "\n\n[windows]\n" + line
+            continue
+        nxt = re.compile(r"^\[", re.M).search(text, m.end())
+        end = nxt.start() if nxt else len(text)
+        body, n = re.subn(rf"^{key}\s*=.*\n?", lambda _: line, text[m.end():end], count=1, flags=re.M)
+        text = text[:m.end()] + (body if n else line + body) + text[end:]
     return put_block(text, wrap(example[example.index("[[hooks."):]))
 
 
+# 파일을 줄바꿈 LF로 읽는다. 파일이 없으면 빈 문자열이다.
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.exists() else ""
 
 
+# 상위 폴더를 만들고 파일을 LF로 쓴다.
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+# hook 설정에서 nestlab hook 명령 개수를 센다.
 def count_hooks(hooks: dict) -> int:
     return sum("nestlab/hooks/" in h.get("command", "")
-               for groups in hooks.values() if isinstance(groups, list) for g in groups for h in g["hooks"])
+               for groups in hooks.values() if isinstance(groups, list) for g in groups for h in g.get("hooks", []))
 
 
 # 쓴 대상 파일을 다시 읽어 결과 줄을 만든다.
 def report(bashrc: Path, claude: Path, config: Path, rules: Path, home: Path) -> list[str]:
+    # 홈 기준 경로 표기 함수이다.
     def name(p: Path) -> str:
         return "~/" + p.relative_to(home).as_posix() if p.is_relative_to(home) else p.as_posix()
+
+    # bashrc와 Claude 설정 결과 줄을 만든다.
     lines = ["설치 완료",
              f"- {name(bashrc)}: nestlab 블록" if BLOCK_RE.search(read(bashrc)) else f"- {name(bashrc)}: nestlab 블록 없음"]
     if claude.parent.is_dir():
         lines.append(f"- {name(claude)}: nestlab hook 명령 {count_hooks(json.loads(read(claude)).get('hooks', {}))}개")
     else:
         lines.append(f"- {name(claude.parent)}: 건너뜀 (설정 폴더 없음)")
+
+    # Codex 설정과 규칙 결과 줄을 만든다.
     if config.parent.is_dir():
         cfg = tomllib.loads(read(config))
         text = read(rules)
@@ -138,18 +164,24 @@ def report(bashrc: Path, claude: Path, config: Path, rules: Path, home: Path) ->
     return lines
 
 
+# bashrc 블록, 설정 원본, 전역 설정을 설치하고 결과 줄 목록을 반환한다.
 def install(settings: Path = SETTINGS, bashrc: Path = BASHRC, home: Path | None = None) -> list[str]:
+    # bashrc 블록을 넣고 예제 파일에서 실제 설정 파일을 만든다.
     home = home or Path.home()
     write(bashrc, put_block(read(bashrc), read(settings / "bashrc.sh").strip("\n")))
     old = json.loads(read(settings / "claude/settings.json") or "{}")  # 지난 설치 내용, 덮어쓰기 전에 읽는다.
     for src, dst in FILLED:
         write(settings / dst, fill(read(settings / src)))
+
+    # 이전 설치 항목을 빼고 Claude 전역 설정에 병합한다.
     claude = home / ".claude" / "settings.json"
     if claude.parent.is_dir():
         data = json.loads(read(claude) or "{}")
         prune_json(data, old)
         merge_json(data, json.loads(read(settings / "claude/settings.json")))
         write(claude, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+    # Codex 설정과 규칙을 병합한다.
     codex = home / ".codex"
     rules = codex / "rules" / "default.rules"
     if codex.is_dir():
@@ -158,10 +190,14 @@ def install(settings: Path = SETTINGS, bashrc: Path = BASHRC, home: Path | None 
     return report(bashrc, claude, codex / "config.toml", rules, home)
 
 
+# 인자를 확인해 설치하고 결과를 출력한다. 실패하면 사유를 stderr에 쓰고 1을 반환한다.
 def main() -> int:
+    # install 인자가 아니면 사용법을 알린다.
     if sys.argv[1:] != ["install"]:
         print("사용법: python tools/set_hooks.py install", file=sys.stderr)
         return 2
+
+    # 설치하고 결과 줄을 출력한다. 실패하면 사유를 stderr에 쓴다.
     try:
         print(*install(), sep="\n")
     except (OSError, ValueError) as e:

@@ -22,7 +22,8 @@ import sub_link
 import sub_status
 
 
-class SetSkillsTest(unittest.TestCase):
+class Set스킬sTest(unittest.TestCase):
+    # 임시 폴더와 skill 원본을 준비한다.
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -33,6 +34,7 @@ class SetSkillsTest(unittest.TestCase):
         self.home.mkdir()
         self.skills = self.home / ".agents" / "skills"
 
+    # link를 실행해 종료 코드와 출력을 보관하는 보조 함수이다.
     def link(self) -> int:
         dirs = [(".agents", self.skills, "Codex", [self.home / ".codex", self.home / ".cursor"])]
         with (mock.patch.object(sub_link, "LINK_DIRS", dirs),
@@ -42,11 +44,13 @@ class SetSkillsTest(unittest.TestCase):
         self.out = out.getvalue()
         return code
 
+    # 도구 설정 폴더가 없으면 건너뛰는지 확인한다.
     def test_missing_tool_homes_are_skipped(self):
         self.assertEqual(self.link(), 0)
         self.assertFalse(self.skills.exists())
         self.assertIn("건너뜀", self.out)
 
+    # 도구 설정 폴더가 하나라도 있으면 링크를 만드는지 확인한다.
     def test_one_tool_home_gets_link(self):
         (self.home / ".cursor").mkdir()
         self.assertEqual(self.link(), 0)

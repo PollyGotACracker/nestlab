@@ -11,12 +11,21 @@
 # `approvals_reviewer = "auto_review"`는 승인 요청을 사용자 대신 처리하므로 쓰지 않는다.
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
+# Codex 기본 성격 지시를 끄고 SOUL.md 페르소나만 남긴다.
+personality = "none"
 
 [features]
 hooks = true
+default_mode_request_user_input = true
+prefer_mxc = true
+
+# MXC를 지원하면 MXC로, 아니면 elevated 샌드박스로 명령을 실행한다.
+[windows]
+sandbox = "elevated"
 
 # hook 구성: 역할 주입(SessionStart·SubagentStart), 승인·입력·쓰기 범위·경로 검사(PreToolUse),
-# 반증 판정 검사·결과 저장(SubagentStop), 지침 검사(PostToolUse), 사건 감지(Stop)
+# 승인 창 자동 허용(PermissionRequest), 반증 판정 검사·결과 저장(SubagentStop),
+# 지침 검사(PostToolUse), 사건 감지(Stop)
 
 [[hooks.SessionStart]]
 
@@ -37,7 +46,7 @@ additionalContextLimit = 10000
 statusMessage = "Nestlab 서브 에이전트 역할 및 공통 지침"
 
 [[hooks.PreToolUse]]
-matcher = "apply_patch|Bash|spawn_agent"
+matcher = "apply_patch|Bash|.*spawn_agent|request_user_input"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
@@ -46,12 +55,21 @@ commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_tool_use.py" --runner code
 timeout = 10
 statusMessage = "Nestlab 승인·입력·쓰기 범위 검사"
 
+[[hooks.PermissionRequest]]
+
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/allow_approved_request.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/allow_approved_request.py" --runner codex'
+timeout = 10
+statusMessage = "Nestlab 승인 창 자동 허용"
+
 [[hooks.SubagentStop]]
 
 [[hooks.SubagentStop.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/hooks/save_agent_result.py" --runner codex'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/save_agent_result.py" --runner codex'
+command = '"<PYTHON>" "<NESTLAB>/hooks/save_subagent_result.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/save_subagent_result.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 결과 원문 저장"
 
@@ -66,7 +84,7 @@ timeout = 30
 statusMessage = "Nestlab 지침 검사"
 
 [[hooks.PostToolUse]]
-matcher = "spawn_agent"
+matcher = ".*spawn_agent"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
@@ -79,7 +97,14 @@ statusMessage = "Nestlab 조사 문서 경로 반환"
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/hooks/record_incident.py" --runner codex'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/record_incident.py" --runner codex'
+command = '"<PYTHON>" "<NESTLAB>/hooks/check_invalid_response.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_invalid_response.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 사건 감지"
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex'
+timeout = 10
+statusMessage = "Nestlab 응답 검사"

@@ -22,6 +22,7 @@ TREE = "b" * 40
 
 
 class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
+    # 가짜 저장소 항목과 읽기 객체를 준비한다.
     def setUp(self):
         self.entries = []
         self.blob_counter = 0
@@ -35,6 +36,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.get_json = AsyncMock(side_effect=self.respond)
         self.reader = reader_module.ArchiveReader(self.get_json, self.branch_sha)
 
+    # GitHub API 경로별 가짜 응답을 반환한다.
     async def respond(self, path, params=None):
         if path == f"/git/commits/{self.current_commit}":
             return {"sha": self.current_commit, "tree": {"sha": self.current_tree}} if self.commit_exists else None
@@ -46,6 +48,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
             return self.commits
         raise AssertionError(f"unexpected request: {path}")
 
+    # 가짜 저장소에 파일 항목을 추가하고 항목을 반환한다.
     def add_file(self, path, text, mode="100644"):
         self.blob_counter += 1
         sha = f"{self.blob_counter:040x}"
@@ -54,6 +57,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.blobs[sha] = {"sha": sha, "encoding": "base64", "content": base64.b64encode(raw).decode("ascii")}
         return self.entries[-1]
 
+    # 같은 커밋의 지침과 작업 스키마 두 원본을 함께 읽는지 확인한다.
     async def test_workflow_loads_both_complete_sources_at_same_commit(self):
         self.add_file("AGENTS.md", "원칙\n전체 내용")
         self.add_file("schema/query.md", "조회 원본")
@@ -66,6 +70,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.get_json.assert_any_await(f"/git/commits/{COMMIT}")
         self.get_json.assert_any_await(f"/git/trees/{TREE}", params={"recursive": "1"})
 
+    # 알 수 없는 작업과 없는 원본이 명시적 오류가 되는지 확인한다.
     async def test_operation_and_missing_sources_fail_explicitly(self):
         for operation in ("other", "../ingest", "", None):
             with self.subTest(operation=operation), self.assertRaises(ValueError):
@@ -77,6 +82,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "tree가 잘려"):
             await self.reader.workflow_open("lint")
 
+    # 작업마다 최신 원본을 다시 읽는지 확인한다.
     async def test_each_operation_and_reload_use_live_source(self):
         self.add_file("AGENTS.md", "원칙")
         for operation in ("ingest", "query", "lint"):
@@ -94,6 +100,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(again["sources"][1]["blob_sha"], updated["sha"])
         self.assertEqual(self.branch_sha.await_count, 6)
 
+    # 잘못된 브랜치 이름과 커밋이 아닌 ref가 실패하는지 확인한다.
     async def test_unknown_branch_and_noncommit_ref_fail(self):
         for branch in ("../master", "/master", "docs//7", "docs/%2e", "master?ref=x", "", None):
             with self.subTest(branch=branch), self.assertRaises(ValueError):
@@ -109,6 +116,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "commit"):
             await self.reader.list_files("wiki", COMMIT)
 
+    # 아카이브 경로 경계를 벗어난 경로가 거부되는지 확인한다.
     async def test_archive_path_boundary(self):
         for path in ("/wiki", "wiki/../other", "wiki/./a", "wiki\\a", "wiki/%2e%2e",
                      "wiki/%252e", "wiki//a", "wiki/", "wiki2", "C:/wiki", "wiki/\x00",
@@ -117,6 +125,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
                 await self.reader.list_files(path, COMMIT)
         self.get_json.assert_not_awaited()
 
+    # 루트 원본과 지식 폴더별 경로가 허용되는지 확인한다.
     async def test_root_sources_and_each_knowledge_directory_are_allowed(self):
         for path in ("AGENTS.md", "schema/query.md", "raw/source.md", "wiki/page.md"):
             entry = self.add_file(path, "source")
@@ -124,6 +133,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         for directory in ("schema", "raw", "wiki"):
             self.assertEqual((await self.reader.list_files(directory, COMMIT))["known_files"], 1)
 
+    # 파일 목록 쪽이 커밋을 유지하고 범위 밖 경로를 제외하는지 확인한다.
     async def test_file_pages_preserve_commit_and_exclude_other_paths(self):
         self.add_file("outside.md", "outside")
         self.add_file("archive-other/a.md", "outside")
@@ -139,6 +149,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.truncated = True
         self.assertTrue((await self.reader.list_files("wiki", COMMIT))["tree_truncated"])
 
+    # 검색 결과가 행 번호와 한도, 파일 범위를 보고하는지 확인한다.
     async def test_search_reports_lines_limits_and_file_scope(self):
         self.add_file("raw/source.md", "needle")
         self.add_file("wiki/a.md", "first\nNeedle one\nneedle two")
@@ -154,6 +165,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(second["complete"])
         self.assertTrue((await self.reader.search("needle", COMMIT))["complete"])
 
+    # 검색이 이진 파일, 심볼릭 링크, 큰 파일, 없는 blob을 표시하는지 확인한다.
     async def test_search_marks_binary_symlink_oversized_and_missing_blobs(self):
         self.add_file("wiki/binary", b"\xff\x00")
         self.add_file("wiki/link", "../../secret", mode="120000")
@@ -167,6 +179,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["complete"])
         self.assertEqual(result["matches"], [])
 
+    # 긴 일치 행과 없는 범위가 결과에 명시되는지 확인한다.
     async def test_long_matching_line_and_missing_scope_are_explicit(self):
         result = await self.reader.search("needle", COMMIT)
         self.assertFalse(result["scope_found"])
@@ -177,6 +190,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["matches"][0]["text_truncated"])
         self.assertLessEqual(len(result["matches"][0]["text"]), 2000)
 
+    # 잘못된 쪽 번호와 검색 한도가 실패하는지 확인한다.
     async def test_invalid_page_and_search_limits(self):
         for kwargs in ({"page": 0}, {"per_page": 101}, {"page": True}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
@@ -187,6 +201,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.reader.search("", COMMIT)
 
+    # 이력 조회가 질의를 전달하고 커밋 메시지 첫 줄을 반환하는지 확인한다.
     async def test_history_passes_query_and_returns_first_message_lines(self):
         self.commits = [
             {"sha": "c" * 40, "commit": {"author": {"date": "2026-09-02T00:00:00Z"},
@@ -208,6 +223,7 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result["next_page"])
         self.assertTrue(result["complete"])
 
+    # 이력 조회가 잘못된 입력과 없는 ref를 거부하는지 확인한다.
     async def test_history_rejects_invalid_input_and_missing_ref(self):
         for path in ("/archive", "../other", "archive\\wiki", "%2e%2e", "archive2", ""):
             with self.subTest(path=path), self.assertRaises(ValueError):
@@ -225,7 +241,9 @@ class ArchiveReaderTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ArchiveToolTests(unittest.IsolatedAsyncioTestCase):
+    # 아카이브 도구가 아카이브 스레드의 documenter에게만 붙는지 확인한다.
     async def test_tools_only_attach_to_documenter_in_archive_thread(self):
+        # 역할과 스레드, 설정 조합마다 턴을 실행한다.
         for role, in_thread, configured in (("documenter", True, True), ("documenter", False, True),
                                             ("worker", True, True), ("documenter", True, False)):
             with self.subTest(role=role, in_thread=in_thread, configured=configured):
@@ -244,9 +262,11 @@ class ArchiveToolTests(unittest.IsolatedAsyncioTestCase):
                     agent=SimpleNamespace(name="test", role=role, tools=[]),
                 )
 
+                # 정지 응답 하나를 내는 가짜 질의이다.
                 async def fake_query(**kwargs):
                     yield SimpleNamespace(result="[[next:stop]]", subtype="success", num_turns=1)
 
+                # 봇 의존성을 대체하고 턴을 실행한다.
                 with (
                     patch.object(bot, "query", fake_query),
                     patch.object(bot, "ResultMessage", SimpleNamespace),
@@ -265,10 +285,13 @@ class ArchiveToolTests(unittest.IsolatedAsyncioTestCase):
                 for name in bot.ARCHIVE_TOOL_NAMES:
                     self.assertEqual(name in options.call_args.kwargs["allowed_tools"], exposed)
 
+    # 등록된 도구 목록과 오류 표시를 확인한다.
     async def test_registered_tools_and_error_flag(self):
+        # 도구 등록 데코레이터를 대신하는 가짜 함수이다.
         def decorator(name, description, schema):
             return lambda handler: handler
 
+        # 등록된 도구 이름과 오류 표시를 확인한다.
         cfg = config_module.ArchiveRepositoryConfig(owner="example", repo="nodebase", token="")
         with patch.object(archive_tools_module, "tool", decorator), patch.object(archive_tools_module, "create_sdk_mcp_server", side_effect=lambda **kw: kw):
             server = bot.build_archive_server(cfg, Mock(), 1, 2)
@@ -283,6 +306,7 @@ class ArchiveToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["isError"])
         self.assertIn("path", result["content"][0]["text"])
 
+    # 기존 파일 읽기가 경로를 인코딩하고 ref 인자를 유지하는지 확인한다.
     async def test_existing_file_read_encodes_path_and_keeps_ref_parameter(self):
         response = AsyncMock()
         response.status = 200

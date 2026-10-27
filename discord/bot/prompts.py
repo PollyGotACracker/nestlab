@@ -27,6 +27,7 @@ from config import (
     POLL_ANSWER_MAX,
     POLL_HOURS_MAX,
     POLL_QUESTION_MAX,
+    ROLE_MAIN_FILE,
     ROLE_RULES_FILE,
     THREAD_NAME_MAX,
     TURN_PROMPT_PATH,
@@ -74,6 +75,7 @@ ROLE_DUTIES = {
 # 채널이 등록된 에이전트 채널인지 확인한다. 채널이 스레드면 부모 채널(포럼 채널 등)의
 # ID도 함께 확인한다.
 def is_registered_agent_channel(channel: Any, cfg: Config) -> bool:
+    # 채널이나 부모 채널이 에이전트 채널로 등록됐는지 확인한다.
     if cfg.is_agent_channel(channel.id):
         return True
     if isinstance(channel, discord.Thread) and channel.parent_id is not None:
@@ -83,6 +85,7 @@ def is_registered_agent_channel(channel: Any, cfg: Config) -> bool:
 
 # 채팅 프롬프트로 답할 채널인지 확인한다. 스레드는 부모 채널 ID로 판정한다.
 def is_chat_channel(channel: Any, cfg: Config) -> bool:
+    # 스레드이면 부모 채널을 기준으로 채팅 채널인지 확인한다.
     channel_id = channel.id
     if isinstance(channel, discord.Thread) and channel.parent_id is not None:
         channel_id = channel.parent_id
@@ -91,6 +94,7 @@ def is_chat_channel(channel: Any, cfg: Config) -> bool:
 
 # GitHub 쓰기 도구를 붙일 수 있는 저장소 전용 Thread인지 부모 포럼 ID로 판정한다.
 def is_archive_thread(channel: Any, cfg: Config) -> bool:
+    # 채널이 archive 포럼의 스레드인지 확인한다.
     return (
         isinstance(channel, discord.Thread)
         and cfg.archive_forum_id is not None
@@ -105,12 +109,15 @@ def canonical_role_dir(root: Path, role: str) -> Path:
 
 # 역할 지침의 frontmatter에서 name 값을 읽는다.
 def read_agent_name(agents_file: Path) -> str | None:
+    # frontmatter 구간을 나눈다.
     text = agents_file.read_text(encoding="utf-8")
     if not text.startswith("---"):
         return None
     parts = text.split("---", 2)
     if len(parts) != 3:
         return None
+
+    # name 줄의 값을 반환한다.
     for line in parts[1].splitlines():
         if line.startswith("name:"):
             return line.split(":", 1)[1].strip() or None
@@ -119,8 +126,9 @@ def read_agent_name(agents_file: Path) -> str | None:
 
 # .claude/agents에서 에이전트 ID와 호출 이름을 찾는다.
 def discover_agents(root: Path) -> dict[str, str]:
-    """내부 에이전트 ID(폴더명)와 호출 이름을 .claude/agents에서 읽는다."""
+    # 역할 폴더마다 이름을 읽어 역할과 짝지어 모은다.
     agents: dict[str, str] = {}
+    # 역할 폴더마다 이름을 읽어 역할 이름과 짝지운다.
     for role_dir in sorted((root / ".claude" / "agents").iterdir()):
         agents_file = role_dir / ROLE_RULES_FILE
         if not role_dir.is_dir() or not agents_file.is_file():
@@ -136,6 +144,7 @@ SOUL_IDENTITY_FIELDS = (("Species", "종"), ("MBTI", "MBTI"))
 
 # SOUL.md의 Identity 항목에서 종·MBTI 값을 읽는다.
 def read_soul_identity(soul_path: Path) -> list[str]:
+    # SOUL 문서에서 정체성 항목을 찾아 문장으로 모은다.
     text = soul_path.read_text(encoding="utf-8")
     parts = []
     for key, label in SOUL_IDENTITY_FIELDS:
@@ -147,6 +156,7 @@ def read_soul_identity(soul_path: Path) -> list[str]:
 
 # SOUL.md의 `## Tone Guide` 절 원문을 읽는다. 절이 없으면 빈 문자열이다.
 def read_tone_guide(soul_path: Path) -> str:
+    # SOUL 문서의 Tone Guide 절을 잘라 돌려준다.
     text = soul_path.read_text(encoding="utf-8")
     match = re.search(r"^## Tone Guide[^\n]*\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
     return match.group(1).strip() if match else ""
@@ -156,9 +166,10 @@ def read_tone_guide(soul_path: Path) -> str:
 def prompt_source_signature(
     root: Path, role: str, roster_roles: tuple[str, ...] = ()
 ) -> tuple[tuple[str, int, int], ...]:
+    # 프롬프트에 쓰는 원본 파일을 모아 서명을 계산한다.
     role_dir = canonical_role_dir(root, role)
     paths = [
-        root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / "SOUL.md",
+        root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / ROLE_MAIN_FILE, role_dir / "SOUL.md",
         RUNTIME_PROMPT_PATH, TURN_PROMPT_PATH, CHAT_PROMPT_PATH,
     ]
     paths += [canonical_role_dir(root, other) / "SOUL.md" for other in roster_roles if other != role]
@@ -181,13 +192,17 @@ def prompt_source_signature(
 # 줄 머리의 {{request:...}}/{{chat:...}} 표식 중 kind에 맞는 내용만 남기고 나머지 표식 줄은 지운다.
 # 표식은 여러 줄에 걸칠 수 있고, 닫히지 않거나 줄 머리가 아닌 표식은 ValueError로 거부한다.
 def render_variant(template: str, kind: str) -> str:
+    # 알 수 없는 프롬프트 종류를 거부한다.
     if kind not in PROMPT_KINDS:
         raise ValueError(f"알 수 없는 프롬프트 종류입니다: {kind}")
+
+    # 줄마다 변형 표식을 읽는다.
     lines = template.split("\n")
     rendered: list[str] = []
     index = 0
     while index < len(lines):
         line = lines[index]
+        # 표식이 아닌 줄은 그대로 담는다.
         match = VARIANT_START.match(line)
         if match is None:
             if "{{" in line or "}}" in line:
@@ -195,6 +210,8 @@ def render_variant(template: str, kind: str) -> str:
             rendered.append(line)
             index += 1
             continue
+
+        # 표식 종류를 확인하고 닫는 표식까지 본문을 모은다.
         indent, marker_kind = match.groups()
         if marker_kind not in PROMPT_KINDS:
             raise ValueError(f"알 수 없는 변형 표식입니다: {marker_kind} ({index + 1}행)")
@@ -206,6 +223,8 @@ def render_variant(template: str, kind: str) -> str:
                 raise ValueError(f"닫히지 않은 변형 표식입니다: {start + 1}행")
             body.append(lines[index])
         body[-1] = body[-1][:-2]
+
+        # 표식 안에 다른 표식이 없는지 확인하고 종류가 맞으면 담는다.
         text = "\n".join(body)
         if "{{" in text or "}}" in text:
             raise ValueError(f"변형 표식 안에 다른 표식이 있습니다: {start + 1}행")
@@ -217,6 +236,7 @@ def render_variant(template: str, kind: str) -> str:
 
 # RUNTIME.md의 `## Response control` 절부터 끝까지를 kind 변형으로 반환한다.
 def response_control_template(kind: str) -> str:
+    # 런타임 프롬프트에서 Response control 절을 잘라 변형을 채운다.
     runtime_template = RUNTIME_PROMPT_PATH.read_text(encoding="utf-8").strip()
     _, marker, rest = runtime_template.partition("## Response control")
     if not marker:
@@ -226,6 +246,7 @@ def response_control_template(kind: str) -> str:
 
 # 역할 폴더에 MEMORY.md가 있으면 Persona 뒤에 넣을 `# Character memory` 절을 만든다.
 def render_character_memory(root: Path, role: str) -> str:
+    # 캐릭터 기억 파일이 있으면 프롬프트 절로 만들어 돌려준다.
     path = canonical_role_dir(root, role) / CHARACTER_MEMORY_FILE
     if not path.is_file():
         return ""
@@ -239,7 +260,9 @@ def render_character_memory(root: Path, role: str) -> str:
 def render_role_tool_block(
     role: str, tools_config: ToolsConfig, reminders_config: RemindersConfig
 ) -> str:
+    # 역할별 도구 안내문을 시작한다.
     role_tool_block = ""
+    # director에게는 투표, 스레드, 고정 도구를 안내한다.
     if role == "director":
         if hasattr(discord, "Poll"):
             role_tool_block = (
@@ -253,11 +276,15 @@ def render_role_tool_block(
             f"스레드에 남길 내용은 content에 {DISCORD_LIMIT}자 이하로 넣으면 첫 글로 올라간다.\n"
             "- message_pin 도구로 현재 채널의 메시지를 고정할 수 있다.\n"
         )
+
+    # reviewer에게는 채널 기록 도구를 안내한다.
     elif role == "reviewer":
         role_tool_block = (
             f"- channel_history 도구로 채널의 최근 메시지를 최대 {tools_config.channel_history_max}개까지 다시 읽을 수 있다. "
             "인용이 실제 메시지와 맞는지 대조할 때 쓴다.\n"
         )
+
+    # assistant에게는 알림 도구를 안내한다.
     elif role == "assistant":
         role_tool_block = (
             f"- reminder_set 도구로 1분에서 {reminders_config.max_minutes}분({reminders_config.max_days}일) "
@@ -283,6 +310,7 @@ def build_request_system_prompt(
     tools_config: ToolsConfig,
     reminders_config: RemindersConfig,
 ) -> str:
+    # 공통 지침, 페르소나, 기억과 다른 에이전트 목록을 읽는다.
     common = read_common_rules(root)
     role_dir = canonical_role_dir(root, role)
     soul = (role_dir / "SOUL.md").read_text(encoding="utf-8").strip()
@@ -317,8 +345,10 @@ def build_request_system_prompt(
     if role != "director" and any(agent.role == "director" for agent in agents):
         duty_block += "- 담당이 불분명하거나 여러 역할이 필요한 작업 관련 채팅은 director 역할 캐릭터에게 넘긴다.\n"
 
+    # 역할 도구 안내문을 만든다.
     role_tool_block = render_role_tool_block(role, tools_config, reminders_config)
 
+    # worker에게만 응답 길이 예외를 적용한다.
     length_exception = (
         "- 작성 요청에 답할 때는 결과물 본문이 필요한 만큼 길어도 된다. 채팅에는 이 예외를 쓰지 않는다.\n"
         if role == "worker"
@@ -343,6 +373,7 @@ def build_request_system_prompt(
                 "[[next:...]]에 documenter 역할 캐릭터의 내부 ID를 넣어 넘긴다.\n"
             )
 
+    # 템플릿에 값을 채워 런타임 프롬프트를 만든다.
     runtime_text = fill_template(runtime_template, {
         "$self_name": self_name,
         "$self_korean_name": self_korean_name,
@@ -354,12 +385,22 @@ def build_request_system_prompt(
         "$roster_block": roster_block,
     })
 
+    # 지침, 페르소나, 기억, 런타임 프롬프트를 합쳐 반환한다.
     return (
         f"# Global rules\n\n{common}\n\n---\n\n"
+        f"# Role\n\n{read_role_rules(role_dir)}\n\n---\n\n"
         f"# Persona\n\n{soul}\n\n---\n\n"
         f"{character_memory}"
         f"{runtime_text}\n"
     )
+
+
+# 역할 폴더의 AGENTS.md 본문(frontmatter 제외)과 MAIN.md를 이어 반환한다.
+def read_role_rules(role_dir: Path) -> str:
+    common = (role_dir / ROLE_RULES_FILE).read_text(encoding="utf-8").strip()
+    if common.startswith("---"):
+        common = common.split("---", 2)[2].strip()
+    return common + "\n\n" + (role_dir / ROLE_MAIN_FILE).read_text(encoding="utf-8").strip()
 
 
 # Discord 공통 규칙은 COMMON_RULES_FILE 전체이다.
@@ -371,6 +412,7 @@ def read_common_rules(root: Path) -> str:
 STYLE_SECTION = re.compile(r"^### 문장 표현[^\n]*\n.*?(?=^#{1,3} |\Z)", re.MULTILINE | re.DOTALL)
 
 
+# 공통 지침에서 응답 서식 절을 읽어 반환한다. 절이 없으면 빈 문자열이다.
 def read_style_rules(root: Path) -> str:
     match = STYLE_SECTION.search(read_common_rules(root))
     return match.group(0).strip() if match else ""
@@ -387,10 +429,13 @@ def build_chat_system_prompt(
     tools_config: ToolsConfig,
     reminders_config: RemindersConfig,
 ) -> str:
+    # 공통 규칙, 성향, 기억, 채팅 템플릿을 읽는다.
     common = STYLE_SECTION.sub("", read_common_rules(root), count=1).strip()
     soul = (canonical_role_dir(root, role) / "SOUL.md").read_text(encoding="utf-8").strip()
     character_memory = render_character_memory(root, role)
     chat_template = CHAT_PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+    # 다른 캐릭터 명단 블록을 만든다.
     others = []
     for agent in agents:
         if agent.name == self_name:
@@ -399,8 +444,11 @@ def build_chat_system_prompt(
         identity_part = "".join(f", {item}" for item in identity)
         others.append(f"- {agent.korean_name} (내부 ID: {agent.name}{identity_part})")
     roster_block = "\n".join(others) if others else "- (없음)"
+
+    # 응답 제어 블록과 채팅 본문을 채운다.
     response_control = fill_template(response_control_template("chat"), {"$roster_block": roster_block})
 
+    # 템플릿에 값을 채워 채팅 프롬프트를 만든다.
     chat_text = fill_template(chat_template, {
         "$self_name": self_name,
         "$self_korean_name": self_korean_name,
@@ -409,6 +457,7 @@ def build_chat_system_prompt(
         "$response_control": response_control,
     })
 
+    # 공통 규칙, 성향, 기억, 채팅 본문을 이어 반환한다.
     return (
         f"# Global rules\n\n{common}\n\n---\n\n"
         f"# Persona\n\n{soul}\n\n---\n\n"
@@ -419,6 +468,7 @@ def build_chat_system_prompt(
 
 # 응답 본문에서 [[next:...]], [[react:...]] 제어 줄을 분리해 본문·다음 화자·리액션 이모지를 반환한다.
 def parse_chat_controls(result: str) -> tuple[str, str, str | None, bool]:
+    # 응답의 마지막 줄에서 next와 wait 제어 줄을 분리한다.
     lines = result.strip().splitlines()
     next_match = CHAT_NEXT.fullmatch(lines[-1].strip()) if lines else None
     # 마지막 next 줄이 빠진 응답은 next를 stop으로 보고 wait·react 줄은 그대로 분리한다.
@@ -439,6 +489,7 @@ def parse_chat_controls(result: str) -> tuple[str, str, str | None, bool]:
                                 or re.search(r"\[\[\s*wait\s*:", react_emoji, re.IGNORECASE)))):
         raise ValueError("chat control lines are duplicated, malformed or misplaced")
 
+    # 다음 발언자를 정해 반환한다.
     next_name = next_match.group(1).lower() if next_match and not wait_match else "stop"
     return text, next_name, react_emoji, bool(wait_match)
 
@@ -451,8 +502,11 @@ def parse_chat_result(result: str) -> tuple[str, str, str | None]:
 
 # 역할 연결 판단만 담은 본문은 제어값과 중복되므로 Discord 전송 전에 제거한다.
 def suppress_handoff_body(text: str, next_name: str) -> str:
+    # 다음 화자가 없으면 그대로 반환한다.
     if next_name == "stop" or not text:
         return text
+
+    # 문장마다 넘김 설명을 빼고 남은 문장을 모은다.
     kept_lines = []
     for line in text.splitlines():
         sentences = [match.group(0) for match in SENTENCE_PATTERN.finditer(line) if match.group(0)]
@@ -464,8 +518,11 @@ def suppress_handoff_body(text: str, next_name: str) -> str:
 
 # 도구 결과 블록이 오류인지 판정한다.
 def tool_result_failed(block: ToolResultBlock | ServerToolResultBlock) -> bool:
+    # 오류 표시가 있는 결과인지 확인한다.
     if getattr(block, "is_error", False):
         return True
+
+    # 결과 내용에서 오류 표시와 유형을 확인한다.
     content = block.content
     if not isinstance(content, dict):
         return False
@@ -479,9 +536,12 @@ def tool_result_failed(block: ToolResultBlock | ServerToolResultBlock) -> bool:
 def collect_tool_evidence(
     message: Any, tool_uses: dict[str, tuple[str, list[str]]], records: list[str]
 ) -> None:
+    # 내용 블록이 없으면 건너뛴다.
     content = getattr(message, "content", None)
     if not isinstance(content, list):
         return
+
+    # 도구 사용 블록은 URL을 모아 기록하고, 결과 블록은 성공과 실패를 판정해 기록한다.
     for block in content:
         if isinstance(block, (ToolUseBlock, ServerToolUseBlock)):
             urls = sorted(set(URL_PATTERN.findall(json.dumps(block.input, ensure_ascii=False))))
@@ -506,9 +566,10 @@ def render_tool_evidence(records: list[str]) -> str:
     return "\n".join(f"- {record}" for record in unique)
 
 
+
+
 # 턴마다 남기는 도구·출처 기록 줄의 머리말. 요약 입력에서 빼고 원문 창 안의 것만 보낸다.
 EVIDENCE_HEADER = "[이번 턴 도구·출처 기록]"
-
 
 # 채팅 기록 줄이 도구·출처 기록인지 판정한다.
 def is_evidence_entry(entry: tuple[int, float, str, str, int | None]) -> bool:
@@ -518,6 +579,7 @@ def is_evidence_entry(entry: tuple[int, float, str, str, int | None]) -> bool:
 # 템플릿의 알려진 자리표시자를 긴 이름부터 한 번에 치환한다.
 # 치환된 값 안의 $이름은 다시 치환하지 않아 기록·기억 내용이 다른 자리를 오염시키지 않는다.
 def fill_template(template: str, values: dict[str, str]) -> str:
+    # 템플릿의 키를 값으로 한 번에 바꾼다.
     if not values:
         return template
     pattern = re.compile("|".join(re.escape(key) for key in sorted(values, key=len, reverse=True)))
@@ -526,6 +588,7 @@ def fill_template(template: str, values: dict[str, str]) -> str:
 
 # 현재 작업의 채팅 턴 종료 사유를 기록한다.
 def set_chat_turn_reason(runtime: Any, channel_id: int, reason: str) -> None:
+    # 현재 작업에 대한 채팅 턴 이유를 기록한다.
     reasons = getattr(runtime, "chat_turn_reasons", None)
     if reasons is None:
         reasons = {}
@@ -535,6 +598,7 @@ def set_chat_turn_reason(runtime: Any, channel_id: int, reason: str) -> None:
 
 # 현재 asyncio 작업 ID를 반환한다. 작업 밖이면 None을 반환한다.
 def current_task_id() -> int | None:
+    # 현재 asyncio 작업의 ID를 돌려준다.
     try:
         task = asyncio.current_task()
     except RuntimeError:
@@ -545,6 +609,7 @@ def current_task_id() -> int | None:
 # 본문에서 가장 앞에 나온 캐릭터 한국어 표시 이름을 찾아 내부 이름을 반환한다.
 # 바로 앞 글자가 한글 음절이면 다른 단어의 일부로 보고 제외한다(예: 시나리오의 리오).
 def find_named_agent(content: str, agents: list[AgentConfig]) -> str | None:
+    # 본문에서 가장 먼저 나온 에이전트 이름을 찾는다.
     best: tuple[int, str] | None = None
     for agent in agents:
         match = re.search(rf"(?<![가-힣]){re.escape(agent.korean_name)}", content)
@@ -555,6 +620,7 @@ def find_named_agent(content: str, agents: list[AgentConfig]) -> str | None:
 
 # 채널과 날짜별로 자율 채팅을 시작할 랜덤 시각(하루 중 분 단위) 목록을 정한다.
 def daily_chat_minutes(channel_id: int, day: date, count: int) -> list[int]:
+    # 시드로 하루의 채팅 시각을 분 단위로 뽑아 정렬한다.
     if count <= 0:
         return []
     count = min(count, 24 * 60)

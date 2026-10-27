@@ -28,6 +28,7 @@ def read_skills() -> list[Path]:
 
 # 한 자리의 상태를 판정한다.
 def entry_state(entry: Path, skill: Path) -> str:
+    # 링크이면 대상이 원본인지, 예전 경로인지, 다른 곳인지 판정한다.
     target = link_target(entry)
     if target is not None:
         if target == skill.resolve():
@@ -41,6 +42,8 @@ def entry_state(entry: Path, skill: Path) -> str:
         ):
             return f"끊어진 링크 (예전 경로: {target})"
         return f"충돌 (다른 곳을 가리키는 링크: {target})"
+
+    # 링크가 아닌 실제 폴더는 중복, 아무것도 없으면 없음이다.
     if entry.exists():
         same = "shared와 내용 같음" if entry.is_dir() and same_tree(entry, skill) else "shared와 내용 다름"
         return f"중복 (실제 폴더, {same})"

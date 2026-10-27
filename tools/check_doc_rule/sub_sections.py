@@ -17,11 +17,15 @@ from sub_config import (
 # 코드 블록 밖의 제목을 읽어 캐시에 두고 반환한다.
 # 양식 파일(SCHEMA_PATTERN)은 코드 블록 안의 제목도 읽는다.
 def read_headings(path: Path, cache: dict[Path, set[str]]) -> set[str]:
+    # 캐시에 없는 문서만 제목을 읽는다.
     if path not in cache:
+        # 양식 파일이면 코드 블록 안도 읽도록 정한다.
         headings: set[str] = set()
         schema_files = {p.resolve() for p in ROOT.glob(SCHEMA_PATTERN)}
         read_in_fence = path.resolve() in schema_files
         in_fence = False
+
+        # 줄마다 제목을 모은다.
         for line in path.read_text(encoding="utf-8-sig").splitlines():
             if FENCE.match(line):
                 in_fence = not in_fence
@@ -42,11 +46,14 @@ def read_headings(path: Path, cache: dict[Path, set[str]]) -> set[str]:
 def section_targets(
     line: str, ref_start: int, current: Path, names: set[str]
 ) -> list[Path] | None:
+    # 참조 앞에 적힌 가장 가까운 .md 경로를 찾는다.
     target_token = None
     for match in INLINE_CODE.finditer(line[:ref_start]):
         token = LINE_SUFFIX.sub("", match.group(1).strip())
         if token.endswith(".md"):
             target_token = token
+
+    # 적힌 경로가 없으면 현재 파일, 추가 파일, 양식 파일을 반환한다.
     if target_token is None:
         schema = sorted(p for p in ROOT.glob(SCHEMA_PATTERN) if p.is_file())
         rel = current.relative_to(ROOT).as_posix()

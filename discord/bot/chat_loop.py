@@ -31,6 +31,7 @@ async def run_chat_conversation(
     user_message: bool = False,
     trigger_message_id: int | None = None,
 ) -> None:
+    # 대화 식별자와 잠금을 만들고 잠금 대기를 기록한다.
     conversation_id = uuid.uuid4().hex
     lock = runtime.chat_lock_for(channel_id)
     task_id = id(asyncio.current_task())
@@ -89,6 +90,7 @@ async def run_chat_conversation(
             turn_limit = chat_config.max_turns
         current = starter_name
 
+        # 발언 순서마다 발언자 클라이언트를 찾는다.
         for turn_index in range(1, turn_limit + 1):
             client = runtime.clients.get(current)
             if client is None:
@@ -115,6 +117,7 @@ async def run_chat_conversation(
                     )
                     return
 
+            # 발언자의 한 턴을 실행한다.
             next_name = await client._handle_chat_turn(
                 channel_id,
                 turn_index=turn_index,
@@ -145,6 +148,7 @@ async def run_chat_conversation(
                 log.info("chat end reason=turn_limit conversation=%s channel=%s", conversation_id, channel_id)
                 return
 
+            # 다음 발언자가 없거나 잘못됐는지 판정한다.
             invalid_next = (
                 next_name is None
                 or next_name == "stop"
@@ -172,8 +176,10 @@ async def run_chat_conversation(
 
 # chat_channels의 채널별로 정해진 하루치 랜덤 시각이 되면 자율 채팅을 시작한다.
 async def run_chat_scheduler(runtime: Runtime) -> None:
+    # 런타임 준비를 기다린다.
     await runtime.ready.wait()
 
+    # 하루 기준 상태를 갱신하며 주기마다 반복한다.
     while True:
         now = datetime.now()
         day_key = now.date().isoformat()
@@ -185,6 +191,7 @@ async def run_chat_scheduler(runtime: Runtime) -> None:
         for channel_id in list(runtime.chat_histories):
             runtime.maybe_schedule_summary(channel_id)
 
+        # 채널마다 하루 대화 시각표를 만든다.
         for channel_id in sorted(runtime.config.chat_channels):
             sample_client = next(iter(runtime.clients.values()), None)
             if sample_client is not None and isinstance(
@@ -196,6 +203,7 @@ async def run_chat_scheduler(runtime: Runtime) -> None:
             )
             lock = runtime.chat_lock_for(channel_id)
 
+            # 지난 시각표와 이미 실행한 시각표를 건너뛴다.
             for slot_index, slot_minute in enumerate(slots):
                 key = (channel_id, day_key, slot_index)
                 if key in runtime.chat_auto_fired:
@@ -206,10 +214,12 @@ async def run_chat_scheduler(runtime: Runtime) -> None:
                     runtime.chat_auto_fired.add(key)
                     continue
 
+                # 이번 시각표를 실행한 것으로 기록한다.
                 runtime.chat_auto_fired.add(key)
                 if lock.locked():
                     continue
 
+                # 첫 발언자를 고르고 클라이언트를 확인한다.
                 starter_name = runtime.pick_chat_starter(
                     f"auto:{channel_id}:{day_key}:{slot_index}"
                 )
@@ -217,6 +227,7 @@ async def run_chat_scheduler(runtime: Runtime) -> None:
                 if client is None:
                     continue
 
+                # 자율 대화를 실행한다.
                 try:
                     await run_chat_conversation(
                         runtime,
@@ -228,4 +239,5 @@ async def run_chat_scheduler(runtime: Runtime) -> None:
                 except Exception:
                     log.exception("auto chat start failed channel=%s", channel_id)
 
+        # 다음 확인까지 기다린다.
         await asyncio.sleep(runtime.config.chat.scheduler_interval_seconds)
