@@ -22,6 +22,14 @@ CODE = "아래처럼 바꿉니다.\n\n```py\nx = 1\n```"
 
 
 PLAIN = tempfile.mkdtemp()  # log/state가 없는 폴더라 작업 흐름 검사를 건너뛴다.
+REAL_KICKOFF = hook.kickoff_missing
+
+
+# 기존 테스트는 kickoff 게이트를 끄고, KickoffStop 테스트만 실제 판정을 쓴다.
+def setUpModule():
+    patcher = unittest.mock.patch.object(hook, "kickoff_missing", return_value=False)
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
 
 
 class Stream(io.StringIO):
@@ -141,6 +149,8 @@ class Check(unittest.TestCase):
                 hook.main()
             result = json.loads(out.getvalue())
             self.assertIn("재작성하십시오", result["reason"])
+            last = result["reason"].splitlines()[-1]  # 끝 줄은 NOTICE_INCIDENT 형식의 사건 문서 링크이다.
+            self.assertRegex(last, r"^직전 응답에 문제가 있어 사건 문서에 기록했습니다: \[[^\]]+\]\(.+\.md\)$")
             self.assertIn("사건 감지(이미 충분): ", result["systemMessage"])
             self.assertIn(".md", result["systemMessage"])
         self.assertIsNone(block("수정했습니다.\n\n- `a.py` 수정"))
@@ -220,6 +230,26 @@ class Workflow(unittest.TestCase):
                     reason = self.run_check(message, runner, agent_type=role)
                     self.assertEqual(reason, hook.REASON_APPROVAL_DOC if role == "director" else None)
 
+    # `# 승인 요청` 제목도 승인 블록으로 인식해 director에게 경과 문서 링크를 요구하고, 링크가 있고 검토가 끝났으면 통과한다. (요구사항 6 결함 7)
+    def test_approval_request_title_recognized(self):
+        message = "# 승인 요청\n\n- `hooks/a.py`"
+        self.assertEqual(self.run_check(message, agent_type="director"), hook.REASON_APPROVAL_DOC)
+        folder = self.root / "log" / "task" / "t"
+        folder.mkdir(parents=True)
+        (folder / "status.md").write_text(STATE.format(status="검토 완료").replace("## 작업 기록", "## 결정 기록"), encoding="utf-8")
+        self.assertIsNone(self.run_check(message + "\n\n[경과 문서](log/task/t/status.md)", agent_type="director"))
+
+    # 조사 원문이 빈 작업에서 조사 도구 호출 없는 해결안 제안은 block하고, 조사 원문이 있거나 안 표지가 없는 응답은 통과한다. (요구사항 7)
+    def test_proposal_before_research_blocked(self):
+        folder = self.root / "log" / "task" / "t"
+        folder.mkdir(parents=True)
+        (folder / "status.md").write_text(STATE.format(status="미검토").replace("## 작업 기록", "## 결정 기록"), encoding="utf-8")
+        proposal = "제 추천은 안 1입니다.\n\n| 안 | 장점 |\n| -- | -- |\n| 1 | 빠름 |"
+        self.assertEqual(self.run_check(proposal, agent_type="director"), hook.REASON_PROPOSAL)
+        self.assertIsNone(self.run_check("현재 구조는 `a.py`에 있습니다.", agent_type="director"))
+        (folder / "research.md").write_text("### 최종 조사 원문: 조사 단계\n\n```\n제안: A\n```\n", encoding="utf-8")
+        self.assertIsNone(self.run_check(proposal, agent_type="director"))
+
     # 질문 문장으로 끝난 응답이 Claude에서만 block되는지 확인한다.
     def test_question_end_blocked_for_claude_only(self):
         (self.state / "t.md").write_text(STATE.format(status="검토 완료"), encoding="utf-8")
@@ -263,6 +293,36 @@ class Workflow(unittest.TestCase):
         empty.mkdir()
         with unittest.mock.patch.object(hook, "project_root", return_value=empty):
             self.assertIsNone(self.run_check("어느 쪽으로 할까요?"))
+
+
+class KickoffStop(unittest.TestCase):
+    """director 메인 세션이 nestlab-kickoff 호출 없이 도구 없이 끝낸 응답을 block한다."""
+
+    # 실제 kickoff 판정과 임시 기록 파일을 준비한다.
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        patcher = unittest.mock.patch.object(hook, "kickoff_missing", REAL_KICKOFF)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    # Skill 호출 기록이 있거나 없는 Claude 기록 파일 경로를 반환한다.
+    def log(self, called):
+        lines = [json.dumps({"type": "user", "message": {"content": "시작"}})]
+        if called:
+            block = {"type": "tool_use", "id": "1", "name": "Skill", "input": {"skill": "nestlab-kickoff"}}
+            lines.append(json.dumps({"type": "assistant", "message": {"content": [block]}}))
+        path = Path(self.tmp.name) / "c.jsonl"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return str(path)
+
+    # kickoff 호출 없는 director의 도구 없는 응답은 block하고, 호출 뒤나 서브에이전트, 다른 역할은 통과한다.
+    def test_kickoff_gate_stop(self):
+        data = {"last_assistant_message": GOOD, "cwd": PLAIN, "agent_type": "rio"}
+        self.assertEqual(hook.check({**data, "transcript_path": self.log(False)}), hook.REASON_KICKOFF)
+        self.assertIsNone(hook.check({**data, "transcript_path": self.log(True)}))
+        self.assertIsNone(hook.check({**data, "transcript_path": self.log(False), "agent_id": "a1"}))
+        self.assertIsNone(hook.check({**data, "transcript_path": self.log(False), "agent_type": "buddy"}))
 
 
 if __name__ == "__main__":

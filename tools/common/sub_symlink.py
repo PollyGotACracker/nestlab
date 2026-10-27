@@ -1,4 +1,4 @@
-"""링크(symlink·junction)의 판별, 생성, 삭제이다.
+"""링크(symlink 및 junction)의 판별, 생성, 삭제이다.
 
 사용: set_skills.py, set_agents.py
 """

@@ -95,7 +95,7 @@ PLAN = f"""# 명세
 """
 REPORT = "검토 1. 도구\n후보 A 충족, 후보 B 미충족\n제안: A\n출처: a.py:1"
 ROUND = "- 주장 1: 지지 | 출처: a.py:1"
-LOOP = """## 조사·반증 루프
+LOOP = """## 조사 및 반증 루프
 | 회차 | 반증 건수 | 정지 여부 |
 | --- | --- | --- |
 | 1 | 0 | 정지(반증 0건) |
@@ -260,6 +260,17 @@ class Gate(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "정지한 뒤에"):
             flow.check_research(state, research, items, reviewed=False, refute=refute)
 
+    # 들여쓴 판정 줄과 맨 앞 판정 줄은 통과하고, 판정 줄이 없거나 주장 목록 줄만 있으면 막는지 확인한다.
+    def test_indented_verdict_line(self):
+        state, research = flow.Document(STATE), flow.Document(RESEARCH)
+        for line in ("  - 주장 1: 지지 | 출처: a.py:1", "- 주장 1: 지지 | 출처: a.py:1"):
+            refute = flow.Document(REFUTE.replace(ROUND, line))
+            flow.check_research(state, research, ["검토 1. 도구"], refute=refute)
+        for body in ("판정 없음", "- 주장 1: 도구는 파이썬이다 (출처: a.py:1)"):
+            refute = flow.Document(REFUTE.replace(ROUND, body))
+            with self.assertRaisesRegex(ValueError, "반증 판정과 출처가 없습니다"):
+                flow.check_research(state, research, ["검토 1. 도구"], refute=refute)
+
     # 반증 문서의 회차 표 밖 행은 회차로 세지 않는지 확인한다.
     def test_loop_count_counts_only_loop_section_rows(self):
         text = REFUTE + "\n## 메모\n| 7 | x | y |\n"
@@ -416,6 +427,17 @@ class SpecLessGate(unittest.TestCase):
             flow.validate(self.root, TASK, stage)
         old = LIST_STATE.replace("사용자 승인 상태: 승인", "사용자 승인 상태: 대기", 1)
         self.assertIsNone(flow.transition_reason(self.folder / "status.md", LIST_STATE, old, ""))
+
+    # 요구사항 일부만 명세된 상태에서 착수 승인은 통과하고 실행 승인은 번호 불일치로 막는다. (요구사항 6 결함 4)
+    def test_partial_spec_kickoff_passes_execute_blocks(self):
+        state = LIST_STATE.replace("1. 기능: 변경", "1. 기능: 변경\n2. 추가: 변경")
+        self.put(status=state, research=NEW_RESEARCH.replace("(요구사항 1)", "(요구사항 2)"))
+        status = self.folder / "status.md"
+        old_kickoff = state.replace("사용자 승인 상태: 승인", "사용자 승인 상태: 대기", 1)
+        self.assertIsNone(flow.transition_reason(status, state, old_kickoff, NEW_PLAN))
+        head, _, tail = state.rpartition("사용자 승인 상태: 승인")
+        old_execute = head + "사용자 승인 상태: 대기" + tail
+        self.assertIn("요구사항 번호", flow.transition_reason(status, state, old_execute, NEW_PLAN) or "")
 
     # 경과 문서 요구사항 목록이 없거나 검토 항목 번호가 목록에 없으면 막는다.
     def test_kickoff_needs_requirement_list(self):

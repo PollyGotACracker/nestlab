@@ -1,4 +1,4 @@
-"""Discord 봇의 경로·상수와 설정 class를 정의하고 설정을 로딩한다."""
+"""Discord 봇의 경로 및 상수와 설정 class를 정의하고 설정을 로딩한다."""
 
 from __future__ import annotations
 
@@ -263,7 +263,7 @@ def load_optional_section(raw: dict[str, Any], section: str, cls: type) -> Any:
     return cls(**values)
 
 
-# 설정 객체에 summary·memory 절이 없으면(테스트의 간이 설정 포함) 기본값을 돌려준다.
+# 설정 객체에 summary 및 memory 절이 없으면(테스트의 간이 설정 포함) 기본값을 돌려준다.
 def summary_settings(config: Any) -> SummaryConfig:
     return getattr(config, "summary", None) or SummaryConfig()
 

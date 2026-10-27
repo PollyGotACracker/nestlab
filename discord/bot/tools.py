@@ -1,4 +1,4 @@
-"""director·history·server_channels 도구와 역할별 도구 목록을 구성한다."""
+"""director, history, server_channels 도구와 역할별 도구 목록을 구성한다."""
 
 from __future__ import annotations
 

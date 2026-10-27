@@ -17,7 +17,7 @@ import save_subagent_result
 import sub_docs
 
 DOC = "# t\n\n## 조사 단계 원문\n"
-LOOP = "# t\n\n## 조사·반증 루프\n\n| 회차 | 반증 건수 | 정지 여부 |\n| ---- | --------- | --------- |\n\n## 회차 기록\n"
+LOOP = "# t\n\n## 조사 및 반증 루프\n\n| 회차 | 반증 건수 | 정지 여부 |\n| ---- | --------- | --------- |\n\n## 회차 기록\n"
 ASK = "작업 종류: 조사\n조사 문서: log/task/t/research.md"
 REFUTE = "작업 종류: 반증\n반증 문서: log/task/t/refute.md"
 RESEARCH_PATH = "log/task/t/research.md"

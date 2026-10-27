@@ -1,4 +1,4 @@
-"""검사 대상·허용 범위 설정, 패턴, 위반 종류 이름이다.
+"""검사 대상 및 허용 범위 설정, 패턴, 위반 종류 이름이다.
 
 ROOT는 이 저장소 폴더 최상위 경로이다.
 """
@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # 검사 대상 파일의 저장소 기준 glob 패턴.
 TARGET_PATTERNS = [
     "AGENTS.md",
+    "AGENTS.global.md",
     ".claude/agents/*/AGENTS.md",
     ".claude/agents/*/MAIN.md",
     ".claude/agents/*/SUB.md",

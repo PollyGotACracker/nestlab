@@ -33,7 +33,7 @@ def rounds(text: str) -> list[tuple[str, str]]:
     return [(t, section(text, t)) for t in ROUND.findall(text)]
 
 
-# 원문 칸이 비었거나 자리표시·`기록 없음`이면 True이다.
+# 원문 칸이 비었거나 자리표시 및 `기록 없음`이면 True이다.
 def raw_empty(text: str, title: str) -> bool:
     body = section(text, title).strip()
     return not body or bool(RAW_EMPTY.match(body))
@@ -44,11 +44,21 @@ def research_needed(research: str) -> bool:
     return any(t.startswith("검토 ") for t in titles(section(research, "조사 계획")))
 
 
-REASON_RAW = "조사 문서의 최종 원문 칸은 하네스만 씁니다."
-REASON_ROUND = "조사 문서의 회차 반증 블록은 하네스만 씁니다."
+# 진행 중인 작업이 있고 그 작업 모두 조사 문서의 최종 조사 원문이 비어 있으면 True이다.
+def research_pending(tasks: list[Path]) -> bool:
+    return bool(tasks) and all(raw_empty(read(sibling(p, "research")), "최종 조사 원문") for p in tasks)
 
-# 조사 문서 쓰기에서 하네스 전용 칸 변경을 막는다.
-def check_raw(new: str | None, old: str) -> str | None:
+
+REASON_RAW ="조사 문서의 최종 원문 칸은 결과 저장 hook만 씁니다."
+REASON_ROUND = "조사 문서의 회차 반증 블록은 결과 저장 hook만 씁니다."
+
+# 조사 문서와 반증 문서 쓰기에서 결과 저장 hook 전용 칸 변경을 막는다.
+# blank_ok가 참이면 원문 칸이 모두 비고 회차 블록이 0개인 빈 양식 전체 덮어쓰기는 허용한다.
+def check_raw(new: str | None, old: str, blank_ok: bool = False) -> str | None:
+    # 반증 문서를 빈 양식 전체로 덮어쓰는 쓰기는 허용한다.
+    if blank_ok and new is not None and not rounds(new) and all(raw_empty(new, t) for t in RAW):
+        return None
+
     # 최종 원문 칸이 바뀌면 막는다. 새 문서의 빈 원문 칸은 허용한다.
     changed = [t for t in RAW if new is not None and section(new, t) != section(old, t)]
     if changed and not (not old and all(raw_empty(new, t) for t in changed)):
@@ -208,7 +218,7 @@ def check_stage(path: Path, new: str | None, old: str, transcript: str) -> str |
 
     # 반증 문서(기존 문서는 조사 문서) 루프 표의 마지막 회차가 정지인지 확인한다.
     loop = read(sibling(path, "refute")) or read(sibling(path, "research"))
-    rows = STOP_ROW.findall(section(loop, "조사·반증 루프"))
+    rows = STOP_ROW.findall(section(loop, "조사 및 반증 루프"))
     if not rows or not rows[-1].startswith("정지("):
         return REASON_ITEM_STOP.format(names=label)
     return None

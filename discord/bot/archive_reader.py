@@ -71,7 +71,7 @@ def bounded_number(value: Any, name: str, maximum: int) -> int:
 
 
 class ArchiveReader:
-    # HTTP 인증·오류 처리와 branch 조회는 기존 bot helper를 주입한다.
+    # HTTP 인증 및 오류 처리와 branch 조회는 기존 bot helper를 주입한다.
     def __init__(self, get_json, branch_sha):
         self.get_json = get_json
         self.branch_sha = branch_sha

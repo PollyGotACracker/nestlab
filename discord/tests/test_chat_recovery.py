@@ -1,4 +1,4 @@
-"""대화 품질 복구 계약의 상태 추적·삭제·근거 보존을 확인한다."""
+"""대화 품질 복구 계약의 상태 추적, 삭제, 근거 보존을 확인한다."""
 
 from __future__ import annotations
 
@@ -85,8 +85,8 @@ class HandoffAndEvidenceTests(unittest.TestCase):
         )
         bot.collect_tool_evidence(failed, uses, records)
         rendered = bot.render_tool_evidence(records)
-        self.assertIn("실패·미확인 web_fetch", rendered)
-        self.assertNotIn("확인 web_fetch", rendered.replace("실패·미확인 web_fetch", ""))
+        self.assertIn("실패 및 미확인 web_fetch", rendered)
+        self.assertNotIn("확인 web_fetch", rendered.replace("실패 및 미확인 web_fetch", ""))
 
     # 결과에 URL이 없어도 성공한 조회가 입력 URL을 확인으로 처리하는지 확인한다.
     def test_successful_fetch_confirms_input_url_when_result_omits_it(self) -> None:

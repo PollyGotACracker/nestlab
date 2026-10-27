@@ -4,7 +4,7 @@
 호출자:
 - hooks/check_tool_use.py, hooks/check_tool_use/sub_plan.py
 - hooks/check_tool_use/sub_judgment.py
-- hooks/save_handback_report.py, tools/run_workflow.py
+- hooks/save_handback_report.py, hooks/save_subagent_result.py, tools/run_workflow.py
 입력: 작업 문서 본문 또는 저장소 루트, 작업 ID, 단계 이름
 반환:
 - 검사 함수(validate, check_plan, check_research, check_complete 등)는 통과하면 None을 반환하고
@@ -470,7 +470,7 @@ def check_research(state: Document, research: Document, items: list[str], review
     refute = refute or research
     check_research_result(research.raw_block("최종 조사 원문: 조사 단계"), items)
     rows = re.findall(r"^\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([^|]+)\s*\|\s*$",
-                      refute.section("조사·반증 루프"), re.M)
+                      refute.section("조사 및 반증 루프"), re.M)
     require(bool(rows), R_NO_ROUNDS)
 
     # 회차마다 순서와 정지 조건, 반증 원문의 판정과 출처를 확인한다.
@@ -481,7 +481,8 @@ def check_research(state: Document, research: Document, items: list[str], review
             require(stop.strip() == expected, R_STOP_MISMATCH)
             require(index == len(rows) or expected == "계속", R_AFTER_STOP)
         raw = refute.raw_block(f"{number}회차 반증 원문")
-        verdicts = re.findall(r"^- 주장 \d+: (지지|반증|미확인) \| 출처: (.+)$", raw, re.M)
+        from sub_call import VERDICT
+        verdicts = [(m[2], m[3]) for m in map(VERDICT.match, raw.splitlines()) if m]
         require(bool(verdicts), R_NO_VERDICT)
         require(sum(verdict == "반증" for verdict, _ in verdicts) == int(count), R_COUNT_MISMATCH)
         require(all(verdict == "미확인" or bool(re.search(r"https?://\S+|\S+:\d+", source))
@@ -612,7 +613,7 @@ def validate(root: Path, task: str, stage: str) -> None:
     if stage in ("research", "refute"):
         require(bool(items), R_NO_ITEMS)
         if stage == "refute":
-            require(refute is not None or "조사·반증 루프" in [t for _, _, t in research.headings], R_NO_REFUTE)
+            require(refute is not None or "조사 및 반증 루프" in [t for _, _, t in research.headings], R_NO_REFUTE)
             check_research_result(research.raw_block("최종 조사 원문: 조사 단계"), items)
         return
 
@@ -676,7 +677,8 @@ def transition_reason(path: Path, new: str | None, old: str, plan: str) -> str |
         refute = sibling(path, "refute")
         refute_doc = Document(refute.read_text(encoding="utf-8-sig")) if refute.is_file() else None
         if kickoff:
-            check_kickoff(state_doc, plan_doc, research)
+            # 착수 승인은 명세 문서 없이 경과 문서 요구사항만 검사한다.
+            check_kickoff(state_doc, None, research)
         if execute or complete:
             require(plan_doc is not None, R_NO_SPEC)
             check_numbers(state_doc, plan_doc)

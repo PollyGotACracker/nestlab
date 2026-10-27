@@ -25,7 +25,7 @@ class BranchNameTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     archive_workflow.make_branch_name(issue_type, number)
 
-    # ref 경로를 모호하게 만드는 연속·선행·후행 slash를 거부한다.
+    # ref 경로를 모호하게 만드는 연속, 선행, 후행 slash를 거부한다.
     def test_slash_edge_cases_are_rejected(self) -> None:
         pattern = archive_workflow.BRANCH_PATTERN
         for branch in ("/docs/1", "docs//1", "docs/1/", "docs/#1"):

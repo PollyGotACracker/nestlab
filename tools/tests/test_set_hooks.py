@@ -171,6 +171,66 @@ class SetHooksTest(unittest.TestCase):
                 for h in group["hooks"]:
                     self.assertEqual(h["commandWindows"], "& " + h["command"], h["command"])
 
+    # 임시 폴더와 Nodebase 자리표시가 채워지고, archive_root가 없으면 Nodebase 항목이 빠지는지 확인한다.
+    def test_fills_temp_and_nodebase(self):
+        example = self.settings / "claude/settings.example.json"
+        example.write_text(json.dumps({"permissions": {"additionalDirectories": ["~/.claude", "<TEMP>", "<NODEBASE>"]}}),
+                           encoding="utf-8")
+        dirs = lambda: json.loads((self.settings / "claude/settings.json").read_text(encoding="utf-8"))[
+            "permissions"]["additionalDirectories"]
+        temp = Path(tempfile.gettempdir()).resolve().as_posix()
+        (self.settings / "local.json").write_text(json.dumps({"archive_root": "C:/nodebase"}), encoding="utf-8")
+        self.run_install()
+        self.assertEqual(dirs(), ["~/.claude", temp, "C:/nodebase"])
+        for content in ("{}", ""):
+            (self.settings / "local.json").write_text(content, encoding="utf-8")
+            self.run_install()
+            self.assertEqual(dirs(), ["~/.claude", temp])
+
+    # 실제 설정 원본이 설치되면 sandbox 블록, 권한 프로필, deny 규칙이 들어가고 sandbox_mode와 ask 항목은 없는지 확인한다.
+    def test_real_example_sandbox_and_permission_profile(self):
+        real = self.tmp / "real"
+        shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
+        (self.home / ".codex/config.toml").write_text('sandbox_mode = "workspace-write"\n', encoding="utf-8")
+        with mock.patch.object(sys, "platform", "linux"):
+            set_hooks.install(real, self.bashrc, self.home)
+        claude = json.loads((self.home / ".claude/settings.json").read_text(encoding="utf-8"))
+        self.assertTrue(claude["sandbox"]["enabled"])
+        self.assertNotIn("ask", claude["permissions"])
+        self.assertIn("Bash(cd *)", claude["permissions"]["deny"])
+        self.assertEqual(claude["env"]["CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"], "1")
+        cfg = tomllib.loads((self.home / ".codex/config.toml").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["sandbox_mode"], "workspace-write")
+        self.assertNotIn("default_permissions", cfg)
+        self.assertNotIn("permissions", cfg)
+        rules = (self.home / ".codex/rules/default.rules").read_text(encoding="utf-8")
+        self.assertNotIn('decision="prompt"', rules)
+        self.assertIn('pattern=["git", "-c"], decision="forbidden"', rules)
+
+    # 이전 설치가 남긴 권한 프로필 선택 줄과 표가 재설치로 사라지고 sandbox_mode가 돌아오는지 확인한다.
+    def test_reinstall_removes_old_permission_profile(self):
+        real = self.tmp / "real"
+        shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
+        path = self.home / ".codex/config.toml"
+        path.write_text('default_permissions = "nestlab"\napproval_policy = "on-request"\n\n'
+                        f'{BEGIN}\n[permissions.nestlab]\nextends = ":workspace"\n# <<< nestlab <<<\n', encoding="utf-8")
+        set_hooks.install(real, self.bashrc, self.home)
+        cfg = tomllib.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(cfg["sandbox_mode"], "workspace-write")
+        self.assertNotIn("default_permissions", cfg)
+        self.assertNotIn("permissions", cfg)
+
+    # 네이티브 Windows 설치는 Claude sandbox 블록을 넣지 않고 이전 블록을 지우며, 그 밖의 플랫폼은 넣는지 확인한다.
+    def test_claude_sandbox_by_platform(self):
+        real = self.tmp / "real"
+        shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
+        target = self.home / ".claude/settings.json"
+        for platform, expected in (("win32", None), ("linux", {"enabled": True})):
+            target.write_text('{"sandbox": {"enabled": true}}' if platform == "win32" else "{}", encoding="utf-8")
+            with mock.patch.object(sys, "platform", platform):
+                set_hooks.install(real, self.bashrc, self.home)
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")).get("sandbox"), expected, platform)
+
     # 설치 결과 줄이 대상 파일 내용에서 만들어지는지 확인한다.
     def test_install_returns_result_lines_from_target_files(self):
         real = self.tmp / "real"

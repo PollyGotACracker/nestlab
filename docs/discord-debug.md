@@ -64,10 +64,10 @@ chat turn conversation=... channel=... turn=3/<chat.max_turns> speaker=ricky nex
 - `next=None`: 제어 줄 형식 오류
   - 원인은 같은 시각의 `chat response control invalid` 줄 끝에 있다.
   - `chat reaction must not be empty`: 리액션 제어 줄의 이모지가 비어 있음
-  - `chat control lines are duplicated, malformed or misplaced`: 제어 줄의 중복이나 형식·위치 오류
+  - `chat control lines are duplicated, malformed or misplaced`: 제어 줄의 중복이나 형식 및 위치 오류
 - `chat turn discarded reason=pending_discard`: 사용자의 새 메시지로 대화가 멈춤
   - 생성 중이던 응답은 채널에 보내지 않는다.
-- `chat turn empty`: 본문·리액션 없는 응답이며 다음 화자로 넘어감
+- `chat turn empty`: 본문 및 리액션 없는 응답이며 다음 화자로 넘어감
   - 다음 화자는 같은 턴 `chat turn` 줄의 `next` 값이다.
 
 `chat end reason=`의 값으로 종료 시점을 구분한다.
@@ -81,14 +81,14 @@ chat turn conversation=... channel=... turn=3/<chat.max_turns> speaker=ricky nex
 - `turn_limit`: 대화의 발언 한도에 닿았다.
 - `missing_client`: 다음 화자의 Bot 클라이언트가 없다.
 
-`[[wait:user]]`를 처리한 턴은 상태 저장 후 `chat turn`·`chat end` 로그 전에 종료한다.
+`[[wait:user]]`를 처리한 턴은 상태 저장 후 `chat turn` 및 `chat end` 로그 전에 종료한다.
 이 경우 로그 누락만으로 오류를 판단하지 않고 `discord/bot/chat_state/<채널 ID>.json`의 `user_wait`와 실제 사용자 메시지 후 재개 여부를 확인한다.
 
 ## 사용량과 요약
 
 - 실행 위치: VM SSH
 
-채팅과 요약 호출의 토큰 사용량·비용 및 요약 오류를 본다.
+채팅과 요약 호출의 토큰 사용량, 비용, 요약 오류를 본다.
 
 ```bash
 journalctl -u discord-bot --since "1 hour ago" --no-pager | grep -E "token usage|summary"
@@ -115,7 +115,7 @@ journalctl -u discord-bot --since "1 hour ago" --no-pager | grep -A 20 "chat han
 
 - 실행 위치: VM SSH
 
-최근 3일 로그에서 오류·예외와 첨부·이미지 관련 줄을 본다.
+최근 3일 로그에서 오류, 예외와 첨부, 이미지 관련 줄을 본다.
 
 ```bash
 journalctl -u discord-bot --since "-3 days" | grep -iE "error|exception|attachment|image"
@@ -148,7 +148,7 @@ python -c "import json; json.load(open('discord/config.json', encoding='utf-8'))
 ```
 
 - `ok`가 나오면 문법이 맞다.
-- 문법이 틀리면 오류 메시지에 줄·열 위치가 나온다.
+- 문법이 틀리면 오류 메시지에 줄 및 열 위치가 나온다.
 - 파일 내용은 출력하지 않는다.
 
 ## 로그 키워드
@@ -161,8 +161,8 @@ python -c "import json; json.load(open('discord/config.json', encoding='utf-8'))
 | `[run_gcp]`                               | 런처 단계 오류. 주로 Secret JSON 문법 오류        |
 | `chat turn`                               | 대화 ID, 턴마다 발언한 캐릭터와 고른 다음 화자     |
 | `chat end reason=`                        | 대화가 끝난 원인                                  |
-| `chat lock`                               | 대화별 채널 락 대기·획득·취소                     |
-| `chat pending change`                     | 사용자 메시지 pending 등록·해제 사유             |
+| `chat lock`                               | 대화별 채널 락 대기, 획득, 취소                     |
+| `chat pending change`                     | 사용자 메시지 pending 등록 및 해제 사유             |
 | `token usage`                             | SDK 호출의 사용량과 비용                         |
 | `chat turn discarded reason=pending_discard` | 사용자의 새 메시지 때문에 생성 중이던 응답을 버림 |
 | `read blocked`                            | 첨부 폴더 밖의 `Read`를 거부함                    |

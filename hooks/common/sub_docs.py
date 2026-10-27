@@ -1,5 +1,5 @@
 """hook이 쓰는 작업 문서 경로와 문서 절을 읽는다.
-경로 값은 공통 지침 `경로 목록`의 경과·명세·조사·반증 문서 행과 같다.
+경로 값은 공통 지침 `경로 목록`의 경과, 명세, 조사, 반증 문서 행과 같다.
 log/state의 기존 작업 문서는 임시로 기존 경로와 기존 절 이름으로 읽는다.
 
 호출자:
@@ -44,10 +44,10 @@ DOC_PATH = re.compile(
 LOOP_ROW = re.compile(r"^\| *(\d+) *\|", re.M)
 HEADING = re.compile(r"^(#{1,6}) (.*)$")
 TOKEN = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s;&|<>()=\"']+")
-# 세션 기록 경로, 기록 파일, 세션·thread·서브에이전트 id, 사건 ID, 사건 문서 파일 경로 형식이다.
+# 세션 기록 경로, 기록 파일, 세션, thread, 서브에이전트 id, 사건 ID, 사건 문서 파일 경로 형식이다.
 SESSION = re.compile(
     r"\.claude[\\/]+projects|\.codex[\\/]+sessions|\.jsonl\b|\brollout-\d|\bagent-[0-9a-f]{8,}\b"
-    r"|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"  # 세션·thread UUID
+    r"|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"  # 세션 및 thread UUID
     r"|\b\d{8}(?:-\d{4})?-(?:[0-9a-f]{8}|unknown)\b"  # 사건 ID: 날짜, 선택 시분, 세션 접두어
     r"|\blog[\\/]+incident[\\/]+[\w.\-]+\.md\b", re.I)  # 사건 문서 파일 경로
 
@@ -109,9 +109,9 @@ def doc_kind(rel: str) -> str | None:
     return {"-input": "input", "-research": "research", None: "state"}[m.group(2)]  # 임시 기존 경로
 
 
-# 반증 문서(또는 기존 조사 문서) 본문에서 `조사·반증 루프` 절 안의 회차 행 수이다.
+# 반증 문서(또는 기존 조사 문서) 본문에서 `조사 및 반증 루프` 절 안의 회차 행 수이다.
 def loop_count(text: str) -> int:
-    return len(LOOP_ROW.findall(section(text, "조사·반증 루프")))
+    return len(LOOP_ROW.findall(section(text, "조사 및 반증 루프")))
 
 
 # 문장에 적힌 작업 문서 경로에서 작업 ID를 반환한다. 없으면 None이다.

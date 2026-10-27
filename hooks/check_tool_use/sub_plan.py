@@ -17,7 +17,7 @@ from sub_approval import APPROVED
 from sub_docs import legacy, section
 from sub_workflow import case_gaps
 
-# 코드·인라인 코드·HTML 주석 안의 꺾쇠는 자리표시로 보지 않는다.
+# 코드, 인라인 코드, HTML 주석 안의 꺾쇠는 자리표시로 보지 않는다.
 FENCE = r"^[ \t]*(`{3,})[^\n]*\n.*?\n[ \t]*\1"
 CODE = re.compile(rf"{FENCE}|`[^`\n]*`|<!--.*?-->", re.S | re.M)
 FENCED = re.compile(rf"{FENCE}|<!--.*?-->", re.S | re.M)

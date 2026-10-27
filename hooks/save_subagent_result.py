@@ -102,7 +102,7 @@ def add_round_blocks(text: str, request: str, message: str) -> str:
     return insert_blocks(text, blocks, "회차 기록")
 
 
-# `조사·반증 루프` 표에 이번 회차 행(회차, 반증 건수, 정지 여부)을 추가한다. 표 절이 없으면 그대로 반환한다.
+# `조사 및 반증 루프` 표에 이번 회차 행(회차, 반증 건수, 정지 여부)을 추가한다. 표 절이 없으면 그대로 반환한다.
 def add_loop_row(text: str, message: str) -> str:
     # 회차 번호와 반증 건수로 행을 만든다. 회차는 루프 절 안의 행만 센다.
     n = loop_count(text) + 1
@@ -112,7 +112,7 @@ def add_loop_row(text: str, message: str) -> str:
 
     # 루프 절의 끝 위치를 찾는다.
     lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines) if l.strip() == "## 조사·반증 루프"), None)
+    start = next((i for i, l in enumerate(lines) if l.strip() == "## 조사 및 반증 루프"), None)
     if start is None:
         return text
     end = start + 1
@@ -178,7 +178,7 @@ def write_result(target: Path, prompt: str, message: str, refute: bool) -> str |
 
 # block 사유를 반환한다. 저장했거나 건너뛰면 None이다.
 def save(data: dict, runner: str) -> str | None:
-    # researcher·reviewer만 대상으로 한다.
+    # researcher 및 reviewer만 대상으로 한다.
     role = resolve_role(data)
     if role not in ("researcher", "reviewer"):
         return

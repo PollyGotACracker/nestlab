@@ -1,4 +1,4 @@
-"""PostToolUse hook: researcher·reviewer 호출 결과를 조사 문서와 반증 문서 경로 한 줄로 바꾼다.
+"""PostToolUse hook: researcher 및 reviewer 호출 결과를 조사 문서와 반증 문서 경로 한 줄로 바꾼다.
 
 호출자: PostToolUse hook 설정(shared/settings), hooks/save_handback_report.py(RESEARCH_LINE)
 반환:
@@ -28,7 +28,7 @@ SLOT_ROUND = "{n}회차 반증 원문"
 
 # 바꿀 결과 한 줄이다. 대상이 아니면 None이다.
 def saved_line(data: dict) -> str | None:
-    # researcher·reviewer 호출이고 조사 문서 줄이 있을 때만 바꾼다.
+    # researcher 및 reviewer 호출이고 조사 문서 줄이 있을 때만 바꾼다.
     target, prompt = call_info(data)
     line = RESEARCH_LINE.search(prompt)
     if target not in RESEARCHER | REVIEWER or not line:

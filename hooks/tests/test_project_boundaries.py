@@ -21,6 +21,13 @@ import sub_role
 import sub_scope
 
 
+# 경계 테스트는 kickoff 게이트와 분리한다(test_check_tool_use의 KickoffGate가 다룬다).
+def setUpModule():
+    patcher = patch.object(check_tool_use, "kickoff_missing", return_value=False)
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
+
+
 class ProjectBoundaries(unittest.TestCase):
     # 임시 프로젝트와 다른 저장소 폴더를 준비한다.
     def setUp(self):
@@ -213,7 +220,7 @@ class ProjectBoundaries(unittest.TestCase):
                 self.assertIsNotNone(check(self.other / "unrelated.md"))
                 self.assertIsNone(check(settings))
                 with patch.object(sub_scope, "approved", return_value=True):  # 메인 세션 승인 검사는 통과시킨다.
-                    self.assertIsNone(check(settings, True))  # 설정 파일 쓰기는 Claude ask·Codex 샌드박스 승인에 맡긴다.
+                    self.assertIsNotNone(check(settings, True))  # 설정 파일 쓰기는 승인 턴에도 막는다.
                 self.assertIsNone(check(self.project / "log/state/new.md"))
 
 

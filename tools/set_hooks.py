@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -30,9 +31,27 @@ PREFIX_RE = re.compile(r"^prefix_rule[(]", re.M)
 BLOCK_RE = re.compile(re.escape(BEGIN) + ".*?" + re.escape(END), re.S)
 
 
-# 예제 텍스트의 자리표시를 실제 경로로 바꾼다.
-def fill(text: str) -> str:
-    return text.replace("<NESTLAB>", ROOT.as_posix()).replace("<PYTHON>", Path(sys.executable).as_posix())
+# local.json의 archive_root 값을 반환한다. 파일이 없거나 값이 비었으면 None이다.
+def archive_root(settings: Path) -> str | None:
+    try:
+        value = json.loads(read(settings / "local.json"))["archive_root"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return Path(value).as_posix() if isinstance(value, str) and value.strip() else None
+
+
+# 예제 텍스트의 자리표시를 실제 경로로 바꾼다. archive_root가 없으면 `<NODEBASE>` 항목을 뺀다.
+def fill(text: str, settings: Path = SETTINGS) -> str:
+    # JSON 문자열 안에 들어가도록 경로를 이스케이프한다.
+    esc = lambda value: json.dumps(value, ensure_ascii=False)[1:-1]
+    nodebase = archive_root(settings)
+    if nodebase:
+        text = text.replace("<NODEBASE>", esc(nodebase))
+    else:
+        text = re.sub(r',\s*"<NODEBASE>"', "", text)
+    temp = Path(tempfile.gettempdir()).resolve().as_posix()
+    return text.replace("<NESTLAB>", ROOT.as_posix()).replace("<PYTHON>", Path(sys.executable).as_posix()).replace(
+        "<TEMP>", esc(temp))
 
 
 # 텍스트의 nestlab 블록을 교체하고, 없으면 끝에 추가한다. 블록은 마커를 포함해야 한다.
@@ -83,6 +102,9 @@ def merge_config(old: str, example: str) -> str:
     cut = m.start() if m else len(old)
     head, rest = old[:cut], old[cut:]
     head = re.sub(r"^approvals_reviewer\s*=.*\n?", "", head, flags=re.M)
+
+    # 이전 설치가 넣은 권한 프로필 선택 줄을 지운다. 프로필 표는 마커 블록 교체로 사라진다.
+    head = re.sub(r"^default_permissions\s*=.*\n?", "", head, flags=re.M)
 
     # 예제의 최상위 키를 같은 이름 줄에 덮어쓰고 없으면 앞에 추가한다.
     for key, value in tomllib.loads(example).items():
@@ -171,14 +193,20 @@ def install(settings: Path = SETTINGS, bashrc: Path = BASHRC, home: Path | None 
     write(bashrc, put_block(read(bashrc), read(settings / "bashrc.sh").strip("\n")))
     old = json.loads(read(settings / "claude/settings.json") or "{}")  # 지난 설치 내용, 덮어쓰기 전에 읽는다.
     for src, dst in FILLED:
-        write(settings / dst, fill(read(settings / src)))
+        write(settings / dst, fill(read(settings / src), settings))
 
     # 이전 설치 항목을 빼고 Claude 전역 설정에 병합한다.
     claude = home / ".claude" / "settings.json"
     if claude.parent.is_dir():
         data = json.loads(read(claude) or "{}")
         prune_json(data, old)
-        merge_json(data, json.loads(read(settings / "claude/settings.json")))
+        new = json.loads(read(settings / "claude/settings.json"))
+        # 네이티브 Windows는 샌드박스가 없으므로 sandbox 블록을 넣지 않고 이전 설치의 블록도 지운다.
+        if sys.platform == "win32":
+            new.pop("sandbox", None)
+            if data.get("sandbox") == {"enabled": True}:
+                del data["sandbox"]
+        merge_json(data, new)
         write(claude, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
     # Codex 설정과 규칙을 병합한다.

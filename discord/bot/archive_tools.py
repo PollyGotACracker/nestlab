@@ -17,7 +17,7 @@ from config import ArchiveRepositoryConfig, tool_text
 GITHUB_API_BASE = "https://api.github.com"
 
 
-# GitHub API 인증·형식 헤더를 만든다.
+# GitHub API 인증 및 형식 헤더를 만든다.
 def github_headers(cfg: ArchiveRepositoryConfig) -> dict[str, str]:
     return {"Authorization": f"Bearer {cfg.token}", "Accept": "application/vnd.github+json"}
 

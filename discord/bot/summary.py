@@ -163,7 +163,7 @@ async def run_channel_summary(runtime: Any, channel_id: int) -> None:
                     "chat summary abandoned channel=%s lines=%s summary_not_updated",
                     channel_id, len(inputs),
                 )
-        # 아래 저장·삭제가 실패해 줄이 남아도 history_hours 상한으로 지울 수 있게 시도 완료를 표시한다.
+        # 아래 저장 및 삭제가 실패해 줄이 남아도 history_hours 상한으로 지울 수 있게 시도 완료를 표시한다.
         runtime.summary_attempted.setdefault(channel_id, set()).update(entry[0] for entry in batch)
         if output is not None:
             runtime.chat_summaries[channel_id] = output["summary"]

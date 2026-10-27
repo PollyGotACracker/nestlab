@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""에이전트 지침·성향 원본 Markdown을 Claude Code나 Codex hook context에 넣는다.
+"""에이전트 지침 및 성향 원본 Markdown을 Claude Code나 Codex hook context에 넣는다.
 지침 원본은 이 스크립트가 있는 hooks 폴더의 상위 폴더에서 읽는다.
 
 호출자: SessionStart, SubagentStart hook 설정(shared/settings)

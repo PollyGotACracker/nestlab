@@ -7,6 +7,7 @@
 반환:
 - 위반이면 stdout에 `{"decision": "block", "reason": ..., "systemMessage": ...}` JSON을 출력하고 통과하면 아무것도 출력하지 않는다.
 - check()는 block 사유 문자열 또는 None을 반환한다.
+- director 메인 세션이 세션 기록에 nestlab-kickoff 호출 없이 응답을 끝내면 한 번 block한다.
 한계: 외부 모델을 호출하지 않는 정규식 판정이라 자연어 의미는 판정하지 못한다. 오류는 통과한다(fail-open).
 """
 from __future__ import annotations
@@ -21,11 +22,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "check_tool_use"))
 
-from check_invalid_response import (MAX_BLOCKS, admissions, context, hit_count, incident_path, is_child, plain,
-                             record_hits, transcript_of)
+from check_invalid_response import (MAX_BLOCKS, NOTICE_INCIDENT, admissions, context, hit_count, incident_link,
+                             incident_path, is_child, plain, record_hits, transcript_of)
 from sub_docs import doc, legacy, project_root, review_done
-from sub_judgment import open_tasks, review_items, status_of
+from sub_judgment import open_tasks, research_pending, review_items, status_of
+from sub_question import TABLE_OR_HEADING
 from sub_role import resolve_role
+from sub_scope import kickoff_missing
+from sub_session import read_session, turn
 from sub_write import read
 
 MAX_LEN = 300
@@ -54,7 +58,7 @@ NEGATION = re.compile(r"하지 않|않았|못 |못했|없")
 # 불가 주장: 부정형 능력 주장
 INACCESSIBLE = re.compile(r"(?:볼|읽을|열|접근할|확인할|찾을|조회할|할) 수 없|불가능")
 QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’")
-APPROVAL_BLOCK = re.compile(r"^#{1,6} 작업 승인 필요\s*$", re.M)
+APPROVAL_BLOCK = re.compile(r"^#{1,6} (?:작업 승인 필요|승인 요청)\s*$", re.M)
 CHOICE_BLOCK = re.compile(r"^#{1,6} (?:사용자 )?(?:선택|판단)(?: 요청| 필요)\s*$", re.M)
 # 둘째 갈래는 임시 경로(log/state)이다. 기존 로그 삭제 뒤 제거한다.
 STATE_REF = re.compile(r"log/task/([\w.\-]+)/(?:status|spec|research|refute)\.md|log/state/([\w.\-]+?)(?:-input|-research)?\.md")
@@ -97,7 +101,20 @@ def unsourced_claims(message: str, body: str) -> list[str]:
     return blind + [s for s in sentences if CLAIM.search(s) and not NEGATION.search(s)]
 
 
-REASON_APPROVAL_DOC = "승인 요청에 작업의 경과 문서 경로(log/task/<작업-id>/status.md)를 링크로 작성하십시오."
+REASON_PROPOSAL = ("조사 문서의 최종 조사 원문이 비어 있는데 조사 도구 호출 없이 해결안을 제안했습니다.\n"
+                   "조사 단계로 돌아가 저장소와 웹을 조사한 뒤 결과를 보고하십시오.")
+# 해결안 표지: 추천 문장. 안 비교 표나 heading은 TABLE_OR_HEADING이 판정한다.
+PROPOSAL = re.compile(r"추천(?:은|합니다|드립니다| 안)")
+RESEARCH_TOOLS = {"Read", "Grep", "Glob", "WebSearch", "WebFetch", "Agent"}
+
+
+# 이번 턴에 조사 도구를 호출했으면 True이다.
+def researched(data: dict, runner: str) -> bool:
+    entries = turn(read_session(transcript_of(data, runner)))[2]
+    return any(name in RESEARCH_TOOLS for e in entries for name, _ in e["calls"])
+
+
+REASON_APPROVAL_DOC ="승인 요청에 작업의 경과 문서 경로(log/task/<작업-id>/status.md)를 링크로 작성하십시오."
 REASON_APPROVAL_PENDING = ("경과 문서 '{doc}'의 검토 필요에 사용자 검토가 끝나지 않은 항목이 있어 승인을 요청할 수 없습니다. 해당 항목은 '{items}'입니다.\n"
                            "모든 안의 사용자 검토가 끝난 후 승인 요청을 진행하십시오.")
 REASON_CHOICE = "판단 지점 밖의 선택 요청입니다. 사용자 검토 필요 상태인 검토 항목과 연결하십시오."
@@ -136,6 +153,11 @@ def workflow_reason(data: dict, message: str, body: str, runner: str) -> tuple[s
             if pending:
                 return REASON_APPROVAL_PENDING.format(doc=path.name, items=", ".join(pending[:3])), [path]
 
+    # 조사 원문이 빈 작업에서 조사 도구 호출 없이 해결안을 제안한 director 응답은 조사 단계로 되돌린다.
+    if (resolve_role(data) == "director" and research_pending(docs) and PROPOSAL.search(body)
+            and TABLE_OR_HEADING.search(body) and not researched(data, runner)):
+        return REASON_PROPOSAL, docs
+
     # Claude 응답이 질문 문장으로 끝나면 질문 도구를 쓰게 한다.
     lines = [line for line in body.splitlines() if line.strip()]
     if runner == "claude" and lines and QUESTION_END.search(lines[-1]):
@@ -164,7 +186,8 @@ def record_unresolved(docs: list[Path], reason: str) -> None:
 
 
 REASON_SHIFT = ("직전 응답에 책임을 회피하는 표현({hits})이 있습니다. 사건 분석은 별도 세션이 진행하므로 사건 문서를 작업하지 마십시오.\n"
-                "재작성한 응답의 첫 줄에 아래 문장을 그대로 쓰고, 사용자의 요청에 맞는 내용을 포함하여 재작성하십시오.\n")
+                "재작성한 응답의 첫 줄에 아래 문장을 그대로 쓰고, 사용자의 요청에 맞는 내용을 포함하여 재작성하십시오.\n"
+                + NOTICE_INCIDENT)
 WARNING = "직전 응답은 응답 검사에서 무효 처리됐습니다. 다시 작성합니다."
 
 
@@ -180,6 +203,7 @@ def shift_hits(data: dict, runner: str) -> list[str]:
     return admissions(text, user, SHIFT)
 
 
+REASON_KICKOFF = "첫 응답 전에 nestlab-kickoff 스킬을 호출하지 않았습니다. nestlab-kickoff 스킬을 먼저 실행한 뒤 응답하십시오."
 REASON_EMPTY = ("직전 응답에서 사용자 요청에 대한 결과물 없이 예고나 해명만 작성되었습니다.\n"
                 "결과물(코드, 표, 목록, 파일 경로, diff)을 포함하여 다시 작성하십시오.")
 REASON_SOURCE = ("측정이나 확인을 주장한 문장 '{sentences}'에 근거가 없습니다.\n"
@@ -197,6 +221,10 @@ def inspect(data: dict, runner: str = "claude", record: bool = True) -> tuple[st
         return None, ""
     message = data.get("last_assistant_message") or ""
     body = body_of(message)
+
+    # director 메인 세션이 nestlab-kickoff 호출 없이 끝낸 응답은 한 번 block한다.
+    if not data.get("stop_hook_active") and kickoff_missing({**data, "transcript_path": transcript_of(data, runner)}, runner):
+        return REASON_KICKOFF, ""
 
     # 작업 흐름 위반은 한 번 block하고, 반복되면 미해결로 기록한 뒤 통과한다.
     reason, docs = workflow_reason(data, message, body, runner)
@@ -217,7 +245,8 @@ def inspect(data: dict, runner: str = "claude", record: bool = True) -> tuple[st
             path = incident_path(data, datetime.now())
             count = hit_count(path, user) + 1
         notice = f"사건 감지({', '.join(hits)}): {path}"
-        return (None if count > MAX_BLOCKS else REASON_SHIFT.format(hits=", ".join(hits))), notice
+        link = incident_link(path, data.get("cwd"))
+        return (None if count > MAX_BLOCKS else REASON_SHIFT.format(hits=", ".join(hits), link=link)), notice
 
     # 결과물 없는 미흡 응답과 출처 없는 주장은 턴당 한 번만 block한다.
     if data.get("stop_hook_active"):

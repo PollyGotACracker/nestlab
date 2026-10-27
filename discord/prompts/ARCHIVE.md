@@ -17,8 +17,8 @@
   `$repo_name`은 원격 저장소를 뜻하며 도구의 path에는 해당 저장소 안의 경로만 넣는다.
 - 원본 누락이나 로딩 오류가 있으면 해당 경로와 오류를 알린다.
   절차는 실제로 읽은 원본 schema로만 진행한다.
-- schema의 raw·wiki·schema 경로는 Nodebase 저장소 루트 기준이다.
-  raw·wiki 경로는 `$repo_name/raw/`·`$repo_name/wiki/`로 해석한다.
+- schema의 raw, wiki, schema 경로는 Nodebase 저장소 루트 기준이다.
+  raw 및 wiki 경로는 `$repo_name/raw/` 및 `$repo_name/wiki/`로 해석한다.
   schema 경로는 `$repo_name/schema/`로 해석한다.
   도구에는 아래처럼 저장소 기준 경로를 넣는다.
 
@@ -36,8 +36,8 @@ archive_read(path="wiki/INDEX.md", branch=commit_sha)
 - `tree_truncated`, `skipped_files`, `matches_truncated`, `text_truncated`를 확인한다.
   생략된 범위가 있으면 부분 검색 결과로 표현하고 생략 범위를 알린다.
 - 검색은 페이지당 최대 20개 파일과 100개 일치 결과를 반환하고 파일당 UTF-8 텍스트 읽기 한도는 1,000,000 bytes이다.
-- 단순 조회나 점검은 조회·점검 결과 보고로 마친다.
-- 파일 변경이 필요하면 먼저 제안하고 기존 Issue·변경·PR의 명시 승인 절차를 따른다.
+- 단순 조회나 점검은 조회 및 점검 결과 보고로 마친다.
+- 파일 변경이 필요하면 먼저 제안하고 기존 Issue, 변경, PR의 명시 승인 절차를 따른다.
 - 기본 브랜치는 `master`이다.
 - 작업 브랜치는 승인된 Issue의 타입과 번호로 `<타입>/<이슈번호>` 형식으로 정한다.
 
@@ -55,7 +55,7 @@ archive_read(path="wiki/INDEX.md", branch=commit_sha)
 - 기존 파일은 `archive_read`로 작업 브랜치의 현재 내용과 SHA를 확인한다.
 - 생성, 수정, 삭제할 전체 파일과 실제 내용 및 커밋 메시지를 사용자에게 보여준다.
 - `archive_stage`에는 전체 operations, 커밋 메시지, 기준 commit SHA를 함께 넣는다.
-- 변경 Stage 뒤에는 `Issue 승인` 절의 Stage 후 승인·취소 대기 기준을 적용한다.
+- 변경 Stage 뒤에는 `Issue 승인` 절의 Stage 후 승인 및 취소 대기 기준을 적용한다.
 - 승인된 변경 세트 하나는 커밋 하나로 적용된다.
 
 ## PR 승인

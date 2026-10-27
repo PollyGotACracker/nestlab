@@ -69,7 +69,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 사용자의 선택이 필요할 때만 투표를 올린다.
 - 올린 투표는 `(투표) 질문 / 선택지 / 기간` 형식으로 director 이름과 투표 메시지 ID와 함께 대화 기록에 남긴다.
 - 투표가 끝나 Discord가 결과 메시지(`MessageType.poll_result`)를 올리면 director 봇만 처리한다. 임베드의 `poll_question_text`, `victor_answer_text`, `victor_answer_votes`, `total_votes`를 `[투표 결과]` 화자로 기록하고, director를 첫 화자로 대화를 시작한다. 기록의 메시지 ID는 원래 투표 메시지를 가리킨다.
-- 결과 메시지는 작성자가 봇일 수 있으므로 봇·자기 메시지 필터보다 먼저 판정한다.
+- 결과 메시지는 작성자가 봇일 수 있으므로 봇 및 자기 메시지 필터보다 먼저 판정한다.
 - 봇 계정은 투표할 수 없다.
 - 대화 기록의 메시지 ID로 스레드를 시작하거나 메시지를 고정한다.
 
@@ -83,11 +83,11 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 다른 에이전트는 지식 저장소 요청을 직접 처리하지 않고 documenter에게 넘긴다.
 - 일반 에이전트 채널에서 저장소 작업 요청을 받으면 `archive_thread_start`로 최초 사용자 메시지와 첨부를 archive forum의 새 thread로 옮긴다.
 - 저장소 조회와 Stage 도구는 `archive_forum_id`가 가리키는 포럼 아래의 thread에서만 사용한다.
-- 자료 편입·위키 조회·위키 점검은 각각 `archive_workflow_open`의 `ingest`·`query`·`lint`로 시작한다.
+- 자료 편입, 위키 조회, 위키 점검은 각각 `archive_workflow_open`의 `ingest`, `query`, `lint`로 시작한다.
 - 같은 commit에서 반환된 `$repo_name/AGENTS.md`와 해당 schema의 전체 내용을 읽고 절차를 적용한다.
   `$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
-- 목록·검색과 후속 파일 읽기는 반환된 commit SHA를 사용한다.
-- 조회·점검만 요청한 경우에는 Issue·변경·PR 승인 작업으로 자동 전환하지 않는다.
+- 목록 및 검색과 후속 파일 읽기는 반환된 commit SHA를 사용한다.
+- 조회 및 점검만 요청한 경우에는 Issue, 변경, PR 승인 작업으로 자동 전환하지 않는다.
 - Issue 템플릿, 변경 세트, PR 템플릿 전체를 각각 보여 준 뒤 해당 Stage 도구로 승인 대기에 보관한다.
 - 각 Stage 뒤에는 요청자의 `승인` 또는 `취소`를 기다린다.
 - Issue 승인 뒤에만 `<타입>/<이슈번호>` 작업 브랜치와 변경안을 만든다.
@@ -139,7 +139,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 | `per_day` | 선택 | 하루 자율 채팅 횟수. 0 이상, 생략 시 0 |
 | `topic`   | 선택 | 자율 채팅 주제. 자유 문장으로 쓴다     |
 
-텍스트 채널과 포럼 채널을 등록할 수 있다. 스레드와 포럼 게시글은 부모 채널이 등록되어 있으면 에이전트 채널로 처리하고, 요청·채팅 구분도 부모 채널을 따른다.
+텍스트 채널과 포럼 채널을 등록할 수 있다. 스레드와 포럼 게시글은 부모 채널이 등록되어 있으면 에이전트 채널로 처리하고, 요청 및 채팅 구분도 부모 채널을 따른다.
 
 `archive_forum_id`는 `request_channels`에 등록된 ForumChannel이어야 한다. `chat_channels`에는 등록할 수 없다.
 `archive_repository`와 documenter 역할 에이전트가 없으면 설정 오류로 처리한다.
@@ -175,7 +175,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 
 리액션과 사용자 판단 대기를 함께 쓰는 경우 제어 줄 순서는 다음과 같다.
 마지막 `[[next:...]]` 줄이 없으면 본문을 보내고 다음 화자를 `stop`으로 처리한다.
-이때 마지막 줄의 `[[wait:user]]`·`[[react:...]]`도 분리해 처리한다.
+이때 마지막 줄의 `[[wait:user]]` 및 `[[react:...]]`도 분리해 처리한다.
 
 ```text
 본문
@@ -185,7 +185,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 ```
 
 제어값은 Discord 메시지 본문에서 제거한다.
-중복되거나 형식·위치가 잘못된 제어 줄은 오류로 처리한다.
+중복되거나 형식 및 위치가 잘못된 제어 줄은 오류로 처리한다.
 `[[wait:user]]`가 있으면 마지막 줄의 다음 화자 ID와 관계없이 `stop`으로 처리한다.
 다음 화자를 넘기는 본문에서 담당 넘기기 안내 문장은 제거하고 실제 답변 내용은 남긴다.
 
@@ -197,9 +197,9 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 질문 전송 전에 상태를 저장하므로 전송 실패나 재시작 후에도 대기를 유지한다.
 - 대기 중 자율 채팅, 리액션, 투표 결과 등 사용자 메시지가 아닌 경로에서는 후속 발언을 시작하지 않는다.
 - 정상 대화 재개 시 실제 `on_message`가 등록한 `reason: user_message`의 pending 항목을 처리할 때 대기를 해제한다.
-  요청은 자율·단일 리액션 턴이 아니어야 하며, 작성자 ID는 양의 정수이고 Bot 명단에 없어야 한다.
+  요청은 자율 및 단일 리액션 턴이 아니어야 하며, 작성자 ID는 양의 정수이고 Bot 명단에 없어야 한다.
 - 일반 `[[next:stop]]`과 질문 본문만으로는 지속 대기를 만들지 않는다.
-- 사용자 메시지로 대기를 해제하는 것은 archive pending의 `승인`·`취소` 처리와 별개다.
+- 사용자 메시지로 대기를 해제하는 것은 archive pending의 `승인` 및 `취소` 처리와 별개다.
 - 채널 전체 기록 삭제도 해당 채널의 `user_wait`를 제거한다.
 
 ### 턴 제한
@@ -282,7 +282,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - PDF와 압축 파일은 처리하지 않는다.
 - 이미지 설명, 본문, 문서 순으로 기록한다.
 - `chat.history_hours`시간이 지난 첨부 파일은 다음 저장 때와 시작할 때 지운다.
-- 저장한 첨부는 `memory.sqlite3`의 `attachment_sources`에 원본 메시지 ID·채널 ID로 연결한다.
+- 저장한 첨부는 `memory.sqlite3`의 `attachment_sources`에 원본 메시지 ID 및 채널 ID로 연결한다.
 - 원본 메시지 삭제(단건, bulk, 미등록 채널 포함) 시 `<메시지 ID>_*` 첨부 파일을 지운다.
 - 저장 직후 이미 삭제 이벤트를 받은 메시지면 저장한 파일을 바로 지운다.
 - 시작할 때 연결된 첨부의 원본을 `fetch_message`로 확인해 `NotFound`면 지운다. 연결 기록이 없는 기존 첨부는 시간 기준으로만 지운다.
@@ -307,7 +307,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 요약 대상 줄은 요약에 성공하거나 요약을 포기할 때까지 기록에 남아 원문으로 전송된다.
 - `chat.history_hours`시간이 지난 줄은 요약이 계속 실패할 때의 상한으로 지운다. 발언을 추가할 때와 프롬프트용 기록을 만들 때 확인한다.
 - 기록과 채널 요약문(`summary`), 분할 메시지 연결(`message_groups`), 사용자 판단 대기(`user_wait`)는 `discord/bot/chat_state/<채널 또는 스레드 ID>.json`에 원자적으로 저장한다.
-- 시작할 때 등록 채널과 저장 파일이 있는 모든 채널·스레드의 기록과 요약문을 불러온다. 순번은 파일 값과 기록 최댓값 중 큰 값을 쓴다.
+- 시작할 때 등록 채널과 저장 파일이 있는 모든 채널 및 스레드의 기록과 요약문을 불러온다. 순번은 파일 값과 기록 최댓값 중 큰 값을 쓴다.
 - 메시지 삭제 시 기록의 해당 줄(분할 조각 포함)은 지우고 요약문은 바꾸지 않는다.
 
 ### 채널 요약
@@ -318,7 +318,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 한 번에 대상 줄 앞쪽에서 최대 `summary.batch_max_lines`줄, `summary.batch_max_chars`자를 넣는다.
 - 입력은 기존 요약문과 대상 줄이며 `<previous_summary>`, `<conversation>` 데이터 블록으로 감싼다.
   - 줄마다 시각, 화자(`agent:<내부 ID>` 또는 `user:<표시 이름>`), 메시지 ID를 붙인다.
-  - 도구·출처 기록 줄은 입력에서 빼고, 같은 범위의 요약이 끝나면 함께 지운다.
+  - 도구 및 출처 기록 줄은 입력에서 빼고, 같은 범위의 요약이 끝나면 함께 지운다.
 - 출력은 JSON schema `{summary, persona_events[{agent, kind, content, source_message_ids}]}`이다.
   - 요약문은 `summary.max_chars`자로 자른다.
 - 성공하면 요약문을 저장하고 persona 항목을 검증해 저장한 뒤 대상 줄을 지운다.
@@ -329,61 +329,61 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 
 - 에이전트 채널에서 허용 사용자가 `기억 전체 삭제`를 입력하면 처리 봇(`min(runtime.clients)`) 하나가 확인 요청을 보낸다.
 - 같은 사용자가 5분 안에 `확인`을 입력하면 실행하고, `취소`를 입력하거나 5분이 지나면 취소한다. 다른 사용자 입력은 무시한다.
-- 모델을 호출하지 않으며 명령·확인 메시지는 채팅 기록에 넣지 않는다.
+- 모델을 호출하지 않으며 명령 및 확인 메시지는 채팅 기록에 넣지 않는다.
 - 삭제 대상: 해당 채널의 기록, 요약문, `chat_state` 파일, 이미지 설명 캐시, 진행 중인 요약 태스크.
-- 유지 대상: 서버 장기기억(archive·기억 요청)과 persona 기억.
+- 유지 대상: 서버 장기기억(archive 및 기억 요청)과 persona 기억.
 
 ### 장기기억
 
 - 저장 파일: `discord/bot/memory.sqlite3`. 표는 `memories`, `memory_sources`, `attachment_sources`이다.
   - `memories`: id, guild_id, kind, agent, content, author, channel_id, thread_id, uploaded, 시각
   - kind: `archive`, `explicit`, `persona_event`, `persona_setting`
-  - `memory_sources`: 기억과 원본 메시지 ID·채널 ID의 연결
+  - `memory_sources`: 기억과 원본 메시지 ID 및 채널 ID의 연결
 - 공유 단위는 서버(guild)다. 조회는 항상 현재 서버로 한정한다.
 - archive 수집
   - 처리 봇이 `on_message`의 자기 메시지 필터 전에 기록한다.
   - 대상: 허용 서버 archive thread에서 허용 사용자나 캐릭터 Bot이 쓴 메시지
-  - 형식: 본문과 `[첨부: 파일명]`, 메시지 ID 기준으로 추가·갱신
+  - 형식: 본문과 `[첨부: 파일명]`, 메시지 ID 기준으로 추가 및 갱신
   - 수정: `on_raw_message_edit`의 메시지로 갱신한다.
-  - 시작 동기화: 시작 시 한 번 백그라운드에서 활성·보관 thread 전체를 thread 단위 트랜잭션으로 반영한다.
+  - 시작 동기화: 시작 시 한 번 백그라운드에서 활성 및 보관 thread 전체를 thread 단위 트랜잭션으로 반영한다.
     - 오류가 없을 때만 시작 이전 archive 기억 중 찾지 못한 메시지를 지운다.
     - 동기화 중 삭제된 메시지는 다시 넣지 않는다.
 - 기억 요청(`memory_save`)은 요청 메시지와 대상 메시지(분할 조각 포함)를 원본으로 저장한다.
-- persona 기억은 캐릭터별·서버별이다.
+- persona 기억은 캐릭터별 및 서버별이다.
   - 겪은 일과 설정은 채널 요약 호출의 `persona_events`로 추출한다.
   - 로스터 밖 캐릭터, 요약 묶음 밖 메시지 ID, 출처 없는 항목은 버린다.
   - 저장 직전에 원본 삭제를 다시 확인한다.
   - 사용자가 캐릭터에게 정한 설정은 `memory_save`의 scope로도 저장한다.
 - 삭제
   - 원본 메시지 중 하나라도 삭제되면 해당 기억 전체를 지운다. 잊기 명령은 없다.
-  - 삭제 처리기는 채널 확인 전에 기억·첨부를 지우고 최근 삭제 ID를 기록한다.
+  - 삭제 처리기는 채널 확인 전에 기억 및 첨부를 지우고 최근 삭제 ID를 기록한다.
   - `on_raw_thread_delete`는 그 thread의 메시지를 원본으로 둔 기억과 첨부를 지운다.
-  - 시작 시 explicit·persona 기억의 원본을 `fetch_message`로 확인해 `NotFound`면 지우고, 그 밖의 오류는 보존하고 로그를 남긴다.
+  - 시작 시 explicit 및 persona 기억의 원본을 `fetch_message`로 확인해 `NotFound`면 지우고, 그 밖의 오류는 보존하고 로그를 남긴다.
 - 주입
   - 턴 프롬프트 `관련 장기기억:`에 최근 대화 낱말이 맞는 장기기억을 `memory.prompt_max_items`개, `memory.prompt_max_chars`자까지 넣는다.
   - 턴 프롬프트 `캐릭터 기억:`에 자기 겪은 일을 `memory.persona_prompt_max_items`개, `memory.persona_prompt_max_chars`자까지 넣는다.
   - 자기 설정은 시스템 프롬프트 끝에 최신 순으로 `memory.persona_setting_max_chars`자까지 붙인다.
-  - 턴 프롬프트 치환은 알려진 키를 긴 이름부터 한 번에 처리해 기록·기억 안의 `$이름`을 다시 치환하지 않는다.
+  - 턴 프롬프트 치환은 알려진 키를 긴 이름부터 한 번에 처리해 기록 및 기억 안의 `$이름`을 다시 치환하지 않는다.
 - 저장소 반영
   - `persona_memory_list`가 채널당 1건의 업로드 대기(요청자 ID 포함)를 만든다.
   - 요청자가 정확히 `승인`을 보내면 모델을 거치지 않고 Python이 반영한다. `취소`면 대기를 지우고, 그 밖의 메시지는 무시한다.
-  - 대기 건의 캐릭터 Bot만 실행·안내하고 다른 Bot은 같은 메시지를 소비만 한다.
+  - 대기 건의 캐릭터 Bot만 실행 및 안내하고 다른 Bot은 같은 메시지를 소비만 한다.
   - `.claude/agents/<role>/MEMORY.md`를 `memory/<role>-<시각>` 브랜치에 커밋하고 `master`로 가는 PR을 만든다.
   - 올린 기억의 원본이 삭제되면 캐릭터별 갱신 필요 표시만 저장하고, 다음 `승인` 때 남은 항목으로 `MEMORY.md`를 다시 만든다.
   - archive thread에서 같은 요청자의 저장소 작업 대기와 업로드 대기가 공존하면 `승인`은 둘 다 실행하지 않고 안내하며, `취소`는 둘 다 취소한다.
   - 대기와 표시는 `discord/bot/memory_approval.json`에 원자 저장한다. 재시작 때 실행 중이던 대기는 실패로 바꾸고, 실행 실패도 실패 상태로 남긴다.
 - 캐릭터 기억 파일
-  - 로컬 `.claude/agents/<role>/MEMORY.md`가 있으면 요청·채팅 시스템 프롬프트의 Persona 뒤에 `# Character memory` 절로 넣는다.
+  - 로컬 `.claude/agents/<role>/MEMORY.md`가 있으면 요청 및 채팅 시스템 프롬프트의 Persona 뒤에 `# Character memory` 절로 넣는다.
 
 ### 세션
 
 - 매 턴 새 Claude Agent SDK 세션을 쓰고, 프롬프트에 채널 요약문과 원문 기록을 넣는다.
 - 세션을 이어 쓰지 않으며 도구 결과 원문 전체를 다음 턴에 전달하지 않는다.
-- SDK의 도구 호출·결과에서 도구 이름과 URL을 수집해 `[이번 턴 도구·출처 기록]`을 대화 기록에 남긴다.
-  성공한 `WebFetch` 또는 `web_fetch` 결과에 URL이 있으면 `확인`, 오류 결과는 `실패·미확인`, 그 밖은 `결과`로 표시한다.
+- SDK의 도구 호출 및 결과에서 도구 이름과 URL을 수집해 `[이번 턴 도구 및 출처 기록]`을 대화 기록에 남긴다.
+  성공한 `WebFetch` 또는 `web_fetch` 결과에 URL이 있으면 `확인`, 오류 결과는 `실패 및 미확인`, 그 밖은 `결과`로 표시한다.
   호출은 별도로 `사용`으로 기록한다.
 - `확인`은 도구 결과의 오류 판정과 URL 유무에 따른 분류이며 전문 열람이나 사실 검증을 보장하지 않는다.
-- 도구·출처 기록은 최근 `summary.raw_hours`시간의 원문 창에서만 전달하고 요약 입력에서 제외한다.
+- 도구 및 출처 기록은 최근 `summary.raw_hours`시간의 원문 창에서만 전달하고 요약 입력에서 제외한다.
   이 기록은 새 사실 확인을 대신하지 않는다.
 - 시작할 때 `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`을 설정해 SDK 세션 기록 파일(`~/.claude/projects`)을 쓰지 않는다.
 - 이전 형식 `chat_state` 파일의 `sessions` 항목은 무시한다.
@@ -412,7 +412,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 # Global rules         ← /AGENTS.md
 # Persona              ← /.claude/agents/<role>/SOUL.md
 # Character memory     ← /.claude/agents/<role>/MEMORY.md (있을 때만)
-# Discord chat runtime ← /discord/prompts/RUNTIME.md에 prompts.py의 build_request_system_prompt가 역할·도구 정보를 주입한다.
+# Discord chat runtime ← /discord/prompts/RUNTIME.md에 prompts.py의 build_request_system_prompt가 역할 및 도구 정보를 주입한다.
 ```
 
 채팅 채널(`chat_channels`)은 Claude Code preset 없이 다음 순서의 채팅 프롬프트 문자열만 쓴다.
@@ -421,15 +421,15 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 # Global rules          ← /AGENTS.md
 # Persona               ← /.claude/agents/<role>/SOUL.md
 # Character memory      ← /.claude/agents/<role>/MEMORY.md (있을 때만)
-# Discord chat channel  ← /discord/prompts/CHAT.md에 prompts.py의 build_chat_system_prompt가 도구·기억 안내를 주입한다.
+# Discord chat channel  ← /discord/prompts/CHAT.md에 prompts.py의 build_chat_system_prompt가 도구 및 기억 안내를 주입한다.
 ## Response control     ← RUNTIME.md의 `## Response control` 절(채팅 변형)
 ```
 
-`RUNTIME.md`와 `TURN.md`의 줄 머리 `{{request:...}}`·`{{chat:...}}` 표식은 채널 종류에 맞는 내용만 남기고 나머지는 지운다.
+`RUNTIME.md`와 `TURN.md`의 줄 머리 `{{request:...}}` 및 `{{chat:...}}` 표식은 채널 종류에 맞는 내용만 남기고 나머지는 지운다.
 깨진 표식은 프롬프트 생성 오류로 처리한다.
 
-채팅 프롬프트는 작업용 담당 넘기기·지식 저장소 절차·작업 요청 조건을 넣지 않는다.
-동료 명단에는 이름·내부 ID·종·MBTI만 넣는다.
+채팅 프롬프트는 작업용 담당 넘기기, 지식 저장소 절차, 작업 요청 조건을 넣지 않는다.
+동료 명단에는 이름, 내부 ID, 종, MBTI만 넣는다.
 사실 확인 규칙은 그대로 넣는다.
 `CHAT.md`가 없으면 Bot이 시작하지 않는다.
 
@@ -447,7 +447,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 사실 확인 규칙
 - 말투와 길이 규칙
 - 리액션과 다음 화자 제어 규칙
-- 다른 캐릭터의 종·MBTI, 담당과 전용 도구 목록
+- 다른 캐릭터의 종 및 MBTI, 담당과 전용 도구 목록
 
 `/AGENTS.md`, 역할 지침, 자기 `SOUL.md`, 다른 캐릭터의 `SOUL.md`, `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`, 자기 `MEMORY.md`의 수정 시각이나 크기가 바뀌면 다음 발언에서 해당 역할의 시스템 프롬프트를 다시 만든다.
 `MEMORY.md`가 없으면 오류 없이 없는 파일로 감시한다.
@@ -499,8 +499,8 @@ Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 �
 
 ### 역할 전용 도구
 
-지식 도구 중 원본 로딩·목록·검색은 `discord/bot/archive_reader.py`가 담당한다.
-도구 등록은 `discord/bot/archive_tools.py`, 역할·archive thread 노출 조건은 `discord/bot/bot.py`에서 관리한다.
+지식 도구 중 원본 로딩, 목록, 검색은 `discord/bot/archive_reader.py`가 담당한다.
+도구 등록은 `discord/bot/archive_tools.py`, 역할 및 archive thread 노출 조건은 `discord/bot/bot.py`에서 관리한다.
 
 - `poll_create`
   - 입력: 질문, 선택지, 기간(시간), 복수 선택 여부
@@ -549,13 +549,13 @@ Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 �
   - 입력: operation, branch(선택)
   - 제한: ingest/query/lint만 받으며 기본 master를 commit SHA로 확정하고 같은 commit의 Nodebase 지침과 schema 전체 및 blob SHA를 반환한다.
 - `archive_list`
-  - 입력: path, ref, page·per_page(선택)
+  - 입력: path, ref, page 및 per_page(선택)
   - 제한: AGENTS.md와 raw/wiki/schema 내부 파일을 commit SHA 기준으로 페이지당 기본 50개, 최대 100개 열거한다.
 - `archive_search`
-  - 입력: query, ref, page·per_page·limit(선택)
-  - 제한: wiki/ 본문을 파일 페이지당 최대 20개, 결과 최대 100개로 검색하고 경로·행·본문 일부와 누락·잘림 정보를 반환한다.
+  - 입력: query, ref, page, per_page, limit(선택)
+  - 제한: wiki/ 본문을 파일 페이지당 최대 20개, 결과 최대 100개로 검색하고 경로, 행, 본문 일부와 누락 및 잘림 정보를 반환한다.
 - `archive_history`
-  - 입력: path, ref, page·per_page(선택)
+  - 입력: path, ref, page 및 per_page(선택)
   - 제한:
     - Nodebase 지식 경로의 commit 이력을 ref(commit SHA 또는 브랜치) 기준 최신순으로 반환한다.
     - 페이지당 기본 20개, 최대 100개이다.
@@ -577,7 +577,7 @@ ref에는 40자리 commit SHA를 사용한다.
 `archive_history`의 ref는 브랜치 이름도 받는다.
 schema의 상대 경로와 `.github/` 템플릿은 Nodebase 저장소 루트 기준이다.
 검색 파일은 UTF-8 텍스트이며 파일당 1,000,000 bytes, 일치 본문은 결과당 2,000자 한도를 적용한다.
-파일 페이지의 `next_page`로 후속 범위를 확인하며 tree 잘림·읽지 못한 파일·결과 생략을 전체 검색으로 표현하지 않는다.
+파일 페이지의 `next_page`로 후속 범위를 확인하며 tree 잘림, 읽지 못한 파일, 결과 생략을 전체 검색으로 표현하지 않는다.
 원본 누락은 경로를 포함한 오류이며 대체 schema를 추정하지 않는다.
 
 도구 실패는 예외를 던지지 않고 실패 사유를 도구 결과로 돌려준다.
@@ -609,7 +609,7 @@ Stage 도구는 외부 객체를 만들지 않고 `discord/bot/archive_workflow.
 
 | 권한          | 수준           | 호출하는 API                                                                                      |
 | ------------- | -------------- | ------------------------------------------------------------------------------------------------- |
-| Contents      | Read and write | 파일 조회(`/contents`), 브랜치 조회·생성(`/git/ref`, `/git/refs`), tree와 commit 생성 및 ref 갱신 |
+| Contents      | Read and write | 파일 조회(`/contents`), 브랜치 조회 및 생성(`/git/ref`, `/git/refs`), tree와 commit 생성 및 ref 갱신 |
 | Issues        | Read and write | Issue 생성(`/issues`)                                                                             |
 | Pull requests | Read and write | 열린 PR 조회, PR 생성(`/pulls`)                                                                   |
 
@@ -669,7 +669,7 @@ Bot 하나라도 Discord 접속에 실패하면 프로세스 전체가 종료된
 
 본문과 리액션이 모두 없는 응답은 반응하지 않은 것으로 본다.
 채널에 본문을 보내지 않고 다음 화자 선택은 그대로 따른다.
-실제 도구·출처 기록이 있으면 본문이 없어도 해당 기록은 남긴다.
+실제 도구 및 출처 기록이 있으면 본문이 없어도 해당 기록은 남긴다.
 
 원인을 구분할 수 있도록 SDK 결과 종류(`subtype`), 내부 턴 수, 원문 앞 200자를 `chat turn empty` 경고 로그로 남긴다.
 
@@ -678,7 +678,7 @@ Bot 하나라도 Discord 접속에 실패하면 프로세스 전체가 종료된
 턴마다 대화 ID(`conversation`), 채널, 발언 순서, 화자, 선택한 다음 화자를 `chat turn` 로그로 남긴다.
 사용자 판단 대기를 저장한 턴은 이 로그 전에 대화를 종료한다.
 
-- `chat lock wait|acquire|cancel`은 대화별 채널 락 대기·획득·취소를 기록한다.
+- `chat lock wait|acquire|cancel`은 대화별 채널 락 대기, 획득, 취소를 기록한다.
 - `chat pending change`는 사용자 메시지별 pending 등록과 해제 사유를 기록한다.
 - `chat turn discarded reason=pending_discard`는 응답 생성 중 새 사용자 메시지가 와서 응답을 보내지 않은 경우다.
 - `chat end reason=`은 `pending_before_turn`, `pending_after_turn`, `pending_discard`, `turn_limit`, `model_stop`, `invalid_control`, `invalid_next`, `missing_client`로 종료 원인을 구분한다.

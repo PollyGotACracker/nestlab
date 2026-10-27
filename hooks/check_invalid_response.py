@@ -1,4 +1,4 @@
-"""Stop hook: 메인 에이전트 응답에서 실수·위반을 인정하는 표현을 찾아 사건 문서 초안에 기록한다.
+"""Stop hook: 메인 에이전트 응답에서 실수 및 위반을 인정하는 표현을 찾아 사건 문서 초안에 기록한다.
 
 호출자: Stop hook 설정(shared/settings)
 반환: 
@@ -36,7 +36,7 @@ ADMIT_TYPES = {
         r"|(?<![가-힣])제가 (?:실수|잘못|착오|틀렸)|(?:실수|잘못)했|제가 지키지 않|어긴|어겼|떠넘겼"
         r"|(?:지적|불만|말씀)[^.\n]{0,10}?맞습니다"
     ),
-    "절차·검증 누락": (
+    "절차 및 검증 누락": (
         r"잘못 (?:이해|해석|읽|봤|판단|말씀|맞췄|잡았)|제가 엉뚱|잘못 (?:판정|판단)|판단(?:은|이) 틀|(?:잘못된|잘못) 판단"
         r"|단정(?:했|한 것)|정(?:한|하신) (?:게|것이|것은|건|거) (?:아니|아님)|신 적이 없"
         r"|위반(?:했|이었)|어(?:겼|긴)|부적절했|(?:절차|허락|근거|비교|확인|검토) 없이"
@@ -73,6 +73,14 @@ PASSIVE = re.compile(r"철회(?:된|되었|돼|됐)")  # 다른 주체의 결정
 REPORT = re.compile(r"(?:범위 밖|승인 (?:범위|전)|권한)[^.\n]*적용하지 않"
                     r"|(?:이미|모두|전부) (?:고쳤|수정했|반영했|바로잡았)")
 FIRST_PERSON = re.compile(r"죄송|제 (?:실수|잘못)|제가")
+# 인용과 설명 문장에도 흔한 표현이다. 1인칭 문맥이나 직전 사용자 지적이 있을 때만 감지한다.
+CONDITIONAL = {"어긴", "지 않은 채", "확인 없이", "근거 없는"}
+SPEAKER = re.compile(r"죄송|제 (?:실수|잘못|판단)|제가|저는|저의|저도")
+POINTED = re.compile(r"지적|잘못|틀렸|틀린|어겼|어기|위반|않았|안 지|맞지 않|불만|왜 ")
+# 같은 문장 뒤쪽이 자기 행동을 과거형으로 인정하는 서술이면 문맥 없이도 감지한다. `못했습니다` 같은 부정은 뺀다.
+SELF_PAST = re.compile(r"(?:것|사건|문장)(?:이 원인)?입니다(?!만)|(?<!못)(?:냈|했|썼)었?습니다")
+# 도구와 코드가 주어인 문장은 코드 동작 설명이므로 자기 행동 인정으로 보지 않는다.
+CODE_SUBJECT = re.compile(r"(?:도구|hook|훅|코드|함수|스크립트|모듈|정규식)(?:는|은)\s")
 
 
 # 경로 링크의 설명은 보존한다. 잘린 링크와 인용된 공백 포함 경로도 제거한다.
@@ -101,7 +109,7 @@ def plain(text: str) -> str:
     return "\n".join(out)
 
 
-# 줄마다 인정 표현을 찾아 (줄, 표현)을 낸다. 제목 줄, 오탐 분석 줄, 표 행, 미적용·수정 결과 보고, 사용자 문장 인용, 뒤따르는 부정 서술, 수동 서술은 뺀다.
+# 줄마다 인정 표현을 찾아 (줄, 표현)을 낸다. 제목 줄, 오탐 분석 줄, 표 행, 미적용 및 수정 결과 보고, 사용자 문장 인용, 뒤따르는 부정 서술, 수동 서술은 뺀다.
 def scan(text: str, user: str = "", pattern: re.Pattern = ADMIT):
     # (줄, 일치 표현) 쌍을 차례로 낸다.
     for line in text.splitlines():
@@ -119,6 +127,11 @@ def scan(text: str, user: str = "", pattern: re.Pattern = ADMIT):
             if DENIAL.search(re.split(r"[.!?。]", line[m.end():], maxsplit=1)[0]):
                 continue
             if PASSIVE.match(line, m.start()):
+                continue
+            if m.group(0) in CONDITIONAL and not (
+                    SPEAKER.search(line) or POINTED.search(user)
+                    or (SELF_PAST.search(re.split(r"[.!?。]", line[m.end():], maxsplit=1)[0])
+                        and not CODE_SUBJECT.search(line[:m.start()]))):
                 continue
             yield line, m.group(0)
 
@@ -175,13 +188,13 @@ def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str
         evidence = f"{lines[i]}"
         if len(tasks) == 1 and all((project_root(cwd) / ref).is_file() for ref in refs):
             return user, next(iter(tasks)) or "미확인", evidence, response_line
-        return user, "미확인", evidence + " · 모호하거나 문서 없음", response_line
+        return user, "미확인", evidence + ", 모호하거나 문서 없음", response_line
     return user, "미확인", "미확인", response_line
 
 
 NOTICE_INCIDENT = "직전 응답에 문제가 있어 사건 문서에 기록했습니다: {link}"
 REASON_INCIDENT = ("직전 응답에서 문제 표현({hits})을 감지했습니다. 사건 분석은 별도 세션이 진행하므로 사건 문서를 작업하지 마십시오.\n"
-                   "위반한 지침이 무엇인지 확인한 후, 첫 줄에 아래 문장을 넣고, 위반 행동을 일으킨 판단 과정 요약과 다음 작업을 위한 내용으로 응답하십시오.\n"
+                   "위반한 지침이 무엇인지 확인한 후, 첫 줄에 아래 문장을 넣고, 위반 행동을 일으킨 판단 과정 요약과 기존 작업을 위한 내용으로 응답하십시오.\n"
                    + NOTICE_INCIDENT)
 MAX_BLOCKS = 8  # Claude Code 연속 continuation 한도 기본값. Codex는 한도가 없어 이 값이 유일한 반복 한도이다.
 WINDOWS_FLAGS = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW
@@ -267,7 +280,7 @@ def record_hits(data: dict, runner: str, hits: list[str]) -> Path:
             f"- 세션 ID: {session_id}\n"
             f"- 관련 작업 ID: {task}\n"
             f"- 실행 위치: {data.get('cwd') or '미확인'}\n"
-            f"- 발생·확인 시점: {now:%Y-%m-%d %H:%M:%S}\n"
+            f"- 발생 및 확인 시점: {now:%Y-%m-%d %H:%M:%S}\n"
             f"- 관련 담당: {role}\n"
             f"- 조치 상태: 미착수\n\n"
             f"## 감지 기록\n\n", encoding="utf-8")

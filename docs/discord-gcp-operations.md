@@ -19,7 +19,7 @@ Zone:          us-west1-b
 
 - 실행 위치: Cloud Shell UI
 
-`⋮` → `Upload`에서 파일이나 폴더를 선택한다. 업로드한 파일·폴더는 Cloud Shell 홈 폴더(`~/<파일명>` 또는 `~/<폴더명>`)에 놓인다.
+`⋮` → `Upload`에서 파일이나 폴더를 선택한다. 업로드한 파일 및 폴더는 Cloud Shell 홈 폴더(`~/<파일명>` 또는 `~/<폴더명>`)에 놓인다.
 
 ### VM 덮어쓰기
 
@@ -55,11 +55,11 @@ sudo systemctl restart discord-bot
 sudo systemctl status discord-bot
 ```
 
-- `AGENTS.global.md`, 역할의 `AGENTS.md`, 자기·동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
+- `AGENTS.global.md`, 역할의 `AGENTS.md`, 자기 및 동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
   공통 규칙과 Persona는 프롬프트에 넣고 역할 `AGENTS.md`는 캐릭터 이름을 읽는 원본으로 쓴다.
 - `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`와 자기 역할의 `MEMORY.md`도 같은 방식으로 감지한다.
 - documenter는 `discord/prompts/ARCHIVE.md`도 감지한다.
-- 에이전트 이름·역할·채널 등 설정 변경은 아래 설정 변경 절에 따라 재시작한다.
+- 에이전트 이름, 역할, 채널 등 설정 변경은 아래 설정 변경 절에 따라 재시작한다.
 - 봇 Python 코드(`.py` 파일)는 재시작해야 반영된다.
 
 ### 지식 원본 갱신

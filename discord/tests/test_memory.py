@@ -1,4 +1,4 @@
-"""서버 장기기억·persona 기억·채널 요약·전체 삭제·토큰 로그를 가짜 query와 가짜 Discord로 확인한다.
+"""서버 장기기억, persona 기억, 채널 요약, 전체 삭제, 토큰 로그를 가짜 query와 가짜 Discord로 확인한다.
 실제 모델과 GitHub API는 호출하지 않는다.
 """
 
@@ -324,7 +324,7 @@ class MemoryTestBase(unittest.IsolatedAsyncioTestCase):
 
 
 class ConfigAndRestartTests(MemoryTestBase):
-    # C7: memory·summary 절이 없는 설정과 재시작 후 유지.
+    # C7: memory 및 summary 절이 없는 설정과 재시작 후 유지.
     def test_optional_sections_use_defaults(self) -> None:
         self.assertEqual(config_module.load_optional_section({}, "memory", config_module.MemoryConfig), config_module.MemoryConfig())
         self.assertEqual(config_module.load_optional_section({}, "summary", config_module.SummaryConfig), config_module.SummaryConfig())
@@ -356,7 +356,7 @@ class ConfigAndRestartTests(MemoryTestBase):
 
 
 class GuildIsolationTests(MemoryTestBase):
-    # C1: 서버 단위 조회 분리. C4: scope·다른 캐릭터·다른 서버 비노출.
+    # C1: 서버 단위 조회 분리. C4: scope, 다른 캐릭터, 다른 서버 비노출.
     async def test_long_term_memory_is_separated_by_guild(self) -> None:
         self.runtime.memory.add(GUILD, memory_store.KIND_EXPLICIT, "떡볶이 좋아함", sources=[(1, CHANNEL)])
         self.runtime.memory.add(OTHER_GUILD, memory_store.KIND_EXPLICIT, "떡볶이 싫어함", sources=[(2, OTHER_CHANNEL)])
@@ -388,7 +388,7 @@ class GuildIsolationTests(MemoryTestBase):
 
 
 class ArchiveTests(MemoryTestBase):
-    # C2: archive 수집·수정·동기화.
+    # C2: archive 수집, 수정, 동기화.
     def test_capture_targets_allowed_authors_in_archive_threads(self) -> None:
         thread = self.channels[THREAD]
         attachment = SimpleNamespace(filename="plan.png")
@@ -470,7 +470,7 @@ class ArchiveTests(MemoryTestBase):
 
 
 class DeleteTests(MemoryTestBase):
-    # C3: 요청·대상·분할 조각·스레드·채널 미확인·요약 대상 줄 삭제, 시작 시 NotFound 삭제.
+    # C3: 요청, 대상, 분할 조각, 스레드, 채널 미확인, 요약 대상 줄 삭제, 시작 시 NotFound 삭제.
     def setUp(self) -> None:
         super().setUp()
         with patch.object(bot, "save_chat_state"):
@@ -547,7 +547,7 @@ class DeleteTests(MemoryTestBase):
 
 
 class PersonaExtractionTests(MemoryTestBase):
-    # C4: 요약 호출의 가짜 persona_events 출력 저장, 재시도·포기, 잘못된 항목 거부, 저장 직전 재확인.
+    # C4: 요약 호출의 가짜 persona_events 출력 저장, 재시도 및 포기, 잘못된 항목 거부, 저장 직전 재확인.
     def setUp(self) -> None:
         super().setUp()
         add_line(self.runtime, 1, 3, "user7", "젤리야 떡볶이 먹으러 가자", 11)
@@ -604,7 +604,7 @@ class PersonaExtractionTests(MemoryTestBase):
 
 
 class AttachmentTests(MemoryTestBase):
-    # C5: 단건·bulk·미등록 채널 삭제, 저장 직후 삭제 경합, 시작 시 정리.
+    # C5: 단건, bulk, 미등록 채널 삭제, 저장 직후 삭제 경합, 시작 시 정리.
     def touch(self, message_id, age_hours=0.0) -> Path:
         path = self.attach_dir / f"{message_id}_1_file.png"
         path.write_bytes(b"x")
@@ -757,7 +757,7 @@ class ToolAndPromptTests(MemoryTestBase):
 
 
 class UploadTests(MemoryTestBase):
-    # C8: GitHub API를 가짜로 대체한 `승인`·`취소` 메시지 처리, PR 생성, 삭제 갱신 표시, archive 충돌.
+    # C8: GitHub API를 가짜로 대체한 `승인` 및 `취소` 메시지 처리, PR 생성, 삭제 갱신 표시, archive 충돌.
     def setUp(self) -> None:
         # 기억 한 건과 GitHub 가짜 호출을 준비한다.
         super().setUp()
@@ -1059,7 +1059,7 @@ class UploadTests(MemoryTestBase):
 
 
 class SummaryTests(MemoryTestBase):
-    # C11: 대상 선정, 공백 없음, 실패 재시도·포기, 도구 줄 제외, 재시작 후 요약 유지.
+    # C11: 대상 선정, 공백 없음, 실패 재시도 및 포기, 도구 줄 제외, 재시작 후 요약 유지.
     def test_target_selection(self) -> None:
         runtime = self.make_runtime(chat=chat_config(history_max_lines=4))
         add_line(runtime, 1, 3, "user7", "오래된 줄 1", 1)
@@ -1099,7 +1099,8 @@ class SummaryTests(MemoryTestBase):
     # 요약 대상이 성공 전까지 남고 도구 줄이 제외되는지 확인한다.
     async def test_targets_stay_until_success_and_tool_lines_excluded(self) -> None:
         add_line(self.runtime, 1, 3, "user7", "오래된 사용자 줄", 11)
-        add_line(self.runtime, 2, 3, "jelly", bot.EVIDENCE_HEADER + "\n- 사용 WebSearch: https://old.example")
+        # 오래된 도구 줄은 이전 머리말로 저장된 기록이다.
+        add_line(self.runtime, 2, 3, "jelly", bot.EVIDENCE_HEADERS[1] + "\n- 사용 WebSearch: https://old.example")
         add_line(self.runtime, 3, 0.1, "jelly", bot.EVIDENCE_HEADER + "\n- 사용 WebSearch: https://new.example")
         add_line(self.runtime, 4, 0.1, "user7", "최근 줄", 15)
         rendered = self.runtime.render_chat_history(CHANNEL)
@@ -1145,7 +1146,7 @@ class SummaryTests(MemoryTestBase):
 
 
 class WipeTests(MemoryTestBase):
-    # C12: 전체 삭제의 확인·취소·만료·다른 사용자 무시, 대상 삭제, 장기기억 유지.
+    # C12: 전체 삭제의 확인, 취소, 만료, 다른 사용자 무시, 대상 삭제, 장기기억 유지.
     def setUp(self) -> None:
         super().setUp()
         self.runtime.append_chat(CHANNEL, "user7", "지울 대화", 50)

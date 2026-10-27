@@ -62,6 +62,7 @@ from tools import ROLE_TOOL_BUILDERS, build_server_channels_server
 from prompts import (
     CHAT_PROMPT_PATH,
     EVIDENCE_HEADER,
+    EVIDENCE_HEADERS,
     build_chat_system_prompt,
     build_request_system_prompt,
     canonical_role_dir,
@@ -115,7 +116,7 @@ MEMORY_DB_PATH = HERE / "memory.sqlite3"
 # 캐릭터 기억 업로드 승인 대기와 저장소 갱신 필요 표시 저장 파일.
 MEMORY_APPROVAL_PATH = HERE / "memory_approval.json"
 MEMORY_APPROVAL_COMMANDS = {"승인", "취소"}
-# 삭제 이벤트로 받은 메시지 ID를 기억해 두는 개수. 저장 직후·동기화 중 삭제 경합 확인에 쓴다.
+# 삭제 이벤트로 받은 메시지 ID를 기억해 두는 개수. 저장 직후 및 동기화 중 삭제 경합 확인에 쓴다.
 RECENT_DELETED_MAX = 4096
 CHAT_WIPE_TIMEOUT_SECONDS = 5 * 60
 
@@ -175,9 +176,9 @@ class Runtime:
     memory_approvals: MemoryApprovalStore = field(
         default_factory=lambda: MemoryApprovalStore.load(MEMORY_APPROVAL_PATH)
     )
-    # 모든 봇이 같은 승인·취소 메시지를 받으므로, 처리한 메시지 ID를 남겨 나머지 봇이 소비만 하게 한다.
+    # 모든 봇이 같은 승인 및 취소 메시지를 받으므로, 처리한 메시지 ID를 남겨 나머지 봇이 소비만 하게 한다.
     memory_approval_handled: set[int] = field(default_factory=set)
-    # 시작 동기화·원본 확인은 프로세스당 한 번만 실행한다.
+    # 시작 동기화 및 원본 확인은 프로세스당 한 번만 실행한다.
     memory_startup_started: bool = False
     # 사용자 메시지 ID별 첫 화자 선택 태스크. 모든 봇이 한 번의 모델 호출을 공유한다.
     chat_router_tasks: dict[int, asyncio.Task] = field(default_factory=dict)
@@ -235,7 +236,7 @@ class Runtime:
             pruned = True
         return pruned
 
-    # 채팅 기록에 발언 한 줄을 순번·시각·Discord 메시지 ID와 함께 추가하고 오래된 항목을 지운다.
+    # 채팅 기록에 발언 한 줄을 순번, 시각, Discord 메시지 ID와 함께 추가하고 오래된 항목을 지운다.
     def append_chat(
         self, channel_id: int, speaker: str, content: str, message_id: int | None = None,
         message_ids: list[int] | None = None,
@@ -277,7 +278,7 @@ class Runtime:
             count += 1
         return count
 
-    # 한 번의 요약 호출에 넣을 앞쪽 대상 줄을 고른다. 도구·출처 기록 줄은 한도 계산 없이 함께 지울 범위에만 넣는다.
+    # 한 번의 요약 호출에 넣을 앞쪽 대상 줄을 고른다. 도구 및 출처 기록 줄은 한도 계산 없이 함께 지울 범위에만 넣는다.
     def summary_batch(self, channel_id: int) -> list[tuple[int, float, str, str, int | None]]:
         # 요약 설정과 대상 줄을 구한다.
         settings = summary_settings(self.config)
@@ -326,7 +327,7 @@ class Runtime:
         self.summary_tasks[channel_id] = loop.create_task(run_channel_summary(self, channel_id))
         return True
 
-    # 요약에 반영했거나 요약을 포기한 줄을 기록에서 지운다. 그사이 삭제·추가된 줄은 seq로 구분한다.
+    # 요약에 반영했거나 요약을 포기한 줄을 기록에서 지운다. 그사이 삭제 및 추가된 줄은 seq로 구분한다.
     def drop_history_entries(self, channel_id: int, seqs: set[int]) -> int:
         # 지울 줄과 남길 줄을 나눠 기록을 갱신한다.
         history = self.chat_history_for(channel_id)
@@ -475,12 +476,12 @@ class Runtime:
         if not history:
             return "(아직 대화 없음)"
         digests = digests or {}
-        # 도구·출처 기록 줄은 원문 창(summary.raw_hours) 안의 것만 보낸다.
+        # 도구 및 출처 기록 줄은 원문 창(summary.raw_hours) 안의 것만 보낸다.
         raw_cutoff = datetime.now().timestamp() - summary_settings(self.config).raw_hours * 3600
         return "\n".join(
             self.render_chat_entry(speaker, f"(요지) {digests[seq]}" if digests.get(seq) else content, message_id, me)
             for seq, timestamp, speaker, content, message_id in history
-            if not (content.startswith(EVIDENCE_HEADER) and timestamp < raw_cutoff)
+            if not (content.startswith(EVIDENCE_HEADERS) and timestamp < raw_cutoff)
         ) or "(아직 대화 없음)"
 
     # 발언 묶음을 라우터 모델로 어미와 말버릇이 없는 한 문장 요지로 옮긴다. {seq: 요지}를 돌려준다.
@@ -703,7 +704,7 @@ class AgentBot(discord.Client):
         )
         self._chat_prompt_signature = signature
 
-    # 서버·채널·사용자 제한 조건에 따라 이 메시지를 처리할지 판단한다.
+    # 서버, 채널, 사용자 제한 조건에 따라 이 메시지를 처리할지 판단한다.
     def _allowed(self, message: discord.Message) -> bool:
         # 허용된 서버인지 확인한다.
         cfg = self.runtime.config
@@ -810,11 +811,11 @@ class AgentBot(discord.Client):
             return last_replier
         return self.runtime.pick_chat_starter(message.id)
 
-    # 모든 봇이 같은 이벤트를 받으므로 기억·기록 반영은 이름이 가장 앞선 처리 봇 하나만 한다.
+    # 모든 봇이 같은 이벤트를 받으므로 기억 및 기록 반영은 이름이 가장 앞선 처리 봇 하나만 한다.
     def _is_memory_handler(self) -> bool:
         return self.agent.name == min(self.runtime.clients, default=self.agent.name)
 
-    # 메시지 하나가 삭제되면 기억·첨부와 채팅 기록에서 지운다.
+    # 메시지 하나가 삭제되면 기억 및 첨부와 채팅 기록에서 지운다.
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
         # 삭제된 메시지의 기억과 첨부를 지우고 등록 채널이면 대화 기록에서도 뺀다.
         if not self._is_memory_handler():
@@ -830,7 +831,7 @@ class AgentBot(discord.Client):
             payload.channel_id, payload.message_id, removed,
         )
 
-    # 여러 메시지가 한꺼번에 삭제되면 기억·첨부와 채팅 기록에서 지운다.
+    # 여러 메시지가 한꺼번에 삭제되면 기억 및 첨부와 채팅 기록에서 지운다.
     async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent) -> None:
         # 기억 처리 담당 클라이언트만 처리한다.
         if not self._is_memory_handler():
@@ -1097,8 +1098,8 @@ class AgentBot(discord.Client):
         await message.channel.send(APPROVAL_CONFLICT_CANCELLED)
         return True
 
-    # 기억 업로드 대기의 요청자가 보낸 `승인`·`취소`를 모델 호출 없이 처리한다.
-    # 대기 건의 캐릭터 봇만 실행·안내하고, 다른 봇은 같은 메시지를 소비만 한다.
+    # 기억 업로드 대기의 요청자가 보낸 `승인` 및 `취소`를 모델 호출 없이 처리한다.
+    # 대기 건의 캐릭터 봇만 실행 및 안내하고, 다른 봇은 같은 메시지를 소비만 한다.
     # 외부 API 호출 전에 executing으로 저장해 같은 대기가 중복 실행되는 것을 막는다.
     async def _handle_memory_approval(self, message: discord.Message) -> bool:
         # 기억 승인 명령인지 확인하고 대기 중인 승인을 처리한다.
@@ -1153,7 +1154,7 @@ class AgentBot(discord.Client):
         await message.channel.send(result)
         return True
 
-    # 채널 전체 삭제 명령과 그 확인·취소를 모델 호출 없이 처리한다. 처리한 메시지는 채팅 기록에 넣지 않는다.
+    # 채널 전체 삭제 명령과 그 확인 및 취소를 모델 호출 없이 처리한다. 처리한 메시지는 채팅 기록에 넣지 않는다.
     # 모든 봇이 같은 판정으로 메시지를 소비하고, 실제 처리와 안내는 처리 봇(min(runtime.clients)) 하나만 한다.
     async def _handle_chat_wipe_command(self, message: discord.Message) -> bool:
         # 봇 메시지와 미등록 채널을 건너뛴다.
@@ -1216,7 +1217,7 @@ class AgentBot(discord.Client):
         # 봇 사용자 정보가 있는지 확인한다.
         assert self.user is not None
 
-        # 투표 결과 메시지는 작성자가 봇일 수 있어 봇·자기 메시지 필터보다 먼저 처리한다.
+        # 투표 결과 메시지는 작성자가 봇일 수 있어 봇 및 자기 메시지 필터보다 먼저 처리한다.
         if message.type == getattr(discord.MessageType, "poll_result", None):
             await self._handle_poll_result(message)
             return
@@ -1457,7 +1458,7 @@ class AgentBot(discord.Client):
             server_name, tool_names, server = built
             base_tools = [*base_tools, *tool_names]
             mcp_servers[server_name] = server
-        # 장기기억 도구는 모든 역할에 붙고, 저장·업로드 대기 허용 여부는 이번 대화의 사용자 메시지로 정한다.
+        # 장기기억 도구는 모든 역할에 붙고, 저장 및 업로드 대기 허용 여부는 이번 대화의 사용자 메시지로 정한다.
         built = build_memory_server(
             channel, self.runtime, self.agent, user_trigger_message_id,
             self.runtime.chat_last_user_id.get(channel.id),
@@ -1603,7 +1604,7 @@ class AgentBot(discord.Client):
             record = react_record or ""
             self.runtime.append_chat(channel_id, self.agent.name, record)
         if evidence_records:
-            # 긴 작업 답변이 line_max_chars에 잘려도 실제 도구·URL 기록은 별도 항목으로 보존한다.
+            # 긴 작업 답변이 line_max_chars에 잘려도 실제 도구 및 URL 기록은 별도 항목으로 보존한다.
             evidence = f"{EVIDENCE_HEADER}\n" + render_tool_evidence(evidence_records)
             self.runtime.append_chat(channel_id, self.agent.name, evidence)
         return next_name

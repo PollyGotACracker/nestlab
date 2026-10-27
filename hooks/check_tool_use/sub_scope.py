@@ -13,12 +13,12 @@ from pathlib import Path
 from sub_approval import APPROVED, approved, last_user
 from sub_docs import doc_kind, missing_titles, project_root, record_leak, review_done, section, sibling, task_doc, task_id
 from sub_path import command_paths, in_incident, in_temp
-from sub_role import first_prompt, main_session
+from sub_role import first_prompt, main_session, resolve_role
 from sub_session import agent_transcript, read_session, turn
 from sub_plan import check_plan
 from sub_judgment import (check_decision, check_item_names, check_judgment, check_raw, check_review_done, check_stage,
                           review_items, status_of)
-from sub_write import added_lines, bash_command, bash_write_reason, is_write_bash, read, strings
+from sub_write import RETRY, added_lines, bash_command, bash_write_reason, is_write_bash, read, strings
 from sub_workflow import R_SOURCE_FORMAT, bad_source, transition_reason
 
 READONLY = {"researcher", "reviewer"}
@@ -36,9 +36,9 @@ def rel(path: Path, root: Path) -> str:
         return ""
 
 
-REASON_NO_APPROVAL = "사용자 마지막 메시지에 '승인'이 없습니다. 승인 상태를 승인으로 쓸 수 없습니다."
-REASON_UNRESOLVED = "결정 기록의 `중단 판정 미해결` 줄은 지우거나 바꿀 수 없습니다."
-REASON_MISSING_TITLES = "작업 문서에 필수 절이 없습니다. 없는 절은 {titles}입니다. {skill} 템플릿의 절을 지키십시오."
+REASON_NO_APPROVAL = "사용자 마지막 메시지에 '승인'이 없어 승인 상태를 승인으로 쓸 수 없습니다.\n승인 요청 지침과 스킬을 확인하십시오. " + RETRY
+REASON_UNRESOLVED = "결정 기록의 `중단 판정 미해결` 줄은 지우거나 바꿀 수 없습니다. " + RETRY
+REASON_MISSING_TITLES = "작업 문서에 {skill} 템플릿의 필수 절({titles})이 없습니다. " + RETRY
 
 # 작업 문서 한 개 쓰기 검사이다.
 def check_doc(data: dict, path: Path, r: str, user: str) -> str | None:
@@ -62,7 +62,7 @@ def check_doc(data: dict, path: Path, r: str, user: str) -> str | None:
     # 문서 종류별 검사를 한다.
     transcript = data.get("transcript_path") or ""
     if kind == "refute":
-        return check_raw(new, old)
+        return check_raw(new, old, blank_ok=True)
     if kind == "research":
         # 새로 들어가는 줄의 출처가 URL 또는 파일:행 형식인지 확인한다.
         bad = next((b for b in map(bad_source, added) if b is not None), None)
@@ -88,7 +88,8 @@ def skill_for(r: str) -> str | None:
     if r.startswith("log/incident/") and r.endswith(".md"):
         return "nestlab-log-incident"
     name = r.rsplit("/", 1)[-1]
-    if name in ("AGENTS.md", "CLAUDE.md") or (r.startswith("shared/skills/") and name == "SKILL.md"):
+    if (name in ("AGENTS.md", "AGENTS.global.md", "CLAUDE.md") or (r.startswith("shared/skills/") and name == "SKILL.md")
+            or (r.startswith(".claude/agents/") and name in ("MAIN.md", "SUB.md"))):
         return "nestlab-rule"
     return None
 
@@ -96,24 +97,35 @@ def skill_for(r: str) -> str | None:
 READ_CMD = re.compile(r"\b(?:Get-Content|cat|type|sed|head|less|more)\b", re.I)
 
 
-# 현재 턴에 해당 스킬 호출이 있는지 판정한다. Codex는 읽기 명령으로 `<skill>/SKILL.md`를 읽은 호출이다.
-def skill_called(data: dict, skill: str, runner: str = "claude") -> bool:
-    # 대화 기록의 현재 턴 호출을 읽고 SKILL.md 경로 패턴을 만든다.
+# 도구 입력이 읽기 명령으로 `<skill>/SKILL.md`를 읽는 호출이면 True이다.
+def reads_skill(args, skill: str) -> bool:
+    text = "\n".join(strings(args))
+    return bool(READ_CMD.search(text) and re.search(re.escape(skill) + r"[\\/]+SKILL\.md", text, re.I))
+
+
+# 해당 스킬 호출이 있는지 판정한다. whole이 거짓이면 현재 턴만, 참이면 세션 전체 기록을 본다.
+# Codex는 읽기 명령으로 `<skill>/SKILL.md`를 읽은 호출이다.
+def skill_called(data: dict, skill: str, runner: str = "claude", whole: bool = False) -> bool:
+    # 대화 기록의 호출 범위를 읽는다.
     entries = read_session(agent_transcript(data) or data.get("transcript_path") or "")
-    path = re.compile(re.escape(skill) + r"[\\/]+SKILL\.md", re.I)
 
     # Claude는 스킬 도구 호출을, Codex는 읽기 명령 호출을 찾는다.
-    for e in turn(entries)[2]:
+    for e in (entries if whole else turn(entries)[2]):
         for name, args in e["calls"]:
             if name == "Skill":
                 called = args.get("skill") or ""
                 if called == skill or called.endswith(":" + skill):
                     return True
-            elif runner == "codex" and name != "apply_patch":
-                text = "\n".join(strings(args))
-                if READ_CMD.search(text) and path.search(text):
-                    return True
+            elif runner == "codex" and name != "apply_patch" and reads_skill(args, skill):
+                return True
     return False
+
+
+# director 메인 세션이 세션 기록에 nestlab-kickoff 호출 없이 도구를 부르는 중이면 True이다.
+def kickoff_missing(data: dict, runner: str = "claude") -> bool:
+    if not main_session(data) or resolve_role(data) != "director":
+        return False
+    return not skill_called(data, "nestlab-kickoff", runner, whole=True)
 
 
 # Bash 쓰기 명령의 경로 토큰 중 스킬이 필요한 log/ 문서 경로를 반환한다.
@@ -126,9 +138,8 @@ def bash_log_docs(data: dict, root: Path) -> list[Path]:
 WRITE_ROLES = {"worker", "documenter"}
 IN_PROGRESS = re.compile(r"^- 작업 상태:\s*진행\s*$", re.M)
 EXEC_APPROVED = re.compile(r"^\s*- (?:사용자 )?승인 상태:\s*승인\s*$", re.M)
-REASON_LOG_BASH = "이 쓰기 명령은 log/ 폴더 경로를 포함합니다. 로그 폴더의 문서는 director와 하네스 스크립트가 작성합니다."
-REASON_REVIEW_LEFT = ("진행 중인 작업의 검토 필요에 검토가 끝나지 않은 항목이 있어 log/ 밖에 쓸 수 없습니다. "
-                      "해당 항목은 {items}입니다.")
+REASON_LOG_BASH = "이 쓰기 명령은 log/ 폴더 경로를 포함합니다. " + RETRY
+REASON_REVIEW_LEFT = "진행 중인 작업의 검토 필요 항목({items})이 끝나지 않아 log/ 밖에 쓸 수 없습니다. " + RETRY
 
 
 # 작업 상태가 진행이고 실행 승인이 승인인 작업 문서 본문 목록을 반환한다.
@@ -175,9 +186,11 @@ def log_bash_reason(data: dict) -> str | None:
     return None
 
 
-REASON_READONLY ="{role}은 읽기 전용입니다. 결과는 반환하면 하네스가 저장합니다."
-REASON_OUTSIDE_LOG = "사용자 마지막 메시지에 승인 명령이 없습니다. 승인 요청 지침을 확인하십시오. 메인 세션은 승인이 없으면 log/ 경로만 쓸 수 있습니다."
-REASON_NO_SKILL = "{skill} 스킬을 이번 턴에 호출하지 않았습니다. {skill} 스킬을 호출한 뒤 이 문서를 쓰십시오."
+REASON_READONLY = "{role}은 읽기 전용입니다. " + RETRY
+REASON_OUTSIDE_LOG = "사용자 마지막 메시지에 승인 명령이 없어 메인 세션은 log/ 경로만 쓸 수 있습니다. " + RETRY
+REASON_SCRIPT_FILE = "승인 전에는 log/와 OS 임시 폴더에 스크립트 파일을 쓸 수 없습니다. " + RETRY
+REASON_NO_SKILL = "{skill} 스킬을 이번 턴에 호출하지 않았습니다. " + RETRY
+SCRIPT_EXT = (".py", ".sh", ".ps1", ".js", ".bat", ".cmd")
 VERDICT_ITEM = re.compile(r"^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}:")
 
 
@@ -190,7 +203,7 @@ def new_verdict_items(data: dict, path: Path) -> list[str]:
     return [l for l in section(new, "검증 결과").splitlines() if VERDICT_ITEM.match(l) and l not in before]
 
 
-REASON_RECORD = "작업 문서에 사건 문서 경로와 세션 기록 정보(경로·세션 id·사건 ID)를 쓸 수 없습니다."
+REASON_RECORD = "작업 문서에 사건 문서 경로와 세션 기록 정보를 쓸 수 없습니다. " + RETRY
 
 # 역할별 쓰기 범위를 검사한다. 위반이면 deny 사유를, 통과면 None을 반환한다.
 def check_write(data: dict, role: str | None, paths: list[Path], main: bool = False, runner: str = "claude") -> str | None:
@@ -203,6 +216,10 @@ def check_write(data: dict, role: str | None, paths: list[Path], main: bool = Fa
     # 메인 세션은 역할과 무관하게 log/ 밖 쓰기에 사용자 승인이 필요하다.
     guarded = main
     if guarded:
+        # 승인 전에는 log/와 OS 임시 폴더에 스크립트 파일을 쓸 수 없다.
+        if not approved(user) and any(p.suffix.lower() in SCRIPT_EXT and (rel(p, root).startswith(LOG) or in_temp(str(p)))
+                                      for p in paths):
+            return REASON_SCRIPT_FILE
         outside = not paths or any(not rel(p, root).startswith(LOG) and not in_temp(str(p)) and not in_incident(str(p))
                                    for p in paths)
         if outside and not approved(user):

@@ -2,7 +2,11 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "agent": "buddy",
   "env": {
-    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2",
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"
+  },
+  "sandbox": {
+    "enabled": true
   },
   "statusLine": {
     "type": "command",
@@ -11,7 +15,7 @@
     "statusMessage": "Nestlab 에이전트 상태줄 이름 표시"
   },
   "permissions": {
-    "additionalDirectories": ["~/.claude", "~/.codex"],
+    "additionalDirectories": ["~/.claude", "~/.codex", "<TEMP>", "<NODEBASE>"],
     "allow": [
       "WebSearch",
       "WebFetch",
@@ -61,77 +65,16 @@
       "Bash(git config --get *)",
       "Bash(git config --list *)"
     ],
-    "ask": [
-      "Edit(~/.claude/settings*.json)",
-      "Edit(~/.codex/**)",
-      "Bash(git commit *)",
-      "Bash(git add *)",
-      "Bash(git push *)",
-      "Bash(git rm *)",
-      "Bash(git mv *)",
-      "Bash(git checkout *)",
-      "Bash(git switch *)",
-      "Bash(git stash)",
-      "Bash(git stash -*)",
-      "Bash(git stash push *)",
-      "Bash(git stash pop *)",
-      "Bash(git stash apply *)",
-      "Bash(git stash save *)",
-      "Bash(git stash branch *)",
-      "Bash(git tag *)",
-      "Bash(git pull *)",
-      "Bash(git fetch *)",
-      "Bash(git apply *)",
-      "Bash(git merge *)",
-      "Bash(git am *)",
-      "Bash(git init *)",
-      "Bash(git clone *)",
-      "Bash(git submodule *)",
-      "Bash(git worktree *)",
-      "Bash(git gc *)",
-      "Bash(git reset *)",
-      "Bash(git -C *)",
-      "Bash(git -c *)",
-      "Bash(git update-index *)",
-      "Bash(git read-tree *)",
-      "Bash(git checkout-index *)",
-      "Bash(git sparse-checkout *)",
-      "Bash(git update-ref *)",
-      "Bash(git symbolic-ref *)",
-      "Bash(git replace *)",
-      "Bash(git notes *)",
-      "Bash(git config --add *)",
-      "Bash(git config --unset *)",
-      "Bash(git config --unset-all *)",
-      "Bash(git config --replace-all *)",
-      "Bash(git config --rename-section *)",
-      "Bash(git config --remove-section *)",
-      "Bash(git config --edit *)",
-      "Bash(git branch -d *)",
-      "Bash(git branch -D *)",
-      "Bash(git branch -m *)",
-      "Bash(git branch -M *)",
-      "Bash(git branch -c *)",
-      "Bash(git branch -C *)",
-      "Bash(git branch --delete *)",
-      "Bash(git branch --move *)",
-      "Bash(git branch --copy *)",
-      "Bash(git branch --force *)",
-      "Bash(git branch --set-upstream-to *)",
-      "Bash(git branch --unset-upstream *)",
-      "Bash(git remote add *)",
-      "Bash(git remote remove *)",
-      "Bash(git remote rename *)",
-      "Bash(git remote set-url *)",
-      "Bash(rm *)",
-      "Bash(rmdir *)",
-      "Bash(python *)",
-      "Bash(python3 *)",
-      "Bash(py *)",
-      "Bash(node *)"
-    ],
     "deny": [
       "Agent(fork)",
+      "Bash(cd *)",
+      "Bash(pushd *)",
+      "PowerShell(cd *)",
+      "PowerShell(Set-Location *)",
+      "PowerShell(sl *)",
+      "PowerShell(chdir *)",
+      "PowerShell(Push-Location *)",
+      "Bash(git -c *)",
       "Bash(git rebase *)",
       "Bash(git revert *)",
       "Bash(git cherry-pick *)",
@@ -198,13 +141,13 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent|Edit|Write|NotebookEdit|Bash|Read|Grep|Glob|AskUserQuestion",
+        "matcher": "Agent|Edit|Write|NotebookEdit|Bash|PowerShell|Read|Grep|Glob|AskUserQuestion",
         "hooks": [
           {
             "type": "command",
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_tool_use.py\" --runner claude",
             "timeout": 10,
-            "statusMessage": "Nestlab 승인·입력·쓰기 범위 검사"
+            "statusMessage": "Nestlab 승인, 입력, 쓰기 범위 검사"
           }
         ]
       },

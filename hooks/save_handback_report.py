@@ -26,7 +26,7 @@ from sub_session import agent_transcript
 
 # 출력할 JSON이다. 바꿀 것이 없으면 None이다.
 def replace(data: dict) -> dict | None:
-    # SubagentHandback의 researcher·reviewer 보고만 대상으로 한다.
+    # SubagentHandback의 researcher 및 reviewer 보고만 대상으로 한다.
     tin = data.get("tool_input") or {}
     message = str(tin.get("message") or "").strip()
     role = resolve_role(data)

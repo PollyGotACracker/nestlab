@@ -6,6 +6,7 @@ from pathlib import Path
 HOOKS = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(HOOKS), str(HOOKS / "common"), str(HOOKS / "check_tool_use")]
 
+import io
 import json
 import tempfile
 import unittest
@@ -42,63 +43,82 @@ class AllowApprovedRequest(unittest.TestCase):
         self.addCleanup(p.stop)
         self.addCleanup(self.tmp.cleanup)
 
-    # 사용자 마지막 메시지가 user인 Claude 기록과 Bash 입력으로 판정한다.
-    def claude(self, user, command, **extra):
+    # 사용자 마지막 메시지가 user인 Claude 기록과 도구 입력으로 판정한다.
+    def claude(self, user, command="python a.py", tool="Bash", **extra):
         path = self.root / "t.jsonl"
-        path.write_text(claude_line("assistant", "계획") + "\n" + claude_line("user", user) + "\n", encoding="utf-8")
-        return hook.decide({"tool_name": "Bash", "tool_input": {"command": command},
+        kickoff = json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "1", "name": "Skill", "input": {"skill": "nestlab-kickoff"}}]}})
+        path.write_text(kickoff + "\n" + claude_line("assistant", "계획") + "\n" + claude_line("user", user) + "\n",
+                        encoding="utf-8")
+        return hook.decide({"tool_name": tool, "tool_input": {"command": command, "description": "명령 실행"},
                             "transcript_path": str(path), **extra}, "claude")
 
-    # 승인 턴에는 스크립트 실행을 허용하고 ask 목록 명령은 허용하지 않는다.
-    def test_approved_turn(self):
-        self.assertTrue(self.claude("승인", "python a.py"))
-        self.assertFalse(self.claude("승인", "git add a.md"))
-        self.assertFalse(self.claude("승인", "python a.py && git add a.md"))
+    # 승인 턴 Bash는 allow, 승인 전 Bash는 deny를 돌려준다.
+    def test_permission_request_approval_turn(self):
+        self.assertEqual(self.claude("승인"), "allow")
+        self.assertEqual(self.claude("승인", "git commit -m x"), "allow")
+        self.assertEqual(self.claude("안 B로 해"), "deny")
+        self.assertEqual(self.claude("안 B로 해", "git commit -m x"), "deny")
 
-    # 승인 턴에도 위험 패턴이 든 인라인 코드는 허용하지 않고, git -C는 읽기만 허용하며 git -c는 허용하지 않는다.
-    def test_approved_turn_risky_inline_and_git_options(self):
-        self.assertFalse(self.claude("승인", 'python -c "import subprocess"'))
-        self.assertFalse(self.claude("승인", "python -c \"open('C:/Users/a/.claude/settings.json')\""))
-        self.assertFalse(self.claude("승인", "node -e \"require('child_process')\""))
-        self.assertTrue(self.claude("승인", 'python -c "print(1)"'))
-        self.assertTrue(self.claude("승인", "git -C hooks log -1"))
-        self.assertFalse(self.claude("승인", "git -C hooks push"))
-        self.assertFalse(self.claude("승인", "git -c a.b=c log -1"))
+    # 질문 도구는 승인 여부와 관계없이 출력 없이 둔다.
+    def test_permission_request_question_tools(self):
+        for tool in ("AskUserQuestion", "ExitPlanMode", "request_user_input"):
+            self.assertIsNone(self.claude("승인", tool=tool), tool)
+            self.assertIsNone(self.claude("안 B로 해", tool=tool), tool)
 
-    # dontAsk 세션은 허용 목록과 승인 턴 명령 모두 허용하지 않고 default는 기존 판정과 같다.
-    def test_dont_ask(self):
+    # 허용 목록 명령은 승인 여부와 관계없이 allow이고 하위 명령이 여럿이면 승인 전 deny이다.
+    def test_permission_request_allow_list(self):
         unit = "python -m unittest discover -s hooks/tests"
-        self.assertFalse(self.claude("안 B로 해", unit, permission_mode="dontAsk"))
-        self.assertFalse(self.claude("승인", "python a.py", permission_mode="dontAsk"))
-        self.assertTrue(self.claude("안 B로 해", unit, permission_mode="default"))
+        self.assertEqual(self.claude("안 B로 해", unit), "allow")
+        self.assertEqual(self.claude("안 B로 해", unit + " && python a.py"), "deny")
+        self.assertEqual(self.claude("안 B로 해", unit, permission_mode="dontAsk"), "allow")
 
-    # 비승인 턴에는 허용 목록만 허용한다.
-    def test_unapproved_turn(self):
-        self.assertFalse(self.claude("안 B로 해", "python a.py"))
-        self.assertTrue(self.claude("안 B로 해", "python -m unittest discover -s hooks/tests"))
-        self.assertFalse(self.claude("안 B로 해", "python -m unittest x && python a.py"))
+    # 승인 전에도 PreToolUse 검사를 통과한 읽기 셸 명령은 allow이고 쓰기 명령과 셸 외 도구는 deny이다.
+    def test_permission_request_read_before_approval(self):
+        for command in ('python -I -X utf8 -c "print(1)"', "sed -n '/^## 경로 목록/,$p' AGENTS.md"):
+            self.assertEqual(self.claude("안 B로 해", command), "allow", command)
+        for command in ("cp a.txt b.txt", "git commit -m x", "python -c \"open('a','w')\""):
+            self.assertEqual(self.claude("안 B로 해", command), "deny", command)
+        self.assertEqual(self.claude("안 B로 해", "print(1)", tool="Edit"), "deny")
+
+    # main()이 deny는 decision.behavior와 message로, 질문 도구는 빈 출력으로 내보낸다.
+    def test_permission_request_output(self):
+        path = self.root / "t.jsonl"
+        path.write_text(claude_line("assistant", "계획") + "\n" + claude_line("user", "다시 봐") + "\n", encoding="utf-8")
+
+        def run(tool):
+            out = io.StringIO()
+            data = {"tool_name": tool, "tool_input": {"command": "git commit -m x"}, "transcript_path": str(path)}
+            with patch.object(sys, "argv", ["allow_approved_request.py", "--runner", "claude"]), \
+                 patch.object(sys, "stdin", io.StringIO(json.dumps(data))), patch.object(sys, "stdout", out):
+                hook.main()
+            return out.getvalue()
+        decision = json.loads(run("Bash"))["hookSpecificOutput"]["decision"]
+        self.assertEqual(decision["behavior"], "deny")
+        self.assertTrue(decision["message"].endswith("다른 방식으로 작업하십시오."))
+        self.assertEqual(run("AskUserQuestion"), "")
 
     # 승인 뒤 하네스 항목은 건너뛰어 승인이 유지되고, 실제 사용자 발화가 오면 승인이 끝난다.
-    def test_approval_survives_harness(self):
+    def test_permission_request_survives_harness(self):
         path = self.root / "h.jsonl"
         lines = [claude_line("assistant", "계획"), claude_line("user", "승인"),
                  claude_line("user", "Skill /x is already loaded"),
                  claude_line("user", "Another Claude session sent a message:\n보고")]
         data = {"tool_name": "Bash", "tool_input": {"command": "python a.py"}, "transcript_path": str(path)}
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        self.assertTrue(hook.decide(data, "claude"))
+        self.assertEqual(hook.decide(data, "claude"), "allow")
         path.write_text("\n".join(lines + [claude_line("user", "다시 봐")]) + "\n", encoding="utf-8")
-        self.assertFalse(hook.decide(data, "claude"))
+        self.assertEqual(hook.decide(data, "claude"), "deny")
 
     # Codex 하위 thread는 부모 rollout의 사용자 마지막 메시지로 판정한다.
-    def test_codex_child_uses_parent(self):
+    def test_permission_request_codex_child_uses_parent(self):
         (self.root / "rollout-1-P.jsonl").write_text(
             codex_meta() + "\n" + codex_msg("user", "승인") + "\n", encoding="utf-8")
         child = self.root / "rollout-1-C.jsonl"
         child.write_text(codex_meta(agent_role="jelly", source={"subagent": {"thread_spawn": {"parent_thread_id": "P"}}})
                          + "\n", encoding="utf-8")
         data = {"tool_name": "Bash", "tool_input": {"command": "python a.py"}, "transcript_path": str(child)}
-        self.assertTrue(hook.decide(data, "codex"))
+        self.assertEqual(hook.decide(data, "codex"), "allow")
 
 
 if __name__ == "__main__":

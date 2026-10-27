@@ -1,13 +1,12 @@
 # Codex 전역 설정 `~/.codex/config.toml`에 반영하는 nestlab 항목이다.
 # `<NESTLAB>`은 이 저장소 경로, `<PYTHON>`은 Python 실행 파일 경로로 바꾼다.
-# 명령 허용·승인 요청·금지 규칙은 `rules/default.rules`에 있다.
+# 명령 허용 및 금지 규칙은 `rules/default.rules`에 있다.
 # 이 파일의 권한 항목
-#   금지: 보안 문서 읽기·쓰기, 세션 경로 밖 접근, ~/.claude·~/.codex 인증 파일 쓰기 (hooks/check_tool_use.py)
-#   승인 요청: 그 밖의 ~/.claude·~/.codex 쓰기는 샌드박스가 승인을 요청한다.
+#   금지: 보안 문서 읽기 및 쓰기, 세션 경로 밖 접근, ~/.claude 및 ~/.codex 쓰기 (hooks/check_tool_use.py)
 # 보안 문서 목록은 `~/.claude/settings.json`의 `permissions.deny` `Read(...)` 항목을 hook이 읽는다.
 
 # workspace-write: 저장소 안 쓰기만 허용하고 네트워크는 끈다.
-# rules의 forbidden은 샌드박스와 무관하게 적용되고, 샌드박스 밖 실행은 승인을 묻는다.
+# rules의 forbidden은 샌드박스와 무관하게 적용된다.
 # `approvals_reviewer = "auto_review"`는 승인 요청을 사용자 대신 처리하므로 쓰지 않는다.
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
@@ -23,8 +22,8 @@ prefer_mxc = true
 [windows]
 sandbox = "elevated"
 
-# hook 구성: 역할 주입(SessionStart·SubagentStart), 승인·입력·쓰기 범위·경로 검사(PreToolUse),
-# 승인 창 자동 허용(PermissionRequest), 반증 판정 검사·결과 저장(SubagentStop),
+# hook 구성: 역할 주입(SessionStart 및 SubagentStart), 승인, 입력, 쓰기 범위, 경로 검사(PreToolUse),
+# 승인 창 자동 허용(PermissionRequest), 반증 판정 검사 및 결과 저장(SubagentStop),
 # 지침 검사(PostToolUse), 사건 감지(Stop)
 
 [[hooks.SessionStart]]
@@ -53,7 +52,7 @@ type = "command"
 command = '"<PYTHON>" "<NESTLAB>/hooks/check_tool_use.py" --runner codex'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_tool_use.py" --runner codex'
 timeout = 10
-statusMessage = "Nestlab 승인·입력·쓰기 범위 검사"
+statusMessage = "Nestlab 승인, 입력, 쓰기 범위 검사"
 
 [[hooks.PermissionRequest]]
 

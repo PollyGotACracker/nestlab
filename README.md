@@ -15,11 +15,11 @@ Obsidian Archive: [Nodebase 저장소](https://github.com/PollyGotACracker/nodeb
 | 에이전트   | 이름         | 역할                                                       |
 | ---------- | ------------ | ---------------------------------------------------------- |
 | assistant  | buddy(버디)  | 기본 작업: 독립적인 웹 서치, 파일 변경 등                  |
-| director   | rio(리오)    | 프로젝트 작업: 저장소 사전 조사, 판단·승인 조율, 전체 흐름 |
+| director   | rio(리오)    | 프로젝트 작업: 저장소 사전 조사, 판단 및 승인 조율, 전체 흐름 |
 | researcher | nico(니코)   | 프로젝트 작업: 외부 조사, 비교, 계획 초안                  |
 | worker     | jelly(젤리)  | 프로젝트 작업: 구현                                        |
-| reviewer   | ricky(리키)  | 프로젝트 작업: 자료 및 주장 반증, 구현·문서 검증           |
-| documenter | pepper(페퍼) | 프로젝트 작업: 기록, 지침·문서 작성, Archive 작업          |
+| reviewer   | ricky(리키)  | 프로젝트 작업: 자료 및 주장 반증, 구현 및 문서 검증           |
+| documenter | pepper(페퍼) | 프로젝트 작업: 기록, 지침 및 문서 작성, Archive 작업          |
 
 각 에이전트의 역할과 persona는 .claude/agents/ 폴더를 참고한다.
 

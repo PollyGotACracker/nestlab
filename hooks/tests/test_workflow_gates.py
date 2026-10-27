@@ -17,6 +17,15 @@ import sub_role
 import sub_scope
 
 REAL_SKILL_CALLED = sub_scope.skill_called
+
+
+# 작업 흐름 게이트 테스트는 kickoff 게이트와 분리한다(test_check_tool_use의 KickoffGate가 다룬다).
+def setUpModule():
+    patcher = patch.object(hook, "kickoff_missing", return_value=False)
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
+
+
 ITEM = "검토 9. 예시 결정"
 STATE = """# t
 
@@ -45,7 +54,7 @@ STATE = """# t
 - 영향 범위: x
 - 범위 밖: 없음
 """
-LOOP = "## 조사·반증 루프\n\n| 회차 | 반증 건수 | 정지 여부 |\n| -- | -- | -- |\n| 1 | 0 | {stop} |\n"
+LOOP = "## 조사 및 반증 루프\n\n| 회차 | 반증 건수 | 정지 여부 |\n| -- | -- | -- |\n| 1 | 0 | {stop} |\n"
 STOP_STATE = STATE + "\n## 중단 사유\n\n- 중단 유형: {kind}\n"
 RESEARCH = """# 조사 문서: t
 
@@ -243,6 +252,48 @@ class Gates(unittest.TestCase):
         # 최종 확인은 한 번만 통과한다.
         self.assertIsNone(ask(self.plain("계속"), "최종 확인", "모두 확정할까요?"))
         self.assertIn("한 번만", ask(self.answered("모두 확정할까요?", header="최종 확인"), "최종 확인", "다시?"))
+
+    # 조사 원문이 빈 진행 중 작업의 `검토 <번호>.` 질문은 막고 조사 원문이 있으면 통과한다. (요구사항 7)
+    def test_question_gate_blocks_before_research(self):
+        (self.state / "t.md").write_text(STATE.format(item=ITEM, status="미검토", basis="x"), encoding="utf-8")
+        table = "| 안 | 장점 |\n| -- | -- |\n| A | 빠름 |"
+        compared = self.transcript(claude_line("user", "시작"), claude_line("assistant", [{"type": "text", "text": table}]))
+        data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": compared,
+                "tool_input": {"questions": [{"header": "결정", "question": f"{ITEM}: 어느 안으로 할까요?"}]}}
+        self.assertIn("최종 조사 원문", hook.check(data, "claude") or "")
+        (self.state / "t-research.md").write_text(RESEARCH, encoding="utf-8")
+        self.assertIsNone(hook.check(data, "claude"))
+
+    # 확정 답을 받은 질문만 이미 물은 질문으로 센다. 거부, 넘김, 문장 답 뒤 재질문과 답 없는 최종 확인 재호출은 통과한다.
+    def test_question_gate_counts_confirmed_only(self):
+        def ask(transcript, header, question):
+            data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": transcript,
+                    "tool_input": {"questions": [{"header": header, "question": question}]}}
+            return hook.check(data, "claude")
+        q = f"{ITEM}: 어느 안으로 할까요?"
+        table = "| 안 | 장점 |\n| :-- | :-- |\n| A | 빠름 |"
+        self.assertIn("이미 질문", ask(self.answered(q, answer="안 1 채택 확정", text=table), "결정", q))
+        for answer in ("", "[No preference]", "뭘 보고 검토하라는 거임"):
+            self.assertIsNone(ask(self.answered(q, answer=answer), "결정", q + "\n" + table))
+        final = "모두 확정할까요?"
+        self.assertIn("한 번만", ask(self.answered(final, answer="안 1 채택 확정", header="최종 확인"), "최종 확인", final))
+        for answer in ("", "[No preference]"):
+            self.assertIsNone(ask(self.answered(final, answer=answer, header="최종 확인"), "최종 확인", final))
+
+    # 질문 입력의 표와 선택지 설명의 heading은 안 비교로 인정하고, 형식만 있는 표나 heading은 막는다.
+    def test_question_gate_compare_in_input(self):
+        def ask(transcript, question, options=None, preview=None):
+            opt = [{"label": "a", "description": options or "", "preview": preview or ""}]
+            data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": transcript,
+                    "tool_input": {"questions": [{"header": "결정", "question": question, "options": opt}]}}
+            return hook.check(data, "claude")
+        base = f"{ITEM}: 어느 안으로 할까요?"
+        none = self.plain("계속")
+        self.assertIsNone(ask(none, base + "\n| 안 | 장점 |\n| :-- | :-- |\n| A | 빠름 |"))
+        self.assertIsNone(ask(none, base, options="### 안 A\n빠름"))
+        self.assertIn("안 비교", ask(none, base))
+        self.assertIn("안 비교", ask(none, base + "\n| 안 | 장점 |"))
+        self.assertIn("안 비교", ask(none, base + "\n### 안 A\n\n"))
 
     # 비교 표와 질문 호출, hook 실행 attachment가 순서대로 쌓인 기록에서 `검토 <번호>. <이름>` 질문은 통과하고 비교가 없으면 막는다.
     def test_question_after_comparison_with_attachment(self):

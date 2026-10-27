@@ -142,7 +142,7 @@ def discover_agents(root: Path) -> dict[str, str]:
 SOUL_IDENTITY_FIELDS = (("Species", "종"), ("MBTI", "MBTI"))
 
 
-# SOUL.md의 Identity 항목에서 종·MBTI 값을 읽는다.
+# SOUL.md의 Identity 항목에서 종 및 MBTI 값을 읽는다.
 def read_soul_identity(soul_path: Path) -> list[str]:
     # SOUL 문서에서 정체성 항목을 찾아 문장으로 모은다.
     text = soul_path.read_text(encoding="utf-8")
@@ -162,7 +162,7 @@ def read_tone_guide(soul_path: Path) -> str:
     return match.group(1).strip() if match else ""
 
 
-# 프롬프트 구성에 쓰이는 파일들의 수정 시각·크기로 서명을 만든다(파일 변경 감지용).
+# 프롬프트 구성에 쓰이는 파일들의 수정 시각 및 크기로 서명을 만든다(파일 변경 감지용).
 def prompt_source_signature(
     root: Path, role: str, roster_roles: tuple[str, ...] = ()
 ) -> tuple[tuple[str, int, int], ...]:
@@ -368,7 +368,7 @@ def build_request_system_prompt(
             ) + "\n"
         else:
             archive_block = (
-                f"- 지식 저장소는 GitHub {repo_name}이다. 조회·기록·삭제 도구는 documenter 역할 캐릭터만 가지고 있다.\n"
+                f"- 지식 저장소는 GitHub {repo_name}이다. 조회, 기록, 삭제 도구는 documenter 역할 캐릭터만 가지고 있다.\n"
                 "- 지식 저장소 연결, 내용, 수정, 삭제에 관한 요청에는 직접 답하지 말고, "
                 "[[next:...]]에 documenter 역할 캐릭터의 내부 ID를 넣어 넘긴다.\n"
             )
@@ -419,7 +419,7 @@ def read_style_rules(root: Path) -> str:
 
 
 # 채팅 채널용 시스템 프롬프트(공통 규칙 + 페르소나 + 채팅 규칙)를 만든다.
-# 작업용 담당 넘기기·Archive 절차 없이 이름·내부 ID·SOUL identity만 담은 동료 명단을 쓴다.
+# 작업용 담당 넘기기 및 Archive 절차 없이 이름, 내부 ID, SOUL identity만 담은 동료 명단을 쓴다.
 def build_chat_system_prompt(
     root: Path,
     role: str,
@@ -466,12 +466,12 @@ def build_chat_system_prompt(
     )
 
 
-# 응답 본문에서 [[next:...]], [[react:...]] 제어 줄을 분리해 본문·다음 화자·리액션 이모지를 반환한다.
+# 응답 본문에서 [[next:...]], [[react:...]] 제어 줄을 분리해 본문, 다음 화자, 리액션 이모지를 반환한다.
 def parse_chat_controls(result: str) -> tuple[str, str, str | None, bool]:
     # 응답의 마지막 줄에서 next와 wait 제어 줄을 분리한다.
     lines = result.strip().splitlines()
     next_match = CHAT_NEXT.fullmatch(lines[-1].strip()) if lines else None
-    # 마지막 next 줄이 빠진 응답은 next를 stop으로 보고 wait·react 줄은 그대로 분리한다.
+    # 마지막 next 줄이 빠진 응답은 next를 stop으로 보고 wait 및 react 줄은 그대로 분리한다.
     if next_match:
         lines.pop()
     wait_match = CHAT_WAIT.fullmatch(lines[-1].strip()) if lines else None
@@ -552,7 +552,7 @@ def collect_tool_evidence(
             raw = json.dumps(block.content, ensure_ascii=False) if not isinstance(block.content, str) else block.content
             urls = sorted(set(input_urls + URL_PATTERN.findall(raw)))
             if tool_result_failed(block):
-                status = "실패·미확인"
+                status = "실패 및 미확인"
             elif tool_name.lower() in {"webfetch", "web_fetch"} and urls:
                 status = "확인"
             else:
@@ -560,7 +560,7 @@ def collect_tool_evidence(
             records.append(f"{status} {tool_name}" + (f": {', '.join(urls)}" if urls else ""))
 
 
-# 도구·출처 기록을 중복 없이 목록 문구로 만든다.
+# 도구 및 출처 기록을 중복 없이 목록 문구로 만든다.
 def render_tool_evidence(records: list[str]) -> str:
     unique = list(dict.fromkeys(records))
     return "\n".join(f"- {record}" for record in unique)
@@ -568,16 +568,18 @@ def render_tool_evidence(records: list[str]) -> str:
 
 
 
-# 턴마다 남기는 도구·출처 기록 줄의 머리말. 요약 입력에서 빼고 원문 창 안의 것만 보낸다.
-EVIDENCE_HEADER = "[이번 턴 도구·출처 기록]"
+# 턴마다 남기는 도구 및 출처 기록 줄의 머리말. 요약 입력에서 빼고 원문 창 안의 것만 보낸다.
+EVIDENCE_HEADER = "[이번 턴 도구 및 출처 기록]"
+# 이전 머리말로 저장된 기록도 도구와 출처 기록으로 본다.
+EVIDENCE_HEADERS = (EVIDENCE_HEADER, "[이번 턴 도구" + chr(0xB7) + "출처 기록]")
 
-# 채팅 기록 줄이 도구·출처 기록인지 판정한다.
+# 채팅 기록 줄이 도구 및 출처 기록인지 판정한다.
 def is_evidence_entry(entry: tuple[int, float, str, str, int | None]) -> bool:
-    return entry[3].startswith(EVIDENCE_HEADER)
+    return entry[3].startswith(EVIDENCE_HEADERS)
 
 
 # 템플릿의 알려진 자리표시자를 긴 이름부터 한 번에 치환한다.
-# 치환된 값 안의 $이름은 다시 치환하지 않아 기록·기억 내용이 다른 자리를 오염시키지 않는다.
+# 치환된 값 안의 $이름은 다시 치환하지 않아 기록 및 기억 내용이 다른 자리를 오염시키지 않는다.
 def fill_template(template: str, values: dict[str, str]) -> str:
     # 템플릿의 키를 값으로 한 번에 바꾼다.
     if not values:

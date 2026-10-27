@@ -1,4 +1,4 @@
-"""장기기억 프롬프트·도구·삭제·시작 동기화를 처리하고 대화 상태를 저장한다."""
+"""장기기억 프롬프트, 도구, 삭제, 시작 동기화를 처리하고 대화 상태를 저장한다."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ MEMORY_QUERY_LINES = 3
 MEMORY_FILE_NAME = "MEMORY.md"
 
 
-# 자동 첨부 기억을 고를 검색 문장. 도구·출처 기록을 뺀 최근 대화 몇 줄을 쓴다.
+# 자동 첨부 기억을 고를 검색 문장. 도구 및 출처 기록을 뺀 최근 대화 몇 줄을 쓴다.
 def memory_query_text(runtime: Any, channel_id: int) -> str:
     # 대화 기록에서 증거 항목을 빼고 최근 줄을 이어 검색어를 만든다.
     history = getattr(runtime, "chat_histories", {}).get(channel_id) or ()
@@ -196,7 +196,7 @@ def delete_attachment_files(message_ids: set[int]) -> int:
     return removed
 
 
-# 메시지 삭제를 기억·첨부에 반영한다. 채널 등록 여부와 관계없이 먼저 실행한다.
+# 메시지 삭제를 기억 및 첨부에 반영한다. 채널 등록 여부와 관계없이 먼저 실행한다.
 # 저장소에 올린 persona 기억이 지워지면 캐릭터별 MEMORY.md 갱신 필요 표시만 남긴다.
 def handle_deleted_messages(runtime: Any, message_ids: set[int]) -> list[dict[str, Any]]:
     # 삭제된 메시지의 묶음을 넓히고 삭제 기록을 남긴다.
@@ -218,7 +218,7 @@ def handle_deleted_messages(runtime: Any, message_ids: set[int]) -> list[dict[st
     return deleted
 
 
-# 스레드 삭제를 기억·첨부에 반영한다.
+# 스레드 삭제를 기억 및 첨부에 반영한다.
 def handle_deleted_channel(runtime: Any, channel_id: int) -> list[dict[str, Any]]:
     # 저장소가 없으면 지울 것이 없다.
     store = runtime.memory
@@ -398,9 +398,9 @@ def archive_pending_for(runtime: Any, channel_id: int, requester_id: int | None)
     return pending
 
 
-# 모든 역할이 쓰는 장기기억·persona 기억 도구를 만든다. 서버 ID나 저장소가 없으면 붙이지 않는다.
+# 모든 역할이 쓰는 장기기억 및 persona 기억 도구를 만든다. 서버 ID나 저장소가 없으면 붙이지 않는다.
 # memory_save와 업로드 대기는 사용자 메시지로 시작한 대화의 턴(user_trigger_message_id)에서만 만든다.
-# requester_id는 업로드 대기를 승인·취소할 수 있는 사용자다.
+# requester_id는 업로드 대기를 승인 및 취소할 수 있는 사용자다.
 def build_memory_server(
     channel: Any,
     runtime: Any,
@@ -620,7 +620,7 @@ async def sync_archive_forum(client: Any) -> None:
     )
 
 
-# 시작 시 explicit·persona 기억과 첨부의 원본을 확인한다. NotFound면 지우고 그 밖의 오류는 보존한다.
+# 시작 시 explicit 및 persona 기억과 첨부의 원본을 확인한다. NotFound면 지우고 그 밖의 오류는 보존한다.
 async def verify_memory_sources(client: Any) -> None:
     # 오래된 첨부를 정리하고 출처 메시지가 사라진 기억을 찾아 지운다.
     runtime = client.runtime

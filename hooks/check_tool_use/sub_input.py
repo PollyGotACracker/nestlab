@@ -55,9 +55,9 @@ def is_refute_format(prompt: str) -> bool:
     return len(lines) == 2 and lines[0] == REFUTE_MARKER and bool(REFUTE_LINE.match(lines[1]))
 
 
-LEAK = "서브에이전트 입력과 전달되는 문서에서 사건 문서 경로와 세션 기록 정보(경로·세션 id)를 제거하십시오. 해당 부분은 {leak}입니다."
+LEAK = "서브에이전트 입력과 전달되는 문서에서 사건 문서 경로와 세션 기록 정보(경로 및 세션 id)를 제거하십시오. 해당 부분은 {leak}입니다."
 
-# text와 text가 가리키는 작업 문서(조사 단계 원문 절 제외)에서 기록 정보 형식이나 주어진 세션 id(전체·앞 8자)가 든 첫 줄이다.
+# text와 text가 가리키는 작업 문서(조사 단계 원문 절 제외)에서 기록 정보 형식이나 주어진 세션 id(전체 및 앞 8자)가 든 첫 줄이다.
 def session_leak(text: str, cwd: str | None, *session_ids: str | None) -> str | None:
     # 검사할 세션 id와 본문(요청과 가리킨 문서)을 구한다.
     root = sub_docs.project_root(cwd)
@@ -78,8 +78,9 @@ def session_leak(text: str, cwd: str | None, *session_ids: str | None) -> str | 
 
 REASON_RESEARCHER_CALL = "researcher는 다른 에이전트를 호출할 수 없습니다."
 REASON_REFUTE_FORMAT = "반증 요청은 `작업 종류: 반증` 한 줄과 `반증 문서: log/task/<작업-id>/refute.md` 한 줄만 허용합니다."
-REASON_WORKER_FORMAT = "worker·reviewer·documenter 입력은 `작업 종류: <종류>` 한 줄과 `명세 문서: log/task/<작업-id>/spec.md` 한 줄만 허용합니다."
-REASON_RESEARCHER_FORMAT = "researcher 조사 입력은 `조사 문서: log/task/<작업-id>/research.md` 한 줄만 허용합니다."
+REASON_WORKER_FORMAT = "worker, reviewer, documenter 입력은 `작업 종류: <종류>` 한 줄과 `명세 문서: log/task/<작업-id>/spec.md` 한 줄만 허용합니다."
+REASON_RESEARCHER_FORMAT = ("researcher 조사 입력은 `작업 종류: 조사` 줄(선택), "
+                            "`조사 문서: log/task/<작업-id>/research.md` 한 줄, 이어서 `항목: <검토 항목>` 줄만 허용합니다.")
 REASON_INPUT_FORMAT = "서브에이전트 입력 형식이 아닙니다."
 
 # 위반 사유를 반환한다. 통과면 None이다.

@@ -102,7 +102,7 @@ def parse_reminder_time(raw: str) -> str | None:
     return f"{hour:02d}:{minute:02d}"
 
 
-# 반복 요일 목록을 매일·매주 문구로 바꾼다.
+# 반복 요일 목록을 매일 및 매주 문구로 바꾼다.
 def format_reminder_days(days: list[int]) -> str:
     # 요일 목록을 매일 또는 요일 이름 문구로 만든다.
     if days == list(range(7)):

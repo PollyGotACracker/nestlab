@@ -267,6 +267,31 @@ class RecordIncident(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertTrue(hook.admissions(hook.plain(text)), text)
 
+    # 인용과 설명 문장의 조건부 표현은 감지하지 않고, 1인칭 문맥이나 직전 사용자 지적이 있으면 감지한다. 철회는 항상 감지한다. (요구사항 6 결함 6)
+    def test_conditional_expressions_need_speaker_or_pointing(self):
+        for text in ("요구사항 이름은 근거 없는 동의와 다짐 차단입니다.", "패턴 목록에 어긴, 확인 없이가 있습니다."):
+            self.assertEqual(hook.admissions(hook.plain(text)), [], text)
+        self.assertTrue(hook.admissions("제가 근거 없는 주장을 했습니다."))
+        self.assertTrue(hook.admissions("근거 없는 주장을 했습니다.", "방금 답이 틀렸다고 지적했잖아"))
+        self.assertTrue(hook.admissions("제가 철회합니다."))
+
+    # 문맥 없이도 같은 문장이 자기 행동을 과거형으로 인정하면 감지하고, 인용, 동작 설명, 부정 서술은 감지하지 않는다. (요구사항 6 재작업)
+    def test_conditional_self_past_statement(self):
+        for text in ("승인 범위 밖 지침을 어긴 것입니다.", "이번 일은 규칙을 어긴 사건입니다.",
+                     "원문을 확인 없이 쓴 문장입니다.", "근거 없는 봇 수정안을 냈습니다.",
+                     "명세를 읽지 않은 채 다시 제출했습니다.", "원문을 대조하지 않은 채 분류한 것이 원인입니다.",
+                     "근거 없는 수정안을 냈었습니다.", "읽지 않은 채 제출했었습니다.",
+                     "확인 없이 처리했었습니다."):
+            with self.subTest(text=text):
+                self.assertTrue(hook.admissions(text), text)
+        for text in ("요구사항 12. 근거 없는 동의와 다짐 차단",
+                     "읽기 호출은 아무것도 출력하지 않은 채 통과시킵니다.",
+                     "지침을 어긴 행동은 찾지 못했습니다.",
+                     "이 도구는 확인 없이 덮어쓴 것입니다.", "이 hook은 근거 없는 감지를 낸 것입니다.",
+                     "확인 없이 쓴 것입니다만 문제는 없습니다."):
+            with self.subTest(text=text):
+                self.assertEqual(hook.admissions(text), [], text)
+
     # Windows 분기 플래그에 DETACHED_PROCESS가 없고 CREATE_NO_WINDOW가 있는지 확인한다.
     def test_windows_flags_no_detached_process(self):
         self.assertFalse(hook.WINDOWS_FLAGS & 0x00000008)
@@ -406,7 +431,7 @@ class RecordIncident(unittest.TestCase):
                 self.assertEqual(lines[0], f"# {runner}: {file.stem}")
                 self.assertEqual([line.split(":", 1)[0] for line in lines[2:10]],
                                  ["- 사건 ID", "- runner", "- 세션 ID", "- 관련 작업 ID",
-                                  "- 실행 위치", "- 발생·확인 시점", "- 관련 담당", "- 조치 상태"])
+                                  "- 실행 위치", "- 발생 및 확인 시점", "- 관련 담당", "- 조치 상태"])
                 self.assertEqual(lines[2], f"- 사건 ID: {file.stem}")
                 self.assertEqual(lines[3], f"- runner: {runner}")
                 self.assertEqual(lines[4], f"- 세션 ID: {runner}-full-session-id")

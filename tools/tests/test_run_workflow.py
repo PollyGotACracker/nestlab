@@ -17,15 +17,15 @@ class Workflow(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        folder = self.root / ".claude/agents/researcher"
+        folder = self.root / ".claude/agents/director"
         folder.mkdir(parents=True)
-        (folder / "AGENTS.md").write_text("역할 지침", encoding="utf-8")
+        (folder / "AGENTS.md").write_text("director 지침", encoding="utf-8")
 
     # Claude 최종 결과를 반환하고 --bare를 쓰지 않는지 확인한다.
     def test_claude_final_and_no_bare(self):
         result = subprocess.CompletedProcess([], 0, json.dumps({"result": "결과"}))
         with patch.object(runner.subprocess, "run", return_value=result) as call:
-            self.assertEqual(runner.invoke(self.root, "claude", "research", "요청"), "결과")
+            self.assertEqual(runner.invoke(self.root, "claude", "incident", "요청"), "결과")
         self.assertEqual(call.call_args.args[0][:2], ["claude", "-p"])
         self.assertNotIn("--bare", call.call_args.args[0])
 
@@ -35,14 +35,11 @@ class Workflow(unittest.TestCase):
                   {"type": "item.completed", "item": {"type": "agent_message", "text": "결과"}}]
         result = subprocess.CompletedProcess([], 0, "\n".join(map(json.dumps, events)))
         with patch.object(runner.subprocess, "run", return_value=result) as call:
-            self.assertEqual(runner.invoke(self.root, "codex", "research", "요청"), "결과")
-        self.assertEqual(call.call_args.args[0][:4], ["codex", "exec", "--sandbox", "workspace-write"])
+            self.assertEqual(runner.invoke(self.root, "codex", "incident", "요청"), "결과")
+        self.assertEqual(call.call_args.args[0][:2], ["codex", "exec"])
 
     # 사건 분석 단계가 director 지침과 세 줄 요청을 hook을 끈 CLI로 실행하는지 확인한다.
     def test_incident_disables_hooks_and_limits_tools(self):
-        folder = self.root / ".claude/agents/director"
-        folder.mkdir(parents=True)
-        (folder / "AGENTS.md").write_text("director 지침", encoding="utf-8")
         (self.root / "log/incident").mkdir(parents=True)
         (self.root / "log/incident/a.md").write_text("# a", encoding="utf-8")
         claude = subprocess.CompletedProcess([], 0, json.dumps({"result": "분석"}))
@@ -73,59 +70,24 @@ class Workflow(unittest.TestCase):
             with patch.object(runner.subprocess, "run", return_value=result) as call, \
                  patch.object(runner.sys, "platform", platform), \
                  patch.object(runner.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True):
-                runner.invoke(self.root, "claude", "research", "요청")
+                runner.invoke(self.root, "claude", "incident", "요청")
             self.assertEqual(call.call_args.kwargs["creationflags"], expected)
-
-    # 일반 단계 실행에는 hook 비활성 옵션이 없는지 확인한다.
-    def test_regular_stage_keeps_hooks(self):
-        result = subprocess.CompletedProcess([], 0, json.dumps({"result": "결과"}))
-        with patch.object(runner.subprocess, "run", return_value=result) as call:
-            runner.invoke(self.root, "claude", "research", "요청")
-        self.assertNotIn("--settings", call.call_args.args[0])
 
     # 빈 결과와 오류 결과가 ValueError로 막히는지 확인한다.
     def test_empty_and_failed_results_block(self):
         for output in ('{"result": ""}', '{"is_error": true, "result": "오류"}'):
             with patch.object(runner.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, output)):
                 with self.assertRaises(ValueError):
-                    runner.invoke(self.root, "claude", "research", "요청")
+                    runner.invoke(self.root, "claude", "incident", "요청")
 
-    # 선행 조건이 미달이면 CLI를 실행하지 않는지 확인한다.
-    def test_validation_prevents_launch(self):
-        with patch.object(runner, "validate", side_effect=ValueError("승인되지 않음")), \
-                patch.object(runner, "invoke") as call:
-            with self.assertRaisesRegex(ValueError, "승인되지 않음"):
-                runner.run(self.root, "t", "implement", "codex")
-            call.assert_not_called()
-
-    # 단계 실행기에 검증 단계 인자가 없고 조사 단계 인자는 받는지 확인한다.
-    def test_review_stage_removed(self):
-        self.assertFalse(hasattr(runner, "run_checks"))
-        for stage, ok in (("review", False), ("rereview", False), ("research", True)):
-            argv = ["x", "--task", "t", "--stage", stage, "--runner", "claude"]
-            with self.subTest(stage=stage), patch.object(runner.sys, "argv", argv), \
-                    patch.object(runner, "run", return_value="ok"), patch("builtins.print"), \
-                    patch.object(runner.sys, "stderr"):
-                if ok:
-                    self.assertEqual(runner.main(), 0)
-                else:
-                    with self.assertRaises(SystemExit):
-                        runner.main()
-
-    # 요청문이 새 경로 문서 한 줄만 싣고 상태 문서 경로를 싣지 않는지 확인한다.
-    def test_request_text_has_one_doc_line(self):
-        task = "20260101-000000-t"
-        folder = self.root / "log/task" / task
-        folder.mkdir(parents=True)
-        for name in ("spec", "research", "refute"):
-            (folder / f"{name}.md").write_text("x", encoding="utf-8")
-        base = f"log/task/{task}"
-        self.assertEqual(runner.request_text(self.root, task, "research"),
-                         f"작업 종류: 조사\n조사 문서: {base}/research.md")
-        self.assertEqual(runner.request_text(self.root, task, "refute"),
-                         f"작업 종류: 반증\n반증 문서: {base}/refute.md")
-        self.assertEqual(runner.request_text(self.root, task, "implement"),
-                         f"작업 종류: 구현\n명세 문서: {base}/spec.md")
+    # 단계 실행 인자(--task, --stage)는 argparse 오류로 끝나고 외부 CLI를 실행하지 않는지 확인한다.
+    def test_stage_arguments_rejected(self):
+        argv = ["x", "--task", "x", "--stage", "research", "--runner", "claude"]
+        with patch.object(runner.sys, "argv", argv), patch.object(runner.subprocess, "run") as call,                 patch.object(runner.sys, "stderr"):
+            with self.assertRaises(SystemExit) as raised:
+                runner.main()
+        self.assertEqual(raised.exception.code, 2)
+        call.assert_not_called()
 
 
 if __name__ == "__main__":

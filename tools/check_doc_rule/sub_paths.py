@@ -15,7 +15,7 @@ from sub_config import (
 )
 
 
-# SKIP_DIRS를 뺀 저장소의 파일·폴더 이름을 소문자로 모은다.
+# SKIP_DIRS를 뺀 저장소의 파일 및 폴더 이름을 소문자로 모은다.
 def build_name_index() -> set[str]:
     names: set[str] = set()
     for path in ROOT.rglob("*"):

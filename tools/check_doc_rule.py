@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""지침 문서의 끊어진 경로·절 참조와 금지 패턴을 검사한다.
+"""지침 문서의 끊어진 경로 및 절 참조와 금지 패턴을 검사한다.
 
 사용법: 저장소 루트나 다른 위치에서 실행한다.
     python tools/check_doc_rule.py
@@ -30,7 +30,7 @@
 
 설정과 패턴은 같은 폴더의 config.py에 있다.
 
-모듈(check_doc_rule/): sub_config 설정·경로 값, sub_paths 경로 판정, sub_rules 지침 검사, sub_sections 절 읽기
+모듈(check_doc_rule/): sub_config 설정 및 경로 값, sub_paths 경로 판정, sub_rules 지침 검사, sub_sections 절 읽기
 공용 모듈: hooks/common/sub_write (hook 입력의 쓰기 대상 경로)
 """
 from __future__ import annotations

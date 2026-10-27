@@ -25,14 +25,25 @@ import sub_role
 import sub_path
 import sub_scope
 import sub_plan
+import sub_write
 
-RESEARCH = """# 조사 문서: t
+REAL_KICKOFF = hook.kickoff_missing
+
+
+# 모든 테스트는 kickoff 게이트를 끄고, KickoffGate 테스트만 실제 판정을 쓴다.
+def setUpModule():
+    patcher = patch.object(hook, "kickoff_missing", return_value=False)
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
+
+
+RESEARCH ="""# 조사 문서: t
 
 ## 조사 계획
 
 ### 검토 1. 도구 선택
 
-## 조사·반증 루프
+## 조사 및 반증 루프
 
 | 단계 | 회차 | 반증 건수 | 정지 여부 |
 | ---- | ---- | --------- | --------- |
@@ -200,41 +211,24 @@ class WriteScope(unittest.TestCase):
         for cmd in ("git status", "rg -n 'a|b' AGENTS.md", "Get-Content AGENTS.md", "rg -e foo", "ls | head", "date",
                     'rg -n "a => b" AGENTS.md', "rg -n 'x>y' f", "cmd 2>/dev/null", "cmd >/dev/null 2>&1", "cmd > $null",
                     "cmd >NUL", "git log | head", "python -m unittest discover -s hooks/tests 2>&1 | tail -20",
-                    'git commit -m "x; y > z"', "sed -n '1,5p' f"):
+                    "sed -n '1,5p' f"):
             self.assertIsNone(bash(cmd), cmd)
-        # Bash 내용 쓰기는 승인과 무관하게 전용 도구를 안내하며 막는다.
+        # 쓰기 호출이 없는 인라인 코드는 통과한다.
+        for cmd in ("node -e 'x'", 'python -I -X utf8 -c "print(1)"'):
+            self.assertIsNone(bash(cmd), cmd)
+        # Bash 내용 쓰기는 승인과 무관하게 막고, 사유는 "다른 방식으로 작업하십시오."로 끝난다.
         approved = self.transcript(("assistant", "계획"), ("user", "승인"), name="yes.jsonl")
         for cmd in ("echo a > f.txt", "echo x > out.txt", "cmd >> f", "Set-Content f x", "git status && echo x > a",
-                    "python -c \"open('a','w')\"", "node -e 'x'", "bash -c 'echo hi > f'", "ls | tee out.txt",
-                    "cat > notes.md <<'EOF'\nhi\nEOF"):
-            guide = "인라인 코드" if cmd.startswith(("python", "node")) else "다른 쓰기 도구"
-            self.assertIn(guide, bash(cmd) or "", cmd)
-            if guide == "인라인 코드":
-                self.assertIsNone(bash(cmd, approved), cmd)  # 승인 턴에는 인라인 코드를 막지 않는다.
-            else:
-                self.assertIn(guide, bash(cmd, approved) or "", cmd)
-            self.assertIn("다른 쓰기 도구를 선택하여 작업하십시오", bash(cmd) or "", cmd)
-            self.assertNotIn("파일로 만들어", bash(cmd) or "", cmd)
+                    "bash -c 'echo hi > f'", "ls | tee out.txt", "cat > notes.md <<'EOF'\nhi\nEOF"):
+            self.assertTrue((bash(cmd) or "").endswith("다른 방식으로 작업하십시오."), cmd)
+            self.assertIsNone(bash(cmd, approved), cmd)  # 승인 턴은 보안, 외부 경로, git 비가역 작업만 막는다.
             self.assertNotIn("·", bash(cmd) or "", cmd)
-            if guide == "인라인 코드":
-                self.assertNotIn("리다이렉트", bash(cmd))
+        # 쓰기 호출이 있는 인라인 코드는 승인 전에 막고 승인 턴에는 통과한다.
+        for cmd in ("python -c \"open('a','w')\"", "node -e \"require('fs').writeFileSync('a','x')\""):
+            self.assertIn("인라인 코드", bash(cmd) or "", cmd)
+            self.assertIsNone(bash(cmd, approved), cmd)
         # 리다이렉트 사유에는 따옴표를 벗긴 실제 대상 경로가 나온다.
         self.assertIn("이 명령은 리다이렉트로 `C:/tmp/a b.txt`에 내용을 씁니다.", bash('echo x > "C:/tmp/a b.txt"') or "")
-
-    # 승인 창을 띄우는 셸 변수, 반복문, 임시 폴더 경로 명령은 deny하고 환경 변수 접두와 작은따옴표 안 $는 통과한다.
-    def test_bash_prompt_commands_denied(self):
-        def bash(cmd):
-            return hook.check({"tool_name": "Bash", "tool_input": {"command": cmd, "description": "테스트 명령"},
-                               "agent_type": "rio"}, "claude")
-        temp = str(Path(self.ostemp.name).resolve() / "hooks_doc.md").replace("\\", "/")
-        for cmd, text in (('D="docs"; sed -n 1,5p "$D/a.md"', "셸 변수나 명령 치환을 씁니다"),
-                          ("ls $(pwd)", "셸 변수나 명령 치환을 씁니다"),
-                          ("for f in a b; do echo f; done", "반복문을 씁니다"), (f"sed -n 1,5p {temp}", "임시 폴더")):
-            self.assertIn(text, bash(cmd) or "", cmd)
-        for cmd in ("TZ=KST-9 date '+%H:%M'", "grep -n '$HOME' a.md"):
-            self.assertIsNone(bash(cmd), cmd)
-        # 스크립트 실행은 임시 폴더 경로여도 deny하지 않고 승인 창 규칙에 맡긴다.
-        self.assertIsNone(bash(f"python {temp.replace('.md', '.py')}"))
 
     # 조사 문서에 새로 들어가는 출처가 URL이나 파일:행이 아니면 Write와 apply_patch 모두 deny한다.
     def test_research_source_format(self):
@@ -303,6 +297,27 @@ class WriteScope(unittest.TestCase):
         self.assertIsNone(self.write("log/state/t-research.md", rounds.replace("| A    | 낮음 |", "| A | 중간 |")))
         self.assertIsNotNone(self.write("log/state/n-research.md", rounds))
 
+    # 반증 문서는 빈 양식 전체 덮어쓰기만 허용하고 회차 블록 일부만 지우는 쓰기는 deny한다. (요구사항 6 결함 5)
+    def test_refute_doc_blank_overwrite_only(self):
+        blank = "# 반증 문서: t\n\n## 조사 및 반증 루프\n\n## 회차 기록\n\n### 최종 반증 원문\n\n```\n기록 없음\n```\n"
+        rounds = ("# 반증 문서: t\n\n## 조사 및 반증 루프\n\n## 회차 기록\n\n"
+                  "### 1회차 반증 원문\n\n```\n- 주장 1: 반증\n```\n\n### 2회차 반증 원문\n\n```\n- 주장 1: 지지\n```\n")
+        folder = self.root / "log" / "task" / "t"
+        folder.mkdir(parents=True)
+        (folder / "refute.md").write_text(rounds, encoding="utf-8")
+        self.assertIsNone(self.write("log/task/t/refute.md", blank))
+        partial = rounds[:rounds.index("### 2회차")]
+        self.assertIn("회차 반증 블록", self.write("log/task/t/refute.md", partial) or "")
+
+    # nestlab-rule 호출 없이 전역 지침과 역할 MAIN.md, SUB.md를 고치는 쓰기는 deny하고 호출 뒤에는 통과한다. (요구사항 4)
+    def test_rule_skill_required_for_guideline_files(self):
+        for rel in ("AGENTS.global.md", ".claude/agents/director/MAIN.md", ".claude/agents/researcher/SUB.md"):
+            with self.subTest(rel=rel):
+                with patch.object(sub_scope, "skill_called", return_value=False):
+                    self.assertIn("nestlab-rule", self.write(rel, "x") or "")
+                self.assertIsNone(self.write(rel, "x"))
+        self.assertEqual(sub_scope.skill_for(".claude/agents/director/SOUL.md"), None)
+
     # 새 조사 문서는 빈 원문 칸일 때만 허용되는지 확인한다.
     def test_new_research_doc_allows_empty_raw_only(self):
         self.assertIsNone(self.write("log/state/n-research.md", RESEARCH))
@@ -360,26 +375,25 @@ class WriteScope(unittest.TestCase):
         (self.root / "skills" / "nestlab-log-state" / "SKILL.md").write_text("# 주석 없음\n", encoding="utf-8")
         self.assertIn("주석이 없습니다", self.write("hooks/a.py", "x") or "")
 
-    # 메인 세션 Bash는 쓰기 명령을 승인과 관계없이 막고 다른 쓰기 도구를 안내하며 읽기 명령은 통과한다.
+    # 메인 세션 Bash는 승인 전 쓰기 명령을 막고 승인 턴에는 통과시키며 읽기 명령은 통과한다.
     def test_main_session_bash_denies_writes(self):
-        def bash(cmd):
+        def bash(cmd, user="승인"):
             return hook.check({"tool_name": "Bash", "tool_input": {"command": cmd, "description": "테스트 명령"},
                                "agent_type": "rio", "cwd": str(self.root),
-                               "transcript_path": self.transcript(("assistant", "계획"), ("user", "승인"))}, "claude")
+                               "transcript_path": self.transcript(("assistant", "계획"), ("user", user))}, "claude")
         for cmd in ("sed -i s/a/b/ a.py", "echo x > a.txt", "rm a.txt"):
-            reason = bash(cmd) or ""
-            self.assertIn("다른 쓰기 도구를 선택하여 작업하십시오", reason, cmd)
-            self.assertNotIn("파일로 만들어", reason, cmd)
+            self.assertTrue((bash(cmd, "다시 생각해") or "").endswith("다른 방식으로 작업하십시오."), cmd)
+            self.assertIsNone(bash(cmd), cmd)
         self.assertIsNone(bash("git status"))
         self.assertIsNone(bash("grep -n def hooks/common/sub_write.py"))
-        # 승인 턴에는 인라인 코드와 승인 창 형태 명령을 hook이 막지 않는다.
+        # 승인 턴에는 인라인 코드와 셸 변수, 반복문, 저장소 안 git -C를 hook이 막지 않는다.
         for cmd in ('python -c "print(1)"', 'D=/x; ls "$D"', "for f in a b; do echo f; done", "git -C hooks log -1",
-                    "git -c a.b=c log -1", "cat <<'E'\na\nb\nE"):
+                    "cat <<'E'\na\nb\nE"):
             self.assertIsNone(bash(cmd), cmd)
-        # 승인 턴에도 cd는 막는다.
-        self.assertIn("cd 없이", bash("cd hooks && git status") or "")
-        for cmd in ("cd hooks && git status --short", "cd hooks && grep -n def sub_write.py"):
-            self.assertIn("cd 없이 경로를 인자로", bash(cmd) or "", cmd)
+        # 승인 턴에도 git -c와 cd는 막는다.
+        self.assertEqual(bash("git -c a.b=c log -1"), sub_write.REASON_GIT_C)
+        for cmd in ("cd hooks && git status", "cd hooks && git status --short", "cd hooks && grep -n def sub_write.py"):
+            self.assertEqual(bash(cmd), sub_write.REASON_CD, cmd)
 
     # 실행 승인 뒤 worker와 documenter만 쓰기 Bash를 쓰고 log/ 경로가 든 명령과 reviewer의 쓰기는 막는다.
     def test_write_roles_bash_after_approval(self):
@@ -395,8 +409,8 @@ class WriteScope(unittest.TestCase):
             self.assertIsNone(bash(role, "sed -i s/a/b/ a.py"), role)
             self.assertIsNone(bash(role, "python -c \"print(1)\""), role)
             self.assertIn("log/", bash(role, "sed -i s/a/b/ log/task/t/spec.md") or "", role)
-            self.assertIsNotNone(bash(role, 'D=/x; ls "$D"'), role)
-            self.assertIn("heredoc", bash(role, "python - <<'E'\nprint(1)\nprint(2)\nE") or "", role)
+            self.assertIsNone(bash(role, 'D=/x; ls "$D"'), role)
+            self.assertIsNone(bash(role, "python - <<'E'\nprint(1)\nprint(2)\nE"), role)
         self.assertIsNotNone(bash("reviewer", "sed -i s/a/b/ a.py"))
 
         # 실행 승인 전에는 worker도 쓰기 Bash를 쓸 수 없다.
@@ -429,7 +443,7 @@ class WriteScope(unittest.TestCase):
                 "agent_type": "jelly", "agent_id": "sub-1", "cwd": str(self.root), "transcript_path": no}
         self.assertIsNone(hook.check(data, "claude"))
 
-    # assistant 메인 세션은 승인 명령 턴에만 쓰기 Bash를 쓰고 log/ 경로 명령은 막으며 prompt_reason은 계속 받는다.
+    # assistant 메인 세션은 승인 명령 턴에만 쓰기 Bash를 쓰고 log/ 경로 명령은 막으며 저장소 밖 git -C는 계속 막는다.
     def test_assistant_main_session_not_gated(self):
         self.running_task("미검토")
         yes = self.transcript(("assistant", "계획"), ("user", "승인"))
@@ -440,12 +454,13 @@ class WriteScope(unittest.TestCase):
         for cmd in ("rm a.txt", "mv a b", "sed -i s/a/b/ a.py", 'python -c "print(1)"'):
             self.assertIsNone(bash(cmd), cmd)
         self.assertIn("log/", bash("sed -i s/a/b/ log/task/t/status.md") or "")
-        self.assertIsNone(bash("git -C /x log -1"))
+        self.assertIsNone(bash("git -C hooks log -1"))
+        self.assertIsNotNone(bash("git -C /x log -1"))
         no = self.transcript(("assistant", "계획"), ("user", "고쳐"))
         self.assertIsNotNone(bash("sed -i s/a/b/ a.py", no))
         self.assertIsNone(self.write("hooks/a.py", "x", role="buddy"))
 
-    # git 복구, 삭제 명령은 승인 여부와 관계없이 director 메인 세션에서 deny된다.
+    # git 복구, 삭제 명령은 승인 전 director 메인 세션에서 deny되고 승인 턴에는 설정 deny 규칙에 맡겨 hook이 막지 않는다.
     def test_main_session_bash_write_commands_denied(self):
         for cmd in ("git checkout -- README.md", "git restore README.md", "git apply a.patch", "git reset --hard",
                     "find . -name '*.tmp' -delete", "ls | xargs rm"):
@@ -454,36 +469,7 @@ class WriteScope(unittest.TestCase):
             no = self.transcript(("assistant", "diff"), ("user", "고쳐"))  # 같은 기록 파일을 덮어쓰므로 매번 만든다.
             self.assertIsNotNone(hook.check({**data, "transcript_path": no}, "claude"), cmd)
             yes = self.transcript(("assistant", "diff"), ("user", "승인"))
-            self.assertIn("다른 쓰기 도구", hook.check({**data, "transcript_path": yes}, "claude") or "", cmd)
-
-    # 승인 창 형태 명령은 승인 턴과 Codex에서 통과하고, 비승인 턴 claude에서는 main이 ask로, 그 밖의 사유는 deny로 출력한다.
-    def test_soft_reasons_ask_or_pass(self):
-        temp = str(Path(self.ostemp.name).resolve() / "a.md").replace("\\", "/")
-        soft_cmds = ('python -c "print(1)"', f"sed -n 1,5p {temp}", 'D=/x; ls "$D"', "for f in a b; do echo f; done",
-                     "git -C hooks log -1", "cat <<'E'\na\nb\nE")
-        yes = self.transcript(("assistant", "계획"), ("user", "승인"), name="yes.jsonl")
-        no = self.transcript(("assistant", "계획"), ("user", "다시 생각해"))
-
-        def data(cmd, transcript):
-            return {"tool_name": "Bash", "tool_input": {"command": cmd, "description": "테스트 명령"},
-                    "agent_type": "rio", "cwd": str(self.root), "transcript_path": transcript}
-
-        def decision(cmd, runner="claude"):
-            out = io.StringIO()
-            with patch.object(sys, "argv", ["check_tool_use.py", "--runner", runner]), \
-                 patch.object(sys, "stdin", io.StringIO(json.dumps(data(cmd, no)))), patch.object(sys, "stdout", out):
-                hook.main()
-            return json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"]
-        for cmd in soft_cmds:
-            for runner in ("claude", "codex"):
-                self.assertIsNone(hook.check(data(cmd, yes), runner), (cmd, runner))
-            self.assertIsNone(hook.check(data(cmd, no), "codex"), cmd)
-            self.assertEqual(decision(cmd), "ask", cmd)
-        self.assertEqual(decision("echo x > a.txt"), "deny")
-        self.assertEqual(decision("cd hooks && git status"), "deny")
-        # 승인 턴에도 쓰기 명령과 cd는 막는다.
-        self.assertIn("다른 쓰기 도구", hook.check(data("echo x > a.txt", yes), "claude") or "")
-        self.assertIn("cd 없이", hook.check(data("cd hooks && git status", yes), "claude") or "")
+            self.assertIsNone(hook.check({**data, "transcript_path": yes}, "claude"), cmd)
 
     # 저장소 안 절대 경로로 이동하는 cd는 deny되고 cd 없는 명령은 통과한다.
     def test_absolute_cd_denied(self):
@@ -493,7 +479,7 @@ class WriteScope(unittest.TestCase):
                                "transcript_path": self.transcript(("assistant", "계획"), ("user", "다시 생각해"))}, "claude")
         root = self.root.as_posix()
         for cmd in (f"cd {root} && ls -t log/task/ | head -10", f"cd {root} && ls -t log/task/"):
-            self.assertIn("cd 없이", bash(cmd) or "", cmd)
+            self.assertEqual(bash(cmd), sub_write.REASON_CD, cmd)
         self.assertIsNone(bash("ls -t log/task/"))
 
     # 검사 중 예외가 나면 쓰기 도구만 deny하고 나머지는 통과한다.
@@ -692,8 +678,24 @@ class CodexPath(unittest.TestCase):
         for cmd in ("python -c \"print('a\\nb')\"", "python - <<'EOF'\nx.replace('\\n',' ')\nEOF"):
             self.assertIsNone(self.bash(cmd), cmd)  # Codex는 인라인 코드를 hook에서 막지 않고 prompt 규칙에 맡긴다.
 
-    # ~/.claude·~/.codex 쓰기는 통과하고 인증 파일만 막는다. Claude·Codex 입력이 같다.
-    def test_global_folder_write_left_to_ask(self):
+    # 이스케이프, 슬래시 옵션, 스킬 호출 표기, heredoc 본문, 검색 패턴은 경로로 보지 않는다.
+    def test_false_positive_paths_allowed(self):
+        for cmd in ("taskkill //PID 3564 //T //F", r'powershell -Command "function K(\$p){ K \$p }"',
+                    r"""grep -o 'a [^"\\]\{0,80\}' file.txt""", r"echo \$nestlab-kickoff", r"printf a\n", """python -c "x='\\n'" """,
+                    "python -I - <<'EOF'\nprint(f\"shared/skills/{name}/SKILL.md\")\nEOF",
+                    "sed -n '/^18[45][0-9]:/p' a.txt", 'grep -rn x hooks/ | grep -v "/tests/"',
+                    r"""for s in a b; do grep -o 'x [^"\\]\{0,80\}' f.txt; done"""):
+            self.assertIsNone(self.bash(cmd), cmd)
+
+    # 세션 밖 경로는 이스케이프나 검색 명령 형태에서도 deny한다. 사전실측 사례는 현재 deny 판정을 고정한다.
+    def test_outside_paths_still_denied(self):
+        for cmd in ("ls -d ~/.hermes", "ls ~/.orca/agent-hooks/", 'cp "/c/Users/Administrator/Desktop/a.png" x.png',
+                    r"cat \Windows\x", 'cat "C:/Users/Administrator/.orca/x"', "cat /etc/hosts",
+                    "grep x /etc/hosts", "grep -rn x ../outside", "for f in a; do cat ~/.orca/x; done"):
+            self.assertIsNotNone(self.bash(cmd), cmd)
+
+    # ~/.claude 및 ~/.codex 쓰기는 승인 턴에도 막고 읽기는 통과한다. Claude 및 Codex 입력이 같다.
+    def test_global_folder_write_denied(self):
         # 홈 폴더 경로를 준비한다.
         h = self.home
         # 경로를 추가하는 apply_patch 입력으로 검사를 실행한다.
@@ -701,11 +703,18 @@ class CodexPath(unittest.TestCase):
             text = chr(10).join(["*** Begin Patch", f"*** Add File: {path}", "+x", "*** End Patch"])
             return hook.check({"tool_name": "apply_patch", "tool_input": {"command": text}, "cwd": str(self.cwd),
                                "agent_type": "buddy"}, "codex")
-        # 일반 전역 폴더 쓰기는 사용자 확인에 맡기고 비밀 파일은 막는지 확인한다.
+        # 전역 폴더 쓰기는 모두 막고 읽기는 허용하는지 확인한다.
         for path in (h / ".claude/plans/x.md", h / ".claude/settings.json", h / ".codex/config.toml"):
-            self.assertIsNone(self.claude("Write", {"file_path": str(path), "content": "x"}), path)
-            self.assertIsNone(patch_(path), path)
-            self.assertIn("다른 쓰기 도구", self.bash(f"echo a > {path}") or "", path)
+            self.assertIn("~/.claude 또는 ~/.codex", self.claude("Write", {"file_path": str(path), "content": "x"}) or "", path)
+            self.assertIn("~/.claude 또는 ~/.codex", patch_(path) or "", path)
+            self.assertIn("~/.claude 또는 ~/.codex", self.bash(f"echo a > {path}") or "", path)
+            self.assertIsNone(self.claude("Bash", {"command": f"cat {path}"}), path)
+        # 원본으로만 쓰인 경로는 통과하고 바뀌는 경로는 deny한다.
+        t = self.temp
+        self.assertNotIn("~/.claude 또는 ~/.codex", self.bash(f"cp {h}/.claude/settings.json {t}/a.json") or "")
+        for cmd in (f"cp a.json {h}/.claude/x.json", f"echo x > {h}/.claude/x", f"rm {h}/.claude/x",
+                    f"mv {h}/.claude/x {t}/x"):
+            self.assertIn("~/.claude 또는 ~/.codex", self.bash(cmd) or "", cmd)
         for path in (h / ".claude/.credentials.json", h / ".codex/auth.json"):
             self.assertIsNotNone(self.claude("Write", {"file_path": str(path), "content": "x"}), path)
             self.assertIsNotNone(patch_(path), path)
@@ -722,7 +731,7 @@ class CodexPath(unittest.TestCase):
         self.assertIsNone(patch_("src/a.py"))
         self.assertIsNotNone(patch_(".env"))
         self.assertIsNotNone(patch_("../a.py"))
-        self.assertIsNone(patch_(f"{self.home}/.claude/a.md"))
+        self.assertIsNotNone(patch_(f"{self.home}/.claude/a.md"))
 
     # Claude runner 입력으로 도구 검사를 실행하는 보조 함수이다.
     def claude(self, name, tin, runner="claude"):
@@ -741,7 +750,7 @@ class CodexPath(unittest.TestCase):
                           ("Write", {"file_path": ".env", "content": "x"})):
             self.assertIsNotNone(run(name, tin), (name, tin))
         self.assertIn(str(self.home), run("Read", {"file_path": f"{self.home}/notes.txt"}))
-        self.assertEqual("이 명령은 리다이렉트로 `out.txt`에 내용을 씁니다. 다른 쓰기 도구를 선택하여 작업하십시오.",
+        self.assertEqual("이 명령은 리다이렉트로 `out.txt`에 내용을 씁니다. 다른 방식으로 작업하십시오.",
                          run("Bash", {"command": "echo hi > out.txt"}))
         for name, tin in (("Bash", {"command": "cat ./x"}),
                           ("Read", {"file_path": "AGENTS.md"}), ("Read", {"file_path": f"{self.home}/.claude/CLAUDE.md"}),
@@ -764,11 +773,8 @@ class CodexPath(unittest.TestCase):
         for base in (str(self.temp), self.short(self.temp), str(self.temp).replace("\\", "/")):
             for runner in ("claude", "codex"):
                 run = lambda cmd: self.claude("Bash", {"command": cmd}, runner)
-                if runner == "claude":
-                    self.assertIn("임시 폴더", run(f"cat {base}/a") or "", (base, runner))
-                else:
-                    self.assertIsNone(run(f"cat {base}/a"), (base, runner))  # Codex는 샌드박스 승인에 맡긴다.
-                self.assertIn("다른 쓰기 도구", run(f"echo x > {base}/new") or "", (base, runner))
+                self.assertIsNone(run(f"cat {base}/a"), (base, runner))
+                self.assertTrue((run(f"echo x > {base}/new") or "").endswith("다른 방식으로 작업하십시오."), (base, runner))
                 self.assertIsNotNone(run(f"cat {base}/.env"), (base, runner))
             self.assertIsNone(self.claude("Read", {"file_path": f"{base}/a"}), base)
             self.assertIsNone(self.claude("Write", {"file_path": f"{base}/new", "content": "x"}), base)
@@ -1030,6 +1036,13 @@ class AgentInput(unittest.TestCase):
         self.assertIsNotNone(self.check(claude("researcher", RESEARCH_IN + "\n추가 설명"), "claude"))
         self.assertIsNone(self.check(claude("researcher", RESEARCH_IN), "claude"))
 
+    # researcher 입력 차단 사유가 실제 허용 형식(작업 종류, 조사 문서, 항목 줄)을 안내하고 그 형식은 통과하는지 확인한다. (요구사항 6 결함 8)
+    def test_researcher_reason_matches_allowed_format(self):
+        reason = self.check(claude("researcher", INPUT_IN), "claude")
+        for word in ("작업 종류", "조사 문서", "항목"):
+            self.assertIn(word, reason)
+        self.assertIsNone(self.check(claude("researcher", RESEARCH_IN + "\n항목: 검토 1. 도구"), "claude"))
+
     # documenter가 작업 종류와 입력 문서 경로만 받는지 확인한다.
     def test_documenter_takes_kind_and_input_doc_only(self):
         kind = "작업 종류: 문서 작성\n"
@@ -1192,6 +1205,146 @@ class PlanGaps(unittest.TestCase):
         self.assertTrue(self.gaps(self.doc("docs/a.md")))
         self.assertEqual(self.gaps(self.doc("docs/a.md:12 (권한)")), [])
         self.assertEqual(self.gaps(self.doc('"검색어와 일치 없음"(검색어: 권한)')), [])
+
+
+class ApprovalGate(unittest.TestCase):
+    """승인 전과 승인 턴의 메인 세션 Bash 판정, 스크립트 파일 쓰기, cd, 보안 파일 문자열, 패치 파일 구간을 검사한다."""
+    setUp, tearDown, transcript, write = WriteScope.setUp, WriteScope.tearDown, WriteScope.transcript, WriteScope.write
+
+    # 승인 여부와 도구 이름을 바꿔 director 메인 세션 셸 입력을 검사하는 보조 함수이다.
+    def shell(self, cmd, approved=False, tool="Bash", runner="claude", **extra):
+        user = "승인" if approved else "다시 생각해"
+        tin = {"command": cmd, "description": "테스트 명령", **extra.pop("tin", {})}
+        return hook.check({"tool_name": tool, "tool_input": tin, "agent_type": "rio", "cwd": str(self.root),
+                           "transcript_path": self.transcript(("assistant", "계획"), ("user", user)), **extra}, runner)
+
+    # 승인 전 메인 세션은 git 쓰기, 쓰기 호출이 있는 인라인 코드, 허용 목록 밖 스크립트, 세션 밖 경로를 deny한다.
+    def test_approval_turn_before_denies(self):
+        for cmd in ("git commit -m x", "git push", "git add a.py", "python -c \"open('a.txt','w').write('x')\"",
+                    "python tools/run_workflow.py", "python -m pytest", "cat /etc/hosts"):
+            self.assertTrue((self.shell(cmd) or "").endswith("다른 방식으로 작업하십시오."), cmd)
+
+    # 승인 전 메인 세션도 읽기, 쓰기 호출 없는 인라인 코드, heredoc, 셸 변수, 허용 목록 명령은 통과한다.
+    def test_approval_turn_before_allows(self):
+        for cmd in ('python -I -X utf8 -c "print(1)"', "cat <<'EOF'\na\nEOF", 'D=/x; ls "$D"', "git status",
+                    "python -I - <<'EOF'\nif 2 > 1:\n    print(1)\nEOF",
+                    "python -m unittest discover -s hooks/tests 2>&1 | tail -20"):
+            self.assertIsNone(self.shell(cmd), cmd)
+
+    # 승인 전에도 저장소 안 git -C와 셸 변수 앞붙임 명령은 통과하고, git -c와 python 스크립트 실행은 deny한다.
+    def test_approval_turn_before_decisions(self):
+        for cmd in ("git -C hooks log -1", "FOO=1 git status"):
+            self.assertIsNone(self.shell(cmd), cmd)
+        self.assertEqual(self.shell("git -c a=b status"), sub_write.REASON_GIT_C)
+        self.assertTrue(self.shell("python x.py"))
+
+    # 승인 턴에는 git 쓰기와 스크립트 실행이 통과하고, git -c와 저장소 밖 git -C만 deny한다.
+    def test_approval_turn_after(self):
+        for cmd in ("git commit -m x", "python tools/run_workflow.py", "git -C hooks log -1"):
+            self.assertIsNone(self.shell(cmd, approved=True), cmd)
+        temp = Path(self.ostemp.name).resolve() / "a.json"
+        for cmd in ("cp a.txt b.txt", f"cp ~/.claude/settings.json {temp.as_posix()}"):
+            self.assertIsNone(self.shell(cmd, approved=True), cmd)
+            self.assertTrue(self.shell(cmd))  # 승인 전 director의 log/ 밖 쓰기는 deny
+        self.assertEqual(self.shell("git -c core.pager=cat log", approved=True), sub_write.REASON_GIT_C)
+        self.assertIn("/outside", self.shell("git -C /outside log -1", approved=True) or "")
+
+    # 메인 세션이 승인 전에 log/와 OS 임시 폴더에 스크립트 확장자 파일을 쓰면 deny하고 문서 쓰기는 통과한다.
+    def test_script_file_write(self):
+        no = self.transcript(("assistant", "계획"), ("user", "다시 생각해"))
+        temp = Path(self.ostemp.name).resolve() / "tmp_parse.py"
+        self.assertEqual(self.write("log/tmp_parse.py", "x", role="rio", transcript=no), sub_scope.REASON_SCRIPT_FILE)
+        self.assertEqual(self.write(str(temp), "x", role="rio", transcript=no), sub_scope.REASON_SCRIPT_FILE)
+        self.assertNotEqual(self.write("log/task/x/status.md", "x", role="rio", transcript=no), sub_scope.REASON_SCRIPT_FILE)
+        self.assertIsNone(self.write("log/tmp_parse.py", "x", role="rio"))  # 승인 턴
+
+    # Claude와 Codex 셸의 cd류 명령은 승인 턴에도, heredoc이 섞여도 REASON_CD로 deny한다.
+    def test_cd_commands_denied(self):
+        reason = sub_write.REASON_CD
+        self.assertEqual(self.shell("cd ~/.codex && python -I - <<'EOF'\nprint(1)\nEOF"), reason)
+        self.assertEqual(self.shell("cd hooks && ls", approved=True), reason)
+        self.assertEqual(self.shell("Set-Location hooks; Get-ChildItem", tool="PowerShell"), reason)
+        self.assertEqual(self.shell('bash -lc "cd hooks > out.txt"'), reason)
+        self.assertEqual(self.shell('pwsh -c "Set-Location hooks"', tool="PowerShell"), reason)
+        self.assertEqual(self.shell("ls", runner="codex", tin={"workdir": str(self.root / "hooks")}), reason)
+        for cmd in ("ls hooks", 'grep -n "cd " hooks/common/sub_write.py'):
+            self.assertIsNone(self.shell(cmd), cmd)
+        self.assertIsNone(self.shell("ls", runner="codex", tin={"workdir": str(self.root)}))
+
+    # 인라인 코드와 heredoc 본문에 보안 파일 패턴이 있으면 승인 턴에도 deny하고 무관한 명령은 통과한다.
+    def test_secret_text_denied(self):
+        patterns = ["//**/.env", "//**/.env.*", "//**/secrets/**", "//**/*.pem", "//**/id_rsa*", "~/.codex/auth.json"]
+        with patch.object(sub_path, "secret_patterns", return_value=patterns):
+            for cmd in ("python -c \"print(open('.env').read())\"", "python - <<'EOF'\nopen('id_rsa')\nEOF"):
+                for approved in (False, True):
+                    self.assertIn("보안 문서", self.shell(cmd, approved=approved) or "", cmd)
+            for cmd in ('python -c "print(1)"', "grep -n env hooks/check_tool_use.py"):
+                self.assertIsNone(self.shell(cmd, approved=True), cmd)
+
+    # apply_patch가 두 문서를 함께 쓰면 각 문서의 추가 줄만 그 문서 규칙으로 검사한다.
+    def test_patch_files_checked_separately(self):
+        def patched(research_line):
+            text = chr(10).join(["*** Begin Patch", f"*** Add File: {self.root / 'log/state/n.md'}", "+근거 출처: 로그 시각",
+                                 f"*** Add File: {self.root / 'log/state/n-research.md'}", f"+{research_line}",
+                                 "*** End Patch"])
+            data = {"tool_name": "apply_patch", "tool_input": {"command": text}, "agent_type": "rio", "cwd": str(self.root),
+                    "transcript_path": self.transcript(("assistant", "보고"), ("user", "승인"))}
+            return hook.check(data, "codex") or ""
+        self.assertIn("출처", patched("출처: 사용자 제공"))
+        self.assertNotIn("출처가 URL", patched("- 제외 범위: 없음"))
+
+
+class KickoffGate(unittest.TestCase):
+    """director 메인 세션의 nestlab-kickoff 호출 전 도구 호출을 deny한다."""
+
+    # 임시 폴더와 실제 kickoff 판정을 준비한다.
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        patcher = patch.object(hook, "kickoff_missing", REAL_KICKOFF)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    # Skill 호출 기록이 있거나 없는 Claude 기록 파일을 만들고 경로를 반환한다.
+    def claude_log(self, called: bool) -> str:
+        lines = [claude_line("user", "시작")]
+        if called:
+            block = {"type": "tool_use", "id": "1", "name": "Skill", "input": {"skill": "nestlab-kickoff"}}
+            lines.append(json.dumps({"type": "assistant", "message": {"content": [block]}}))
+        path = self.root / "c.jsonl"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return str(path)
+
+    # Codex rollout 파일을 만들고 경로를 반환한다. read이면 kickoff SKILL.md를 읽은 호출이 있다.
+    def codex_log(self, read: bool) -> str:
+        lines = [codex_meta(), codex_msg("user", "시작")]
+        if read:
+            call = {"type": "function_call", "name": "shell", "call_id": "1",
+                    "arguments": json.dumps({"command": "cat skills/nestlab-kickoff/SKILL.md"})}
+            lines.append(json.dumps({"type": "response_item", "payload": call}))
+        path = self.root / "r.jsonl"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return str(path)
+
+    # 역할과 기록 경로를 바꿔 Bash 입력을 검사하는 보조 함수이다.
+    def bash(self, cmd, log, role="rio", runner="claude", **extra):
+        return hook.check({"tool_name": "Bash", "tool_input": {"command": cmd, "description": "테스트 명령"},
+                           "agent_type": role, "cwd": str(self.root), "transcript_path": log, **extra}, runner)
+
+    # kickoff 호출 전 Bash는 deny하고 호출 뒤 같은 Bash와 서브에이전트, director가 아닌 역할은 게이트를 받지 않는다.
+    def test_kickoff_gate_claude(self):
+        self.assertEqual(self.bash("ls", self.claude_log(False)), hook.REASON_KICKOFF)
+        self.assertNotEqual(self.bash("ls", self.claude_log(True)), hook.REASON_KICKOFF)
+        self.assertNotEqual(self.bash("ls", self.claude_log(False), role="jelly", agent_id="a1"), hook.REASON_KICKOFF)
+        self.assertNotEqual(self.bash("ls", self.claude_log(False), role="buddy"), hook.REASON_KICKOFF)
+
+    # Codex는 kickoff SKILL.md를 읽는 명령만 호출 전에 통과한다.
+    def test_kickoff_gate_codex(self):
+        log = self.codex_log(False)
+        self.assertEqual(self.bash("ls", log, runner="codex"), hook.REASON_KICKOFF)
+        self.assertNotEqual(self.bash("cat skills/nestlab-kickoff/SKILL.md", log, runner="codex"), hook.REASON_KICKOFF)
+        self.assertNotEqual(self.bash("ls", self.codex_log(True), runner="codex"), hook.REASON_KICKOFF)
 
 
 if __name__ == "__main__":

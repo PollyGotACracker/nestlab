@@ -36,7 +36,7 @@ REFUTE_DOC = """# 반증 문서: t
 
 기록 없음
 
-## 조사·반증 루프
+## 조사 및 반증 루프
 
 | 회차 | 반증 건수 | 정지 여부 |
 | ---- | --------- | --------- |
@@ -196,7 +196,7 @@ class SaveResult(unittest.TestCase):
     def test_claims_written_to_refute_doc(self):
         self.stop("nico", ASK_RESEARCH, "후보 A\n- 주장 1: 사실 하나 (출처: https://a.example)")
         claims = self.refute.read_text(encoding="utf-8")
-        self.assertIn("## 주장 목록\n\n- 주장 1: 사실 하나 (출처: https://a.example)\n\n## 조사·반증 루프", claims)
+        self.assertIn("## 주장 목록\n\n- 주장 1: 사실 하나 (출처: https://a.example)\n\n## 조사 및 반증 루프", claims)
 
 
 if __name__ == "__main__":

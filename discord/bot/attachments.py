@@ -1,4 +1,4 @@
-"""첨부·링크·이미지 설명을 처리하고 Discord 메시지를 분할한다."""
+"""첨부, 링크, 이미지 설명을 처리하고 Discord 메시지를 분할한다."""
 
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ async def save_attachments(
     return image_paths, saved_documents
 
 
-# 바이트 수를 B·KB 단위 문구로 바꾼다.
+# 바이트 수를 B 및 KB 단위 문구로 바꾼다.
 def format_bytes(size: int) -> str:
     return f"{size / 1024:.1f}KB" if size >= 1024 else f"{size}B"
 

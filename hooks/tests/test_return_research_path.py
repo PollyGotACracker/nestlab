@@ -15,7 +15,7 @@ from unittest.mock import patch
 import return_research_path as hook
 import sub_docs
 
-DOC = "# t\n\n## 조사·반증 루프\n\n| 회차 | 반증 건수 | 정지 여부 |\n| ---- | --------- | --------- |\n| 1 | 1 | 계속 |\n"
+DOC = "# t\n\n## 조사 및 반증 루프\n\n| 회차 | 반증 건수 | 정지 여부 |\n| ---- | --------- | --------- |\n| 1 | 1 | 계속 |\n"
 ASK = "작업 종류: 조사\n조사 문서: log/task/t/research.md"
 REFUTE = "작업 종류: 반증\n반증 문서: log/task/t/refute.md"
 

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable
 
-# 기억 종류. archive·explicit은 서버 장기기억, persona_*는 캐릭터별 기억이다.
+# 기억 종류. archive 및 explicit은 서버 장기기억, persona_*는 캐릭터별 기억이다.
 KIND_ARCHIVE = "archive"
 KIND_EXPLICIT = "explicit"
 KIND_PERSONA_EVENT = "persona_event"
@@ -226,7 +226,7 @@ class MemoryStore:
     def delete_archive_messages(self, message_ids: Iterable[int]) -> list[dict[str, Any]]:
         return self._delete_ids(self._memory_ids_for_messages(message_ids, (KIND_ARCHIVE,)))
 
-    # 스레드·채널이 삭제되면 그 안의 메시지를 원본으로 둔 기억을 모두 지운다.
+    # 스레드 및 채널이 삭제되면 그 안의 메시지를 원본으로 둔 기억을 모두 지운다.
     def delete_by_channel(self, channel_id: int) -> list[dict[str, Any]]:
         # 채널과 관련된 기억 ID를 찾아 삭제한다.
         rows = self.conn.execute(
@@ -299,7 +299,7 @@ class MemoryStore:
                 f"UPDATE memories SET uploaded = 1 WHERE id IN ({','.join('?' * len(ids))})", ids,
             )
 
-    # 시작 시 원본 확인 대상(explicit·persona 기억)의 (메시지 ID, 채널 ID) 목록.
+    # 시작 시 원본 확인 대상(explicit 및 persona 기억)의 (메시지 ID, 채널 ID) 목록.
     def check_sources(self) -> list[tuple[int, int | None]]:
         # 출처 확인 대상 기억의 메시지와 채널 ID를 조회한다.
         rows = self.conn.execute(
