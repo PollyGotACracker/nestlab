@@ -122,7 +122,7 @@ class WriteScope(unittest.TestCase):
         self.sessions = self.root / "sessions"
         self.sessions.mkdir()
         self.ostemp = tempfile.TemporaryDirectory()  # 프로젝트가 임시 폴더 안에 있어도 OS 임시 폴더 판정과 분리한다.
-        # 단계 관문은 test_sub_workflow의 완전한 세 문서 fixture로 검사한다.
+        # 단계 게이트는 test_sub_workflow의 완전한 세 문서 fixture로 검사한다.
         self.patches = [patch.object(hook, "call_reason", return_value=None),
                         patch.object(sub_scope, "transition_reason", return_value=None),
                         patch("sub_workflow.plan_gaps", side_effect=sub_plan.plan_gaps),
