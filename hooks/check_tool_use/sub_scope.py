@@ -190,7 +190,7 @@ def new_verdict_items(data: dict, path: Path) -> list[str]:
     return [l for l in section(new, "검증 결과").splitlines() if VERDICT_ITEM.match(l) and l not in before]
 
 
-REASON_RECORD = "로그 문서에 사건 문서 경로와 세션 기록 정보(경로·세션 id·사건 ID)를 쓸 수 없습니다."
+REASON_RECORD = "작업 문서에 사건 문서 경로와 세션 기록 정보(경로·세션 id·사건 ID)를 쓸 수 없습니다."
 
 # 역할별 쓰기 범위를 검사한다. 위반이면 deny 사유를, 통과면 None을 반환한다.
 def check_write(data: dict, role: str | None, paths: list[Path], main: bool = False, runner: str = "claude") -> str | None:
@@ -217,7 +217,7 @@ def check_write(data: dict, role: str | None, paths: list[Path], main: bool = Fa
             if left:
                 return REASON_REVIEW_LEFT.format(items=", ".join(left[:3]))
 
-    # Bash 쓰기 명령이 가리키는 로그 문서도 스킬 호출을 확인한다.
+    # Bash 쓰기 명령이 가리키는 작업 문서도 스킬 호출을 확인한다.
     if data.get("tool_name") == "Bash":
         for path in bash_log_docs(data, root):
             skill = skill_for(rel(path, root))

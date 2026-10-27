@@ -359,7 +359,7 @@ class Gates(unittest.TestCase):
             # 대상 밖 파일에는 적용하지 않는다.
             self.assertIsNone(self.write("hooks/a.py", "x", self.transcript(user, text), role="jelly", agent_id="s"))
 
-    # Codex는 현재 턴에 읽기 명령으로 SKILL.md를 읽어야 로그 문서 apply_patch가 통과한다.
+    # Codex는 현재 턴에 읽기 명령으로 SKILL.md를 읽어야 작업 문서 apply_patch가 통과한다.
     def test_codex_doc_write_needs_skill_read(self):
         # Codex rollout 줄과 apply_patch 입력을 만든다.
         line = lambda payload: json.dumps({"type": "response_item", "payload": payload})
@@ -382,7 +382,7 @@ class Gates(unittest.TestCase):
         self.assertIsNone(check(user, ok))
         self.assertIsNone(check(user, read("cat shared/skills/nestlab-log-incident/SKILL.md")))
 
-    # Bash 쓰기 명령이 로그 문서를 가리키면 스킬 호출을 확인한다.
+    # Bash 쓰기 명령이 작업 문서를 가리키면 스킬 호출을 확인한다.
     def test_bash_doc_write_needs_skill_call(self):
         skill = claude_line("assistant", [{"type": "tool_use", "name": "Skill", "input": {"skill": "nestlab-log-state"}}])
         user = claude_line("user", "정리해")

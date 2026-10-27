@@ -894,7 +894,7 @@ def run_utf8(data, *args, cwd=None):
 
 
 class RecordLeak(unittest.TestCase):
-    """로그 문서 쓰기와 서브에이전트 호출에서 사건 문서 경로와 세션 기록 정보를 막는다."""
+    """작업 문서 쓰기와 서브에이전트 호출에서 사건 문서 경로와 세션 기록 정보를 막는다."""
     transcript, write = WriteScope.transcript, WriteScope.write
 
     # 임시 저장소 보조 상태를 준비한다.
@@ -913,7 +913,7 @@ class RecordLeak(unittest.TestCase):
         data = claude("ricky", "작업 종류: 반증\n반증 문서: log/task/t/refute.md")
         return sub_input.check_input({**data, "cwd": str(self.root)}, "claude")
 
-    # 로그 문서 쓰기에서 사건 문서 파일 경로와 세션 기록 정보는 deny되고 폴더 이름만 쓴 줄은 통과하는지 확인한다.
+    # 작업 문서 쓰기에서 사건 문서 파일 경로와 세션 기록 정보는 deny되고 폴더 이름만 쓴 줄은 통과하는지 확인한다.
     def test_log_doc_write(self):
         self.assertIsNotNone(self.write("log/state/x.md", "- 근거: log/incident/20261026-ab12cd34.md"))
         self.assertIsNotNone(self.write("log/state/x.md", "- 근거: 기록 a.jsonl"))
