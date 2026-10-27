@@ -1,3 +1,11 @@
+---
+title: Nestlab Discord 봇 디버그
+description: "Discord 봇의 동작과 오류 원인을 확인하는 명령 모음이다."
+type: document
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Discord 봇 디버그
 
 Discord 봇의 동작과 오류 원인을 확인하는 명령 모음이다.
@@ -155,15 +163,15 @@ python -c "import json; json.load(open('discord/config.json', encoding='utf-8'))
 
 위 명령 출력에 나오는 주요 키워드의 의미다.
 
-| 키워드                                    | 의미                                              |
-| ----------------------------------------- | ------------------------------------------------- |
-| `connected id=`                           | Bot 하나가 Discord에 접속함                       |
-| `[run_gcp]`                               | 런처 단계 오류. 주로 Secret JSON 문법 오류        |
-| `chat turn`                               | 대화 ID, 턴마다 발언한 캐릭터와 고른 다음 화자     |
-| `chat end reason=`                        | 대화가 끝난 원인                                  |
-| `chat lock`                               | 대화별 채널 락 대기, 획득, 취소                     |
-| `chat pending change`                     | 사용자 메시지 pending 등록 및 해제 사유             |
-| `token usage`                             | SDK 호출의 사용량과 비용                         |
+| 키워드                                       | 의미                                              |
+| -------------------------------------------- | ------------------------------------------------- |
+| `connected id=`                              | Bot 하나가 Discord에 접속함                       |
+| `[run_gcp]`                                  | 런처 단계 오류. 주로 Secret JSON 문법 오류        |
+| `chat turn`                                  | 대화 ID, 턴마다 발언한 캐릭터와 고른 다음 화자    |
+| `chat end reason=`                           | 대화가 끝난 원인                                  |
+| `chat lock`                                  | 대화별 채널 락 대기, 획득, 취소                   |
+| `chat pending change`                        | 사용자 메시지 pending 등록 및 해제 사유           |
+| `token usage`                                | SDK 호출의 사용량과 비용                          |
 | `chat turn discarded reason=pending_discard` | 사용자의 새 메시지 때문에 생성 중이던 응답을 버림 |
-| `read blocked`                            | 첨부 폴더 밖의 `Read`를 거부함                    |
-| `reaction`                                | 리액션을 건너뛰었거나 실패함                      |
+| `read blocked`                               | 첨부 폴더 밖의 `Read`를 거부함                    |
+| `reaction`                                   | 리액션을 건너뛰었거나 실패함                      |

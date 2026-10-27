@@ -1,11 +1,15 @@
 ---
 name: pepper
-description: 문서 작성
+title: documenter
+description: "문서 작성"
 tools: Skill, Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, AskUserQuestion
 model: sonnet
 effort: medium
 readonly: false
 sandbox_mode: "workspace-write"
+type: instruction
+created: 2026-10-03
+modified: 2026-10-27
 ---
 
 # documenter

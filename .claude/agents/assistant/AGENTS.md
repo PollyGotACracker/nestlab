@@ -1,11 +1,15 @@
 ---
 name: buddy
-description: 단순 작업 처리
+title: assistant
+description: "단순 작업 처리"
 tools: Skill, Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, AskUserQuestion
 model: sonnet
 effort: high
 readonly: false
 sandbox_mode: "workspace-write"
+type: instruction
+created: 2026-10-03
+modified: 2026-10-27
 ---
 
 # assistant

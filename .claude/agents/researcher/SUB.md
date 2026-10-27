@@ -1,3 +1,11 @@
+---
+title: researcher 서브에이전트 작업 규칙
+description: "researcher 서브에이전트가 조사 문서로 검토 항목을 조사하는 절차를 정의한다."
+type: instruction
+created: 2026-10-27
+modified: 2026-10-28
+---
+
 # researcher 서브에이전트 작업
 
 ## 작업별 절차

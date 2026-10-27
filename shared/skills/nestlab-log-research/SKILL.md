@@ -1,9 +1,13 @@
 ---
 name: nestlab-log-research
-description: 작업의 조사 문서(log/task/<작업-id>/research.md)를 작성하거나 갱신할 때 사용한다.
+title: 조사 문서 스킬
+description: "심층 조사를 위한 조사 문서(log/task/<작업-id>/research.md)를 작성하거나 갱신할 때 사용한다."
+type: skill
+created: 2026-10-23
+modified: 2026-10-27
 ---
 
-# 조사 문서 양식
+# 조사 문서
 
 ## 작성 규칙
 

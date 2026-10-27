@@ -1,3 +1,11 @@
+---
+title: documenter 서브에이전트 작업 규칙
+description: "documenter 서브에이전트가 명세 문서로 문서 작성을 수행하는 절차를 정의한다."
+type: instruction
+created: 2026-10-27
+modified: 2026-10-27
+---
+
 # documenter 서브에이전트 작업
 
 ## 작업별 절차

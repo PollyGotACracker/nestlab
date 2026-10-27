@@ -1,3 +1,11 @@
+---
+title: Nestlab Discord 봇 GCP 운영
+description: "GCP VM에 설치한 Discord 봇의 업데이트와 점검 절차이다."
+type: document
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Discord 봇 GCP 운영
 
 [discord-gcp.md](discord-gcp.md)로 설치한 봇의 업데이트와 점검 절차다.

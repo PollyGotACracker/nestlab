@@ -1,12 +1,16 @@
 ---
 name: ricky
-description: 주장 및 자료 반증, 결과물 검증
+title: reviewer
+description: "주장 및 자료 반증, 결과물 검증"
 tools: Skill, Read, Grep, Glob, Bash, WebSearch, WebFetch, AskUserQuestion
 disallowedTools: Write, Edit
 model: sonnet
 effort: medium
 readonly: true
 sandbox_mode: "read-only"
+type: instruction
+created: 2026-10-03
+modified: 2026-10-28
 ---
 
 # reviewer

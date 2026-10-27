@@ -1,9 +1,13 @@
 ---
 name: nestlab-doc-readme
-description: 저장소와 기존 문서를 조사해 프로젝트 README를 작성하거나 갱신할 때 사용한다.
+title: README 문서 작성 스킬
+description: "저장소를 심층 조사해 프로젝트 README를 작성하거나 갱신할 때 사용한다."
+type: skill
+created: 2026-10-16
+modified: 2026-10-27
 ---
 
-# 프로젝트 README 작성
+# README 문서 작성
 
 ## 절차
 

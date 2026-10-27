@@ -1,6 +1,10 @@
 ---
 name: nestlab-rule
-description: 지침 문서(AGENTS.md, CLAUDE.md)나 스킬 문서(SKILL.md) 생성 또는 변경을 제안하기 위해 사용한다.
+title: 지침 및 스킬 설계 스킬
+description: "작업에서 지침 문서(AGENTS.md, CLAUDE.md)나 스킬 문서(SKILL.md) 생성 또는 변경이 요구될 때, 기존 중복을 검토하고 준수 가능한 최적의 구조 및 내용을 설계하여 사용자에게 제안하기 위해 사용한다."
+type: skill
+created: 2026-10-03
+modified: 2026-10-28
 ---
 
 # 지침과 스킬 설계

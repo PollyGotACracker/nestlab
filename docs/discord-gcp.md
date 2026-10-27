@@ -1,3 +1,11 @@
+---
+title: Nestlab Discord 봇 GCP 배포 절차
+description: "Discord 봇을 GCP Compute Engine VM에서 실행하도록 설치하는 절차이다."
+type: document
+created: 2026-10-03
+modified: 2026-10-16
+---
+
 # Discord 봇 GCP 배포 절차
 
 Discord 봇을 GCP Compute Engine VM에서 실행하도록 설치하는 절차다.

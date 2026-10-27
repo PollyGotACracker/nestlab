@@ -1,3 +1,11 @@
+---
+title: 저장소 공통 지침
+description: "nestlab 저장소의 경로 목록, 스크립트와 문서 컨벤션, Git 규칙을 정의한다."
+type: instruction
+created: 2026-10-03
+modified: 2026-10-27
+---
+
 # 저장소 공통 지침
 
 - 저장소와 밀접하게 연관된 지침을 이 문서에 작성한다.

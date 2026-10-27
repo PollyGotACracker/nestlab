@@ -1,9 +1,13 @@
 ---
 name: nestlab-doc-design
-description: 기능 설계와 구현 기록을 재사용할 설계 문서로 기록할 때 사용한다.
+title: 설계 문서 스킬
+description: "프로젝트 작업에서의 기능 설계와 구현 기록을 재사용할 설계 문서로 기록할 때 사용한다."
+type: skill
+created: 2026-10-16
+modified: 2026-10-27
 ---
 
-# 설계 문서 작성
+# 설계 문서
 
 ## 절차
 

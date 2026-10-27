@@ -1,3 +1,11 @@
+---
+title: assistant 메인 세션 작업 규칙
+description: "assistant 메인 세션이 문제 해결과 도구 추천 요청을 처리하는 절차를 정의한다."
+type: instruction
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # assistant 메인 세션 작업
 
 ## 작업별 절차

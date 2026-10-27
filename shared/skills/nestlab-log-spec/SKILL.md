@@ -1,9 +1,13 @@
 ---
 name: nestlab-log-spec
-description: 작업의 명세 문서(log/task/<작업-id>/spec.md)를 작성하거나 갱신할 때 사용한다.
+title: 명세 문서 스킬
+description: "작업 구현, 검증의 계획과 흐름을 기록하는 명세 문서(log/task/<작업-id>/spec.md)를 작성하거나 갱신할 때 사용한다."
+type: skill
+created: 2026-10-27
+modified: 2026-10-28
 ---
 
-# 명세 문서 양식
+# 명세 문서
 
 ## 작성 시점
 

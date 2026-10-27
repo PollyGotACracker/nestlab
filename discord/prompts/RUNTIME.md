@@ -1,3 +1,11 @@
+---
+title: Discord chat runtime
+description: "Discord 봇 응답의 첨부 문서 처리와 제어 표식 출력 규칙을 정의한다."
+type: instruction
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Discord chat runtime
 
 - [첨부 문서]의 앞부분만으로 답할 수 없으면 머리줄의 경로를 Read로 열어 전체를 확인한다.

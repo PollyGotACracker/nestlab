@@ -1,3 +1,11 @@
+---
+title: Nestlab Discord Agent 시스템 명세
+description: "에이전트별 Discord Bot의 채널 동작, 설정 항목, 자율 채팅과 오류 처리를 정의한 명세이다."
+type: document
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Discord Agent 시스템 명세
 
 ## 목적
@@ -607,11 +615,11 @@ Stage 도구는 외부 객체를 만들지 않고 `discord/bot/archive_workflow.
 
 `archive_repository.token`은 지식 저장소 하나에만 접근하는 fine-grained PAT로 발급한다.
 
-| 권한          | 수준           | 호출하는 API                                                                                      |
-| ------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| 권한          | 수준           | 호출하는 API                                                                                         |
+| ------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
 | Contents      | Read and write | 파일 조회(`/contents`), 브랜치 조회 및 생성(`/git/ref`, `/git/refs`), tree와 commit 생성 및 ref 갱신 |
-| Issues        | Read and write | Issue 생성(`/issues`)                                                                             |
-| Pull requests | Read and write | 열린 PR 조회, PR 생성(`/pulls`)                                                                   |
+| Issues        | Read and write | Issue 생성(`/issues`)                                                                                |
+| Pull requests | Read and write | 열린 PR 조회, PR 생성(`/pulls`)                                                                      |
 
 `.github/workflows/` 안의 파일은 Workflows 권한이 추가로 필요하다. 이 권한은 주지 않는다.
 

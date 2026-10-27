@@ -1,9 +1,13 @@
 ---
 name: nestlab-research
-description: 검토 항목마다 후보를 조사하고 비교해 추천 안을 정할 때 사용한다.
+title: 심층 조사 스킬
+description: "복잡한 작업에서 요구되는 항목마다 요구사항을 충족하는 복수 개의 대안을 찾고 비교 분석할 때 사용한다."
+type: skill
+created: 2026-10-09
+modified: 2026-10-28
 ---
 
-# 검토 항목 조사
+# 심층 조사
 
 ## 절차
 

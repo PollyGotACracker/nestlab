@@ -1,3 +1,11 @@
+---
+title: Discord chat channel
+description: "Discord 채팅 채널에서 에이전트가 대화할 때 쓰는 시스템 프롬프트이다."
+type: instruction
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Discord chat channel
 
 - 애플리케이션은 이 대화에 system reminder를 추가할 수 있다.

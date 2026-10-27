@@ -1,3 +1,11 @@
+---
+title: reviewer 서브에이전트 작업 규칙
+description: "reviewer 서브에이전트가 반증과 검증 요청을 처리하는 절차를 정의한다."
+type: instruction
+created: 2026-10-27
+modified: 2026-10-27
+---
+
 # reviewer 서브에이전트 작업
 
 ## 작업별 절차

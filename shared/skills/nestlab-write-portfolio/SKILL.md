@@ -1,9 +1,13 @@
 ---
 name: nestlab-write-portfolio
-description: 개발 메모, 회고, 소재 조사 자료로 포트폴리오 글감이나 글 초안을 쓸 때 사용한다.
+title: 포트폴리오 작성 스킬
+description: "프로젝트 작업에 대한 메모, 회고, 소재 조사 자료를 모아 포트폴리오 글감이나 글 초안을 쓸 때 사용한다."
+type: skill
+created: 2026-10-16
+modified: 2026-10-27
 ---
 
-# 포트폴리오 기술 글
+# 포트폴리오 작성 스킬
 
 ## 자료와 형식
 

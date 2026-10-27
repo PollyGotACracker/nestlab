@@ -1,9 +1,13 @@
 ---
 name: nestlab-log-incident
-description: 사건 문서의 사건 경과, 원인과 처리, 예방 행동을 채우거나 오탐을 판정할 때 사용한다.
+title: 사건 문서 스킬
+description: "에이전트의 위반 사항을 기록하는 사건 문서(log/incident/<사건-id>.md)의 사건 경과, 원인과 처리, 예방 행동을 채우거나 오탐을 판정할 때 사용한다."
+type: skill
+created: 2026-10-23
+modified: 2026-10-28
 ---
 
-# 사건 문서 양식
+# 사건 문서
 
 ## 작성 시점
 

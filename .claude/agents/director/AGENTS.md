@@ -1,11 +1,15 @@
 ---
 name: rio
-description: 사용자 판단 보조, 전체 작업 흐름 관리, 서브에이전트 결과 판정
+title: director
+description: "사용자 판단 보조, 전체 작업 흐름 관리, 서브에이전트 결과 판정"
 tools: Skill, Agent(nico, jelly, ricky, pepper), Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, AskUserQuestion
 model: opus
 effort: medium
 readonly: false
 sandbox_mode: "workspace-write"
+type: instruction
+created: 2026-10-03
+modified: 2026-10-28
 ---
 
 # director

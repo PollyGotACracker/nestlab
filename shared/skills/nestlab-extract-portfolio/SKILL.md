@@ -1,6 +1,10 @@
 ---
 name: nestlab-extract-portfolio
-description: 프로젝트 코드와 관련 기록에서 포트폴리오 글 소재를 찾을 때 사용한다.
+title: 포트폴리오 소재 추출 스킬
+description: "저장소로부터 코드와 관련 기록, 사용자의 경험으로부터 포트폴리오 글 소재를 찾을 때 사용한다."
+type: skill
+created: 2026-10-16
+modified: 2026-10-27
 ---
 
 # 포트폴리오 소재 추출

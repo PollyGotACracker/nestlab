@@ -1,9 +1,13 @@
 ---
 name: nestlab-verdict
-description: 검증 결과의 지적을 위반, 제외, 근거 누락, 중단 유형으로 판정할 때 사용한다.
+title: 검증 판정 스킬
+description: "작업 결과물에 대한 구현 근거와 검증 결과를 비교하여 어느 쪽이 더 설명력이 높은지 판정할 때 사용한다."
+type: skill
+created: 2026-10-09
+modified: 2026-10-28
 ---
 
-# 검증 지적 판정
+# 검증 판정
 
 ## 지적별 판정
 

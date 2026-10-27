@@ -1,3 +1,11 @@
+---
+title: Nestlab 설정 공통 설치
+description: "도구별 연결 전 모든 환경에서 수행하는 nestlab 설정 공통 설치 절차이다."
+type: document
+created: 2026-10-10
+modified: 2026-10-28
+---
+
 # 공통 설치
 
 공통 설치를 마친 뒤 [도구별 연결](#도구별-연결)로 넘어간다.
@@ -60,17 +68,17 @@ python tools/set_skills.py link
 
 ## 등록되는 hook
 
-| **이벤트**                       | **스크립트**                        | **하는 일**                                                                                              |
-| -------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| SessionStart, SubagentStart      | `hooks/load_agent.py`               | 에이전트 성향과 지침 주입                                                                                |
-| PreToolUse                       | `hooks/check_tool_use.py`           | 승인, 입력, 쓰기 범위, Bash 쓰기 검사, 보안 파일 명령 차단, `cd` 차단, director kickoff 전 도구 호출 차단 (승인 창 없이 deny만 반환) |
-| PermissionRequest                | `hooks/allow_approved_request.py`   | 승인 턴이면 allow, 승인 전이면 deny 반환 (질문 도구는 출력 없음)                                         |
-| PostToolUse                      | `tools/check_doc_rule.py --hook`    | 지침 문서 서식 검사                                                                                      |
-| SubagentStop                     | `hooks/save_subagent_result.py`     | 결과 원문 저장                                                                                           |
-| PreToolUse (SubagentHandback)    | `hooks/save_handback_report.py`     | 조사 결과 저장                                                                                           |
-| PostToolUse (Agent, spawn_agent) | `hooks/return_research_path.py`     | 조사 문서 경로 반환                                                                                      |
-| Stop                             | `hooks/check_invalid_response.py`   | 실수 인정 표현 감지, 사건 기록, 분석 세션 실행, 응답 재작성 요청, 사용자 경고 표시                       |
-| Stop                             | `hooks/check_workflow_response.py`  | 결과물 없는 응답, 판단 지점 밖 승인 및 선택 요청, 질문 문장 종료 재작성 요청, 책임 회피 사용자 경고 표시, director kickoff 전 응답 block |
+| **이벤트**                       | **스크립트**                       | **하는 일**                                                                                                                              |
+| -------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| SessionStart, SubagentStart      | `hooks/load_agent.py`              | 에이전트 성향과 지침 주입                                                                                                                |
+| PreToolUse                       | `hooks/check_tool_use.py`          | 승인, 입력, 쓰기 범위, Bash 쓰기 검사, 보안 파일 명령 차단, `cd` 차단, director kickoff 전 도구 호출 차단 (승인 창 없이 deny만 반환)     |
+| PermissionRequest                | `hooks/allow_approved_request.py`  | 승인 턴이면 allow, 승인 전이면 deny 반환 (질문 도구는 출력 없음)                                                                         |
+| PostToolUse                      | `tools/check_doc_rule.py --hook`   | 지침 문서 서식 검사                                                                                                                      |
+| SubagentStop                     | `hooks/save_subagent_result.py`    | 결과 원문 저장                                                                                                                           |
+| PreToolUse (SubagentHandback)    | `hooks/save_handback_report.py`    | 조사 결과 저장                                                                                                                           |
+| PostToolUse (Agent, spawn_agent) | `hooks/return_research_path.py`    | 조사 문서 경로 반환                                                                                                                      |
+| Stop                             | `hooks/check_invalid_response.py`  | 실수 인정 표현 감지, 사건 기록, 분석 세션 실행, 응답 재작성 요청, 사용자 경고 표시                                                       |
+| Stop                             | `hooks/check_workflow_response.py` | 결과물 없는 응답, 판단 지점 밖 승인 및 선택 요청, 질문 문장 종료 재작성 요청, 책임 회피 사용자 경고 표시, director kickoff 전 응답 block |
 
 - Claude Code와 Codex가 같은 스크립트를 쓴다.
 

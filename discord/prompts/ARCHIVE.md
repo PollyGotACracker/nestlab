@@ -1,3 +1,11 @@
+---
+title: Archive repository workflow
+description: "Discord 봇이 지식 저장소 작업을 수행할 때 쓰는 프롬프트이다."
+type: instruction
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Archive repository workflow
 
 지식 저장소는 `$repo_name`이다.

@@ -1,9 +1,13 @@
 ---
 name: nestlab-doc-troubleshooting
-description: 겪은 문제의 증상, 원인, 해결 과정을 재사용할 트러블슈팅 문서로 기록할 때 사용한다.
+title: 트러블슈팅 문서 스킬
+description: "프로젝트 작업에서 겪은 문제의 증상, 원인, 해결 과정을 재사용할 트러블슈팅 문서로 기록할 때 사용한다."
+type: skill
+created: 2026-10-16
+modified: 2026-10-27
 ---
 
-# 트러블슈팅 문서 작성
+# 트러블슈팅 문서
 
 ## 절차
 

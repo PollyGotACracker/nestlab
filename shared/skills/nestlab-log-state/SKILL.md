@@ -1,9 +1,13 @@
 ---
 name: nestlab-log-state
-description: 작업의 경과 문서(log/task/<작업-id>/status.md)를 작성하거나 갱신할 때 사용한다.
+title: 경과 문서 스킬
+description: "작업에서의 요구 및 검토사항, 흐름을 기록하는 경과 문서(log/task/<작업-id>/status.md)를 작성하거나 갱신할 때 사용한다."
+type: skill
+created: 2026-10-23
+modified: 2026-10-27
 ---
 
-# 경과 문서 양식
+# 경과 문서
 
 ## 작성 시점
 

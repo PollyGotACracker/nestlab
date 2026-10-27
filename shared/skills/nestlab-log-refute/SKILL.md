@@ -1,9 +1,13 @@
 ---
 name: nestlab-log-refute
-description: 작업의 반증 문서(log/task/<작업-id>/refute.md)를 만들거나 양식을 확인할 때 사용한다. 조사 문서나 경과 문서 작성은 해당 양식 스킬이 맡는다.
+title: 반증 문서 스킬
+description: "조사 결과를 검토하는 반증 문서(log/task/<작업-id>/refute.md)를 만들거나 양식을 확인할 때 사용한다."
+type: skill
+created: 2026-10-27
+modified: 2026-10-28
 ---
 
-# 반증 문서 양식
+# 반증 문서
 
 ## 작성 규칙
 

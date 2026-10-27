@@ -1,3 +1,11 @@
+---
+title: worker 서브에이전트 작업 규칙
+description: "worker 서브에이전트가 명세 문서로 구현과 재작업을 수행하는 절차를 정의한다."
+type: instruction
+created: 2026-10-27
+modified: 2026-10-27
+---
+
 # worker 서브에이전트 작업
 
 ## 작업별 절차

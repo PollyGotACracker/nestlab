@@ -1,9 +1,13 @@
 ---
 name: nestlab-doc-tech
-description: 기술의 특징, 개념, 다른 기술과의 비교, 주요 API를 재사용할 기술 지식 문서로 기록할 때 사용한다.
+title: 기술 지식 스킬
+description: "기술의 특징, 개념, 다른 기술과의 비교, 주요 API를 재사용할 기술 지식 문서로 기록할 때 사용한다."
+type: skill
+created: 2026-10-16
+modified: 2026-10-27
 ---
 
-# 기술 지식 기록
+# 기술 지식
 
 ## 절차
 

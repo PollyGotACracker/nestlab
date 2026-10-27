@@ -1,3 +1,11 @@
+---
+title: director 메인에이전트 작업 규칙
+description: "director 메인 세션의 작업별 스킬, 역할별 담당, 프로젝트 작업 단계와 종료 조건을 정의한다."
+type: instruction
+created: 2026-10-27
+modified: 2026-10-28
+---
+
 # director 메인 세션 작업
 
 ## 작업별 절차

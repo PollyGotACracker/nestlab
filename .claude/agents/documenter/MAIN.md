@@ -1,3 +1,11 @@
+---
+title: documenter 메인 세션 작업 규칙
+description: "documenter가 director 없이 받은 사용자 요청을 처리하는 절차를 정의한다."
+type: instruction
+created: 2026-10-27
+modified: 2026-10-27
+---
+
 # documenter 메인 세션 작업
 
 ## 작업별 절차

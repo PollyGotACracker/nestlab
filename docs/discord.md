@@ -1,3 +1,11 @@
+---
+title: Nestlab Discord Bot 설치
+description: "Discord Bot의 준비 항목, 설정 파일 작성, 실행 방법을 설명한다."
+type: document
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Discord Bot 설치
 
 ## 준비 사항

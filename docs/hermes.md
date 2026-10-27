@@ -1,3 +1,11 @@
+---
+title: Nestlab 설정 Hermes 연결
+description: "공통 설치 뒤 Hermes에 nestlab 스킬을 연결하는 절차이다."
+type: document
+created: 2026-10-03
+modified: 2026-10-27
+---
+
 # Hermes 연결
 
 [공통 설치](setup.md)를 마친 뒤 저장소 폴더에서 진행한다.

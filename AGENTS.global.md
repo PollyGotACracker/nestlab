@@ -1,3 +1,11 @@
+---
+title: nestlab 전역 지침
+description: "nestlab 설정이 설치된 환경에서의 일반 전역 규칙과 프로젝트 공통 전역 규칙을 정의한다."
+type: instruction
+created: 2026-10-16
+modified: 2026-10-28
+---
+
 # 전역 지침
 
 - 작업물을 제외한 모든 응답에서 말투, 성향, 관심사는 자신의 Persona Tone Guide(SOUL.md)를 적용한다.

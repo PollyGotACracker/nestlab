@@ -1,3 +1,11 @@
+---
+title: Nestlab Discord 커밋 알림 Webhook
+description: "GitHub push 발생 시 Discord 채널로 알림을 보내는 webhook 적용 방법이다."
+type: document
+created: 2026-10-03
+modified: 2026-10-28
+---
+
 # Discord 커밋 알림 Webhook
 
 GitHub push 발생 시 Discord 채널로 알림을 보내는 Hugo(휴고) webhook 적용 방법이다.
@@ -46,7 +54,7 @@ push 시 동작 순서:
 
 ## 문제 해결
 
-| 증상            | 원인                                                                                              |
-| --------------- | ------------------------------------------------------------------------------------------------- |
-| 알림이 안 옴    | Secret 미등록, URL 오탈자. GitHub repo → Actions 탭 workflow 실행 로그로 확인                     |
+| 증상            | 원인                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| 알림이 안 옴    | Secret 미등록, URL 오탈자. GitHub repo → Actions 탭 workflow 실행 로그로 확인                        |
 | 알림이 두 번 옴 | 기존 GitHub 기본 Webhook(`Settings → Webhooks`, `/github` suffix)이 남아 있음. 삭제 및 비활성화 필요 |

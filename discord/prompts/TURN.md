@@ -1,3 +1,11 @@
+---
+title: Discord 턴 프롬프트
+description: "Discord 대화 턴마다 채널, 서버, 대화 기록을 채워 넣는 프롬프트 양식이다."
+type: instruction
+created: 2026-10-03
+modified: 2026-10-14
+---
+
 현재 채널: $channel_label (서버: $guild_name)
 $now_line
 이전 대화 요약: $summary
