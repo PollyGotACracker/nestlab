@@ -14,9 +14,9 @@ modified: 2026-10-27
 
 # assistant
 
-## 공통 스킬
+## 공통 스킬 규칙
 
 - 다음 작업은 명시된 스킬을 사용한다.
   - 저장소 확인: `nestlab-kickoff`
   - 지침과 스킬 작업: `nestlab-rule`
-  - 지적, 반박, 판단 재검토: `nestlab-verify`
+  - 지적, 반박, 판단 재확인: `nestlab-verify`

@@ -9,10 +9,10 @@
 반환:
 - read_session은 항목 dict 목록, 
 - session_path와 agent_transcript는 경로 문자열
-- answered_questions는 (질문 문장, 답 문자열) 목록
+- answered_questions는 (질문 문장, 답 문자열) 목록, question_answers는 (질문 dict, 답 문자열) 목록
 - turn은 (마지막 사용자 메시지, 직전 assistant 텍스트, 현재 턴 항목) 튜플
 - 차단 사유 문자열은 없음
-한계: 읽을 수 없는 기록 줄은 건너뛰고 빈 목록을 반환할 수 있다. Codex 질문 답은 출력 문자열 전체이다(답 필드 이름은 실측 전).
+한계: 읽을 수 없는 기록 줄은 건너뛰고 빈 목록을 반환할 수 있다. Codex 질문 답은 출력 JSON의 answers를 질문 id로 나누고, JSON이 아니면 출력 문자열 전체이다.
 """
 from __future__ import annotations
 
@@ -144,11 +144,26 @@ def read_session(path: str) -> list[dict]:
     return entries
 
 
-# 질문 도구 호출과 같은 id의 결과에 답이 있는 (header와 질문 문장, 답 문자열) 목록이다.
-# 다른 도구 결과와 답 없는 결과는 답으로 보지 않는다.
-def answered_questions(path: str) -> list[tuple[str, str]]:
+# Codex request_user_input 출력 JSON의 `answers`에서 질문 id의 답 문자열을 구한다. selected 값과 other 값을 쉼표로 잇고 없으면 빈 문자열이다.
+def _codex_answer(output: str, qid: str) -> str:
+    try:
+        answers = json.loads(output).get("answers")
+        entry = answers.get(qid) if isinstance(answers, dict) else None
+    except (ValueError, AttributeError):
+        return ""
+    if isinstance(entry, str):
+        return entry
+    if not isinstance(entry, dict):
+        return ""
+    picked = entry.get("selected") or []
+    values = [str(v) for v in (picked if isinstance(picked, list) else [picked])] + [str(entry.get("other") or "")]
+    return ", ".join(v for v in values if v.strip())
+
+
+# 질문 도구 호출과 같은 id의 결과에 답이 있는 (질문 dict, 답 문자열) 목록이다. 다른 도구 결과와 답 없는 결과는 답으로 보지 않는다.
+# Codex 출력이 answers JSON이면 질문 id로 질문별 답을 나누고, 아니면 출력 문자열 전체를 답으로 본다.
+def question_answers(entries: list[dict]) -> list[tuple[dict, str]]:
     # 호출 id별 결과 답을 모은다.
-    entries = read_session(path)
     replies = {}
     for entry in entries:
         replies.update(entry.get("replies") or {})
@@ -162,10 +177,20 @@ def answered_questions(path: str) -> list[tuple[str, str]]:
             for q in (args or {}).get("questions") or []:
                 if not isinstance(q, dict):
                     continue
-                answer = replies[call_id].get(q.get("question")) or replies[call_id].get("")
+                reply = replies[call_id]
+                raw = reply.get("")
+                if raw is not None and q.get("id") and '"answers"' in raw:
+                    answer = _codex_answer(raw, q["id"])
+                else:
+                    answer = reply.get(q.get("question")) or raw
                 if answer and str(answer).strip():
-                    out.append((f"{q.get('header') or ''}\n{q.get('question') or ''}", str(answer)))
+                    out.append((q, str(answer)))
     return out
+
+
+# 질문 도구 호출과 같은 id의 결과에 답이 있는 (header와 질문 문장, 답 문자열) 목록이다.
+def answered_questions(path: str) -> list[tuple[str, str]]:
+    return [(f"{q.get('header') or ''}\n{q.get('question') or ''}", a) for q, a in question_answers(read_session(path))]
 
 
 # 서브에이전트가 마지막으로 SubagentHandback에 넘긴 보고이다.

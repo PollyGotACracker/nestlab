@@ -3,7 +3,7 @@ title: Nestlab Discord Bot 설치
 description: "Discord Bot의 준비 항목, 설정 파일 작성, 실행 방법을 설명한다."
 type: document
 created: 2026-10-03
-modified: 2026-10-28
+modified: 2026-11-03
 ---
 
 # Discord Bot 설치
@@ -223,7 +223,7 @@ cp discord/config.example.json discord/config.json
 | director   | 담당이 불분명하거나 여러 역할이 필요한 요청 배정, 투표 올리기, 스레드 만들기, 메시지 고정 |
 | researcher | 새 정보 조사, 최신 정보 확인                                                              |
 | worker     | 코드 조각, 글 초안, 정리, 계산 같은 결과물 작성                                           |
-| reviewer   | 발언 검토, 인용 대조(채널 기록), 사실 검증(웹 검색)                                       |
+| reviewer   | 발언 확인, 인용 대조(채널 기록), 사실 검증(웹 검색)                                       |
 | documenter | 지식 저장소 조회와 승인 작업 준비                                                         |
 | assistant  | 알림 같은 생활형 요청                                                                     |
 

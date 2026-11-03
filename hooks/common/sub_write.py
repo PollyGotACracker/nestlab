@@ -264,3 +264,57 @@ def added_lines(data: dict, path: Path) -> tuple[list[str], str | None]:
     # 기존에 없던 줄만 골라 반환한다.
     old_lines = set(old.splitlines())
     return [l for l in new.splitlines() if l.strip() and l not in old_lines], new
+
+
+# apply_patch를 path의 기존 본문에 적용한 쓰기 후 전문이다. 패치가 path를 건드리지 않거나 적용할 수 없으면 None이다.
+def patched_text(data: dict, path: Path) -> str | None:
+    # path의 파일 구간 줄만 모으고, 구간 종류(Add, Update, Delete)를 기억한다.
+    cwd = Path(data.get("cwd") or ".")
+    old = read(path)
+    kind, mine, hunk = None, False, []
+    for s in strings(data.get("tool_input") or {}):
+        for line in s.splitlines():
+            head = PATCH_FILE.match(line)
+            if head and head[1]:
+                mine = path == cwd / head[1].strip()
+                if mine:
+                    kind = line.split()[1]
+            elif head:
+                mine = mine or path == cwd / head[2].strip()
+            elif line.startswith("*** "):
+                mine = mine and line.startswith("*** End of File")
+            elif mine:
+                hunk.append(line)
+    if kind is None:
+        return None
+    if kind == "Delete":
+        return ""
+    if kind == "Add":
+        return "".join(l[1:] + "\n" for l in hunk if l.startswith("+"))
+
+    # Update는 @@ 단위로 기존 줄에서 (문맥 + 삭제) 줄을 찾아 (문맥 + 추가) 줄로 바꾼다.
+    lines = old.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    hunks, cur = [], []
+    for l in hunk:
+        if l.startswith("@@"):
+            hunks.append(cur)
+            cur = []
+        else:
+            cur.append(l)
+    hunks.append(cur)
+    at = 0
+    for h in filter(None, hunks):
+        before = [l[1:] if l else "" for l in h if not l.startswith("+")]
+        after = [l[1:] if l else "" for l in h if not l.startswith("-")]
+        if not before:
+            lines[len(lines):] = after
+            at = len(lines)
+            continue
+        i = next((i for i in range(at, len(lines) - len(before) + 1) if lines[i:i + len(before)] == before), None)
+        if i is None:
+            return None
+        lines[i:i + len(before)] = after
+        at = i + len(after)
+    return "\n".join(lines) + "\n"

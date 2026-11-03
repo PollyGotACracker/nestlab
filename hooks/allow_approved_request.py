@@ -6,7 +6,8 @@
 - 호출 명령은 `python allow_approved_request.py --runner <claude|codex>`
 입력: hook 입력 JSON을 stdin으로 받는다.
 반환:
-- 승인 턴이거나 허용 목록 명령이거나 승인 전 PreToolUse 검사를 통과한 읽기 셸 명령이면 stdout에 `hookSpecificOutput`(`decision.behavior: allow`) JSON을 출력한다.
+- 승인 턴, 허용 목록 명령, 승인 전 PreToolUse 검사를 통과한 읽기 셸 명령과 작업 문서(log/task, log/incident) 쓰기이면 stdout에 `hookSpecificOutput`(`decision.behavior: allow`) JSON을 출력한다.
+- 서브에이전트 호출은 첫 요청의 작업이 실행 승인 기록을 가졌을 때만 allow이고 그 밖은 deny이다.
 - 승인 전이면 `decision.behavior: deny`와 `decision.message` JSON을 출력한다.
 - 질문 도구(AskUserQuestion, ExitPlanMode, request_user_input)와 오류는 아무것도 출력하지 않고 종료 코드 0으로 끝낸다.
 - decide()는 "allow", "deny" 또는 None을 반환한다.
@@ -25,9 +26,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "check_tool_use"))
 
-from sub_approval import approved, user_message
-from sub_session import QUESTION_TOOLS
-from sub_write import RETRY, SHELLS, SUBCOMMAND, bash_command
+from sub_approval import approved, executed_approved, user_message
+from sub_docs import project_root, task_id
+from sub_role import first_prompt, main_session
+from sub_session import QUESTION_TOOLS, agent_transcript
+from sub_write import RETRY, SHELLS, SUBCOMMAND, bash_command, targets
 
 # 승인 여부와 무관하게 허용하는 검증 명령 목록이다.
 ALLOW_LIST = ("python -m unittest *", "python3 -m unittest *", "py -m unittest *", "python hooks/tests/test_*.py",
@@ -65,12 +68,25 @@ def decide(data: dict, runner: str) -> str | None:
     if name == "Bash" and in_allow_list(bash_command(data)):
         return "allow"
 
+    # 서브에이전트(Claude agent_id, Codex 하위 thread)는 역할과 무관하게 첫 요청의 작업이 실행 승인 기록을 가졌는지로 판정한다.
+    if not main_session(data):
+        task = task_id(first_prompt(agent_transcript(data) or data.get("transcript_path")))
+        return "allow" if executed_approved(task, data.get("cwd")) else "deny"
+
     # 승인 전에도 PreToolUse 검사를 통과한 읽기 셸 명령은 허용한다.
     if name in SHELLS and not approved(user_message(data, runner)):
         # check_tool_use가 이 모듈을 불러오므로 순환을 피해 호출 시점에 불러온다.
         from check_tool_use import check, main_write_reason
         command = bash_command(data)
         if check(data, runner) is None and main_write_reason(command) is None:
+            return "allow"
+
+    # 승인 전에도 PreToolUse 검사를 통과한 작업 문서와 사건 문서 쓰기는 허용한다. 대상이 모두 log/task, log/incident 아래여야 한다.
+    if name not in SHELLS and not approved(user_message(data, runner)):
+        from check_tool_use import check
+        paths, root = targets(data), project_root(data.get("cwd"))
+        allowed = [(root / "log" / "task").resolve(), (root / "log" / "incident").resolve()]
+        if paths and all(any(p.resolve().is_relative_to(a) for a in allowed) for p in paths) and check(data, runner) is None:
             return "allow"
 
     # 승인 턴이면 허용하고 승인 전이면 거부한다.

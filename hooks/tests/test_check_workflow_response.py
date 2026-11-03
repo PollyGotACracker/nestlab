@@ -76,6 +76,20 @@ class Check(unittest.TestCase):
         self.assertIsNone(block("호출됐습니다.\n\n```\nsee a.jsonl:3\n```"))
         self.assertIsNone(block("호출됐습니다.\n\n> `a.jsonl` 3행"))
 
+    # 위치 이동을 뜻하는 `앞으로` 문장은 책임 회피로 보지 않고, 다짐은 계속 책임 회피로 본다.
+    def test_move_direction_not_shift(self):
+        self.assertEqual(hook.shift_hits({"last_assistant_message": "묶음 절 안에서 절차를 앞으로 옮겼습니다.", "cwd": PLAIN}, "claude"), [])
+        self.assertTrue(hook.shift_hits({"last_assistant_message": "앞으로는 원문을 먼저 확인하겠습니다.", "cwd": PLAIN}, "claude"))
+
+    # `다음` 뒤 `부터(는)`와 같은 문장의 `하겠습니다`, `할게요`만 책임 회피로 보고 다른 `다음` 문장은 통과한다. (요구사항 15)
+    def test_next_branch_narrowed(self):
+        hits = lambda text: hook.shift_hits({"last_assistant_message": text, "cwd": PLAIN}, "claude")
+        self.assertTrue(hits("다음부터는 원문을 먼저 확인하겠습니다."))
+        self.assertTrue(hits("다음 세션부터 고정 양식을 쓰도록 할게요."))
+        self.assertEqual(hits("승인 요청은 다음 턴에 내도록 정하고 있어, 이번에는 결과만 보고합니다."), [])
+        self.assertEqual(hits("다음 절에는 표를 둡니다."), [])
+        self.assertEqual(hits("다음부터는 표를 둡니다."), [])
+
     # background_tasks가 남은 응답은 통과하고 빈 목록이면 검사하는지 확인한다.
     def test_background_tasks_pass(self):
         self.assertIsNone(block(ANNOUNCE, background_tasks=[{"id": "t1"}]))
@@ -178,10 +192,10 @@ STATE = """# t
 
 ### 검토 필요
 
-- 검토 1. 구조
+- 조사 1. 구조
   - 상태: {status}
 
-## 작업 기록
+## 중단 사유
 
 - 2026-10-24 09:00:00: 착수
   - 담당: director
@@ -212,14 +226,25 @@ class Workflow(unittest.TestCase):
     # 검토 필요 항목이 끝나지 않으면 승인 요청이 block되고 끝나면 통과하는지 확인한다.
     def test_approval_needs_reviewed_items(self):
         (self.state / "t.md").write_text(STATE.format(status="미검토"), encoding="utf-8")
-        self.assertIn("검토 1. 구조", self.run_check(APPROVAL))
-        for status in ("검토 완료", "사후실측 필요"):
-            (self.state / "t.md").write_text(STATE.format(status=status), encoding="utf-8")
-            self.assertIsNone(self.run_check(APPROVAL), status)
+        self.assertIn("조사 1. 구조", self.run_check(APPROVAL))
+        (self.state / "t.md").write_text(STATE.format(status="검토 완료"), encoding="utf-8")
+        self.assertIsNone(self.run_check(APPROVAL))
         # 템플릿 주석에 없는 값은 앞부분이 같아도 완전 일치가 아니라서 막는다.
-        for status in ("사후검증 필요", "검토 완료(일부)"):
+        for status in ("사후실측 필요", "사후검증 필요", "검토 완료(일부)"):
             (self.state / "t.md").write_text(STATE.format(status=status), encoding="utf-8")
-            self.assertIn("검토 1. 구조", self.run_check(APPROVAL), status)
+            self.assertIn("조사 1. 구조", self.run_check(APPROVAL), status)
+
+    # 시점이 사전인 실측 필요 항목은 실측 완료일 때만 승인 요청이 통과하고, 사후 항목은 막지 않는다.
+    def test_approval_needs_measured_items(self):
+        measure = "\n## 실측 필요\n\n- 재현\n  - 시점: {when}\n  - 상태: {status}\n"
+        for when, status, blocked in (("사전", "실측 대기", True), ("사전", "실측 완료", False), ("사후", "실측 대기", False)):
+            text = STATE.format(status="검토 완료") + measure.format(when=when, status=status)
+            (self.state / "t.md").write_text(text, encoding="utf-8")
+            reason = self.run_check(APPROVAL)
+            if blocked:
+                self.assertIn("재현", reason, when + status)
+            else:
+                self.assertIsNone(reason, when + status)
 
     # 두 runner에서 director에게만 승인 요청의 상태 문서 경로를 요구하는지 확인한다.
     def test_approval_path_required_for_director_only(self):
@@ -236,14 +261,37 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.run_check(message, agent_type="director"), hook.REASON_APPROVAL_DOC)
         folder = self.root / "log" / "task" / "t"
         folder.mkdir(parents=True)
-        (folder / "status.md").write_text(STATE.format(status="검토 완료").replace("## 작업 기록", "## 결정 기록"), encoding="utf-8")
+        (folder / "status.md").write_text(STATE.format(status="검토 완료"), encoding="utf-8")
         self.assertIsNone(self.run_check(message + "\n\n[경과 문서](log/task/t/status.md)", agent_type="director"))
+
+    # 승인 요청이 가리킨 경과 문서의 요구사항 목록 번호가 명세 문서와 다르면 block하고, 같거나 명세 문서가 없으면 통과한다. (요구사항 22)
+    def test_approval_request_number_match(self):
+        from test_sub_workflow import NEW_PLAN
+        import sub_workflow
+        block_of = NEW_PLAN[NEW_PLAN.index("### 1. 기능"):NEW_PLAN.index("## 작업 금지 목록")]
+        spec = NEW_PLAN.replace(block_of, block_of + block_of.replace("1. 기능", "2. 기능") + block_of.replace("1. 기능", "3. 기능"))
+        state = STATE.format(status="검토 완료").replace("### 검토 필요", "### 요구사항 목록\n\n{items}\n\n### 검토 필요")
+        folder = self.root / "log" / "task" / "t"
+        folder.mkdir(parents=True)
+        message = "# 승인 요청\n\n[경과 문서](log/task/t/status.md)\n\n- `hooks/a.py`"
+
+        # 목록 1, 3과 명세 1, 2, 3은 막는다.
+        (folder / "spec.md").write_text(spec, encoding="utf-8")
+        (folder / "status.md").write_text(state.replace("{items}", "1. 가: 나\n3. 다: 라"), encoding="utf-8")
+        self.assertIn(sub_workflow.R_NUM_MISMATCH, self.run_check(message) or "")
+
+        # 번호가 같거나 명세 문서가 없으면 통과한다.
+        (folder / "status.md").write_text(state.replace("{items}", "1. 가: 나\n2. 다: 라\n3. 마: 바"), encoding="utf-8")
+        self.assertIsNone(self.run_check(message))
+        (folder / "spec.md").unlink()
+        (folder / "status.md").write_text(state.replace("{items}", "1. 가: 나\n3. 다: 라"), encoding="utf-8")
+        self.assertIsNone(self.run_check(message))
 
     # 조사 원문이 빈 작업에서 조사 도구 호출 없는 해결안 제안은 block하고, 조사 원문이 있거나 안 표지가 없는 응답은 통과한다. (요구사항 7)
     def test_proposal_before_research_blocked(self):
         folder = self.root / "log" / "task" / "t"
         folder.mkdir(parents=True)
-        (folder / "status.md").write_text(STATE.format(status="미검토").replace("## 작업 기록", "## 결정 기록"), encoding="utf-8")
+        (folder / "status.md").write_text(STATE.format(status="미검토"), encoding="utf-8")
         proposal = "제 추천은 안 1입니다.\n\n| 안 | 장점 |\n| -- | -- |\n| 1 | 빠름 |"
         self.assertEqual(self.run_check(proposal, agent_type="director"), hook.REASON_PROPOSAL)
         self.assertIsNone(self.run_check("현재 구조는 `a.py`에 있습니다.", agent_type="director"))
@@ -266,14 +314,14 @@ class Workflow(unittest.TestCase):
         self.assertIn(hook.UNRESOLVED, text)
         self.assertLess(text.index("착수"), text.index(hook.UNRESOLVED))
 
-    # log/task 경과 문서도 검토 필요 항목을 검사하고 결정 기록 절에 미해결을 기록하는지 확인한다.
+    # log/task 경과 문서도 검토 필요 항목을 검사하고 중단 사유 절에 미해결을 기록하는지 확인한다.
     def test_task_folder_state_doc(self):
         folder = self.root / "log" / "task" / "t"
         folder.mkdir(parents=True)
         doc = folder / "status.md"
         approval = APPROVAL.replace("log/state/t.md", "log/task/t/status.md")
-        doc.write_text(STATE.format(status="미검토").replace("## 작업 기록", "## 결정 기록"), encoding="utf-8")
-        self.assertIn("검토 1. 구조", self.run_check(approval))
+        doc.write_text(STATE.format(status="미검토"), encoding="utf-8")
+        self.assertIn("조사 1. 구조", self.run_check(approval))
         self.assertIsNone(self.run_check(approval, stop_hook_active=True))
         text = doc.read_text(encoding="utf-8")
         self.assertLess(text.index("착수"), text.index(hook.UNRESOLVED))
@@ -281,7 +329,7 @@ class Workflow(unittest.TestCase):
     # 판단 지점이 아닌 선택 요청 블록이 block되는지 확인한다.
     def test_choice_requires_decision_point(self):
         doc = self.state / "t.md"
-        message = "## 선택 필요\n\n검토 1. 구조\n- A\n- B"
+        message = "## 선택 필요\n\n조사 1. 구조\n- A\n- B"
         doc.write_text(STATE.format(status="미검토"), encoding="utf-8")
         self.assertIn("판단 지점 밖", self.run_check(message))
         doc.write_text(STATE.format(status="사용자 검토 필요"), encoding="utf-8")
@@ -293,6 +341,142 @@ class Workflow(unittest.TestCase):
         empty.mkdir()
         with unittest.mock.patch.object(hook, "project_root", return_value=empty):
             self.assertIsNone(self.run_check("어느 쪽으로 할까요?"))
+
+
+STATUS = """# t
+
+- 작업 ID: t
+- 작업 상태: 진행
+
+## 요구사항
+
+### 요구사항 목록
+
+1. <요구사항 이름>: <변경 내용 한 문장>
+
+### 검토 필요
+
+<!-- 사용자의 답이 필요한 대상 목록 -->
+
+- <항목>
+  - 상태: <미검토 | 사용자 검토 필요 | 검토 완료>
+
+### 재검토 조건
+
+- 조건
+
+## 작업 경과
+
+- 갱신 시각: x
+
+## 중단 사유
+
+<!-- 작업 상태가 중단일 때만 채운다. -->
+
+- 중단 유형: <충족 불가>
+"""
+
+
+class RecordAnswers(unittest.TestCase):
+    """Stop hook이 질문 도구 답을 경과 문서의 요구사항 목록과 검토 필요 절에 기록한다."""
+
+    # 임시 저장소와 경과 문서를 준비한다.
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.status = self.root / "log" / "task" / "t" / "status.md"
+        self.status.parent.mkdir(parents=True)
+        self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
+        patcher = unittest.mock.patch.object(hook, "project_root", return_value=self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    # Claude 기록 파일을 만든다. 경과 문서를 쓴 Write 호출과 질문 호출, 답 결과가 이어진다.
+    def claude(self, question, answer, options=None):
+        ask = {"type": "tool_use", "id": "q1", "name": "AskUserQuestion",
+               "input": {"questions": [{"header": "결정", "question": question, "options": options or []}]}}
+        write = {"type": "tool_use", "id": "w1", "name": "Write", "input": {"file_path": str(self.status), "content": "x"}}
+        result = {"type": "tool_result", "tool_use_id": "q1", "content": "User has answered"}
+        lines = [{"type": "user", "message": {"content": "시작"}},
+                 {"type": "assistant", "message": {"content": [write, ask]}},
+                 {"type": "user", "message": {"content": [result]}, "toolUseResult": {"answers": {question: answer}}}]
+        return self.save(lines)
+
+    # Codex rollout 파일을 만든다. 경과 문서를 고친 apply_patch 호출과 request_user_input 호출, answers 출력이 이어진다.
+    def codex(self, question, selected, options=None):
+        item = lambda p: {"type": "response_item", "payload": p}
+        ask = {"questions": [{"id": "q1", "header": "결정", "question": question, "options": options or []}]}
+        patch = "*** Begin Patch\n*** Update File: log/task/t/status.md\n@@\n-x\n+y\n*** End Patch"
+        lines = [item({"type": "message", "role": "user", "content": [{"text": "시작"}]}),
+                 item({"type": "custom_tool_call", "name": "apply_patch", "call_id": "c1", "input": patch}),
+                 item({"type": "function_call", "name": "request_user_input", "call_id": "c2", "arguments": json.dumps(ask)}),
+                 item({"type": "function_call_output", "call_id": "c2",
+                       "output": json.dumps({"answers": {"q1": {"selected": selected}}}, ensure_ascii=False)})]
+        return self.save(lines)
+
+    # 기록 줄을 파일로 저장하고 경로를 반환한다.
+    def save(self, lines):
+        path = self.root / f"t{len(list(self.root.glob('t*.jsonl')))}.jsonl"
+        path.write_text("\n".join(json.dumps(l, ensure_ascii=False) for l in lines) + "\n", encoding="utf-8")
+        return str(path)
+
+    # Stop hook을 실행한다.
+    def stop(self, transcript, runner):
+        return hook.check({"last_assistant_message": GOOD, "cwd": str(self.root), "transcript_path": transcript}, runner)
+
+    # 경과 문서 전문이다.
+    def text(self):
+        return self.status.read_bytes().decode("utf-8")
+
+    # 요구사항 형식 질문의 확정 답은 요구사항 목록에 기록하고 두 절 밖 본문은 바이트 단위로 같은지 확인한다. (Claude, Codex)
+    def test_requirement_confirmed(self):
+        question = "요구사항 2. 이름: 내용 한 문장"
+        for runner, transcript in (("claude", self.claude(question, "확정")), ("codex", self.codex(question, ["확정"]))):
+            with self.subTest(runner=runner):
+                self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
+                self.stop(transcript, runner)
+                text = self.text()
+                self.assertIn("\r\n2. 이름: 내용 한 문장\r\n", text)
+                self.assertNotIn("<요구사항 이름>", text)
+                self.assertEqual(hook.splice(text, "요구사항 목록", lambda b: "").replace("\r\n", "\n"),
+                                 hook.splice(STATUS, "요구사항 목록", lambda b: ""))
+                # 같은 번호는 바꾸고 새 번호는 번호 순서로 넣는다.
+                self.stop(self.claude("요구사항 1. 처음: 하나", "확정"), "claude")
+                self.stop(self.claude("요구사항 2. 이름: 바뀐 내용", "확정"), "claude")
+                lines = [l for l in self.text().splitlines() if l[:3] in ("1. ", "2. ")]
+                self.assertEqual(lines, ["1. 처음: 하나", "2. 이름: 바뀐 내용"])
+
+    # 확정이 아닌 답과 요구사항 형식이 아닌 질문은 요구사항 목록을 바꾸지 않는다.
+    def test_requirement_not_recorded(self):
+        self.stop(self.claude("요구사항 2. 이름: 내용", "보류"), "claude")
+        self.assertEqual(self.text(), STATUS.replace("\n", "\r\n"))
+        self.stop(self.claude("어느 안으로 할까요?", "확정: 안 A"), "claude")
+        self.assertIn("1. <요구사항 이름>", self.text())
+
+    # 일반 질문은 확정 답이면 검토 완료, 자유 입력 답이면 사용자 검토 필요 항목으로 기록하고 선택지 설명을 대응 근거로 쓴다.
+    def test_review_recorded(self):
+        options = [{"label": "확정: 안 A", "description": "A로 한다"}, {"label": "안 B", "description": "B로 한다"}]
+        for runner, transcript in (("claude", self.claude("어느 안으로 할까요?", "확정: 안 A", options)),
+                                   ("codex", self.codex("어느 안으로 할까요?", ["확정: 안 A"], options))):
+            with self.subTest(runner=runner):
+                self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
+                self.stop(transcript, runner)
+                text = self.text().replace("\r\n", "\n")
+                self.assertIn("- 어느 안으로 할까요?\n  - 상태: 검토 완료\n", text)
+                self.assertIn("  - 대응 근거: A로 한다\n  - 대응 방안:\n    - 확정: 안 A\n", text)
+                self.assertNotIn("- <항목>", text)
+                self.assertIn("### 재검토 조건\n\n- 조건", text)
+        self.stop(self.claude("어느 안으로 할까요?", "직접 입력한 답"), "claude")
+        text = self.text().replace("\r\n", "\n")
+        self.assertIn("- 어느 안으로 할까요?\n  - 상태: 사용자 검토 필요\n", text)
+        self.assertEqual(text.count("- 어느 안으로 할까요?"), 1)
+
+    # 중단 사유 절 끝에 미해결 줄을 덧붙이는지 확인한다.
+    def test_unresolved_line_appended(self):
+        hook.record_unresolved([self.status], "사유\n두 줄")
+        text = self.text().replace("\r\n", "\n")
+        self.assertTrue(text.endswith("- 중단 유형: <충족 불가>\n- 중단 판정 미해결: 사유 두 줄\n"))
 
 
 class KickoffStop(unittest.TestCase):

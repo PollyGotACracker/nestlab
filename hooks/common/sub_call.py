@@ -30,6 +30,23 @@ PROMPT_KEYS = ("prompt", "message")
 # reviewer 반증 판정 줄 형식이다.
 VERDICT = re.compile(r"^[\s\-*]*주장\s*(\d+)\s*[:：]\s*(지지|반증|미확인)\s*\|\s*출처\s*[:：]\s*(.+?)[\s*]*$")
 REFUTE_MARKER = "작업 종류: 반증"
+# Codex spawn_agent의 message는 암호문이라 task_name에서 요청을 복원한다.
+CIPHER = re.compile(r"^gAAAAA[\w\-]+=*$")
+TASK_NAME = re.compile(r"(research|refute|implement|document|verify|rework|reverify)__(\d{8})_(\d{6})_([a-z0-9_]+)")
+TASK_KIND = {"research": "조사", "refute": "반증", "implement": "구현", "document": "문서 작성",
+             "verify": "검증", "rework": "재작업", "reverify": "재검증"}
+
+
+# 문자열에서 task_name을 찾아 평문 요청 두 줄을 만든다. task_name이 없으면 빈 문자열이다.
+def task_prompt(text: str) -> str:
+    m = TASK_NAME.search(text or "")
+    if not m:
+        return ""
+    stage, day, clock, name = m.groups()
+    path = f"log/task/{day}-{clock}-{name.replace('_', '-')}"
+    label = {"research": "조사 문서", "refute": "반증 문서"}.get(stage, "명세 문서")
+    file = {"research": "research", "refute": "refute"}.get(stage, "spec")
+    return f"작업 종류: {TASK_KIND[stage]}\n{label}: {path}/{file}.md"
 
 
 # 서브에이전트 생성 도구 이름이면 True이다.
@@ -46,7 +63,13 @@ def call_info(data: dict) -> tuple[str, str]:
     # 대상 키와 본문 키 중 문자열인 첫 값을 고른다.
     tin = data.get("tool_input") or {}
     pick = lambda keys: next((tin[k] for k in keys if isinstance(tin.get(k), str)), "")
-    return pick(TARGET_KEYS), pick(PROMPT_KEYS)
+    prompt = pick(PROMPT_KEYS)
+
+    # 암호문 본문은 형식에 맞는 task_name으로 복원한 요청으로 바꾼다.
+    name = tin.get("task_name")
+    if CIPHER.match(prompt.strip()) and isinstance(name, str) and TASK_NAME.fullmatch(name):
+        prompt = task_prompt(name)
+    return pick(TARGET_KEYS), prompt
 
 
 # 정확한 요청 표식이 한 번 있을 때만 반증 mode이다.

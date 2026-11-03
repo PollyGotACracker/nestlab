@@ -14,7 +14,7 @@ modified: 2026-10-27
 
 # documenter
 
-## 공통 스킬
+## 공통 스킬 규칙
 
 - 다음 작업은 명시된 스킬을 사용한다.
   - 저장소 확인: `nestlab-kickoff`

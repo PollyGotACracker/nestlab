@@ -58,7 +58,7 @@ Discord 채널의 에이전트 봇 목록
 | director   | rio(리오)    | 대화 흐름 조정, 투표와 스레드 생성            |
 | researcher | nico(니코)   | 외부 정보 조사, 최신 정보 확인                |
 | worker     | jelly(젤리)  | 코드 조각, 글 초안, 정리, 계산 등 결과물 작성 |
-| reviewer   | ricky(리키)  | 발언 검토, 인용 대조, 사실 검증               |
+| reviewer   | ricky(리키)  | 발언 확인, 인용 대조, 사실 검증               |
 | documenter | pepper(페퍼) | 지식 저장소 조회, 기록, 삭제                  |
 
 - [봇 권한 목록](docs/discord.md#discord-서버-추가)

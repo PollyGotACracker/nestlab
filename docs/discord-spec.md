@@ -3,7 +3,7 @@ title: Nestlab Discord Agent 시스템 명세
 description: "에이전트별 Discord Bot의 채널 동작, 설정 항목, 자율 채팅과 오류 처리를 정의한 명세이다."
 type: document
 created: 2026-10-03
-modified: 2026-10-28
+modified: 2026-11-03
 ---
 
 # Discord Agent 시스템 명세
@@ -29,7 +29,7 @@ Bot은 하나의 프로세스에서 실행한다. 등록된 에이전트 채널�
   - Discord 담당: 코드 조각, 글 초안, 정리, 계산 같은 결과물 작성
   - 전용 도구: 없음
 - reviewer
-  - Discord 담당: 발언 검토, 인용 대조(채널 기록), 사실 검증(웹 검색)
+  - Discord 담당: 발언 확인, 인용 대조(채널 기록), 사실 검증(웹 검색)
   - 전용 도구:
     - `channel_history`
 - documenter

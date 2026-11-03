@@ -29,11 +29,11 @@ STATE = f"""# 작업
 ## 실행 승인 범위
 {APPROVAL}
 ## 검토 필요
-- 검토 1. 도구
+- 조사 1. 도구
   - 상태: 검토 완료
   - 사용자 검토 시각: 2026-10-24 12:00:00
   - 대응 근거: 사용자 선택
-## 결정 기록
+## 중단 사유
 - 실행 준비
 ## 검증 결과
 - 2026-10-24 12:00:00: 기능 (정적, 검증)
@@ -93,7 +93,7 @@ PLAN = f"""# 명세
 ## 재검증 요청
 없음
 """
-REPORT = "검토 1. 도구\n후보 A 충족, 후보 B 미충족\n제안: A\n출처: a.py:1"
+REPORT = "조사 1. 도구\n후보 A 충족, 후보 B 미충족\n제안: A\n출처: a.py:1"
 ROUND = "- 주장 1: 지지 | 출처: a.py:1"
 LOOP = """## 조사 및 반증 루프
 | 회차 | 반증 건수 | 정지 여부 |
@@ -107,7 +107,7 @@ RESEARCH = f"""# 조사
 ## 조사 계획
 - 제외 범위: 없음
 - 대안 검색 기록: 후보 검색 (출처: a.py:1)
-### 검토 1. 도구
+### 조사 1. 도구
 - 질문: 도구
 ## 프로젝트 환경
 Python, 출처: a.py:1
@@ -182,7 +182,7 @@ class Gate(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "미해결 중단 판정"):
             flow.validate(self.root, TASK, "research")
 
-    # 양식처럼 하위 절로 쓴 프로젝트 환경과 결정 기록 항목을 절 본문으로 읽는지 확인한다.
+    # 양식처럼 하위 절로 쓴 프로젝트 환경과 중단 사유 항목을 절 본문으로 읽는지 확인한다.
     def test_template_subsections_are_section_body(self):
         research = RESEARCH.replace("- 대안 검색 기록: 후보 검색 (출처: a.py:1)\n", "").replace(
             "## 프로젝트 환경\nPython, 출처: a.py:1\n", "## 프로젝트 환경\n### 언어\nPython\n출처: `a.py:1`\n")
@@ -237,6 +237,24 @@ class Gate(unittest.TestCase):
             (self.folder / f"{kind}.md").write_text(re.sub(r"^#{1,6} ", "# ", body, flags=re.M), encoding="utf-8")
         flow.validate(self.root, TASK, "complete")
 
+    # 첫 사용자 메시지가 비거나 암호문이면 rollout 첫 줄의 task_name에서 검증 요청 두 줄을 복원한다. (요구사항 13)
+    def test_first_prompt_from_task_name(self):
+        import json
+        import sub_role
+        first = json.dumps({"type": "session_meta", "payload": {"agent_path": "/root/verify__20261103_063721_response_check_cost"}})
+        expected = "작업 종류: 검증\n명세 문서: log/task/20261103-063721-response-check-cost/spec.md"
+        rollout = self.root / "rollout.jsonl"
+        rollout.write_text(first + "\n", encoding="utf-8")
+        self.assertEqual(sub_role.first_prompt(str(rollout)), expected)
+
+        # 암호문 첫 메시지도 같은 결과이고, 평문 첫 메시지는 그대로 반환한다.
+        message = lambda text: json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}})
+        rollout.write_text(first + "\n" + message("gAAAAABabc-_def==") + "\n", encoding="utf-8")
+        self.assertEqual(sub_role.first_prompt(str(rollout)), expected)
+        rollout.write_text(first + "\n" + message("작업 종류: 구현") + "\n", encoding="utf-8")
+        self.assertEqual(sub_role.first_prompt(str(rollout)), "작업 종류: 구현")
+
     # 폴더 이름과 한글 슬래시 표현은 통과하고 사건 문서 파일 경로는 기록 정보로 잡는지 확인한다.
     def test_record_leak_line(self):
         import sub_input
@@ -255,7 +273,7 @@ class Gate(unittest.TestCase):
         for n in (2, 3):
             rounds += f"### {n}회차 반증 원문\n```\n{ROUND}\n```\n"
         state, research, refute = flow.Document(STATE), flow.Document(RESEARCH), flow.Document(rounds)
-        items = ["검토 1. 도구"]
+        items = ["조사 1. 도구"]
         flow.check_research(state, research, items, reviewed=True, refute=refute)
         with self.assertRaisesRegex(ValueError, "정지한 뒤에"):
             flow.check_research(state, research, items, reviewed=False, refute=refute)
@@ -265,11 +283,11 @@ class Gate(unittest.TestCase):
         state, research = flow.Document(STATE), flow.Document(RESEARCH)
         for line in ("  - 주장 1: 지지 | 출처: a.py:1", "- 주장 1: 지지 | 출처: a.py:1"):
             refute = flow.Document(REFUTE.replace(ROUND, line))
-            flow.check_research(state, research, ["검토 1. 도구"], refute=refute)
+            flow.check_research(state, research, ["조사 1. 도구"], refute=refute)
         for body in ("판정 없음", "- 주장 1: 도구는 파이썬이다 (출처: a.py:1)"):
             refute = flow.Document(REFUTE.replace(ROUND, body))
             with self.assertRaisesRegex(ValueError, "반증 판정과 출처가 없습니다"):
-                flow.check_research(state, research, ["검토 1. 도구"], refute=refute)
+                flow.check_research(state, research, ["조사 1. 도구"], refute=refute)
 
     # 반증 문서의 회차 표 밖 행은 회차로 세지 않는지 확인한다.
     def test_loop_count_counts_only_loop_section_rows(self):
@@ -278,15 +296,15 @@ class Gate(unittest.TestCase):
 
     # 항목별로 가장 최근 조사 결과를 기준으로 삼는지 확인한다.
     def test_partial_research_keeps_latest_per_item(self):
-        second = REPORT.replace("검토 1. 도구", "검토 2. 설정")
+        second = REPORT.replace("조사 1. 도구", "조사 2. 설정")
         updated = second.replace("제안: A", "제안: B")
         accumulated = REPORT + "\n" + second + "\n\n---\n\n" + updated
-        flow.check_research_result(accumulated, ["검토 1. 도구", "검토 2. 설정"])
+        flow.check_research_result(accumulated, ["조사 1. 도구", "조사 2. 설정"])
         with self.assertRaisesRegex(ValueError, "항목이 없습니다"):
-            flow.check_research_result(accumulated, ["검토 3. 부재"])
+            flow.check_research_result(accumulated, ["조사 3. 부재"])
         with self.assertRaisesRegex(ValueError, "`제안` 항목이 없습니다"):
-            flow.check_research_result(accumulated + "\n\n---\n\n검토 2. 설정\n후보 충족 출처: a.py:1",
-                                       ["검토 1. 도구", "검토 2. 설정"])
+            flow.check_research_result(accumulated + "\n\n---\n\n조사 2. 설정\n후보 충족 출처: a.py:1",
+                                       ["조사 1. 도구", "조사 2. 설정"])
         (self.folder / "research.md").write_text(RESEARCH.replace(REPORT, accumulated), encoding="utf-8")
         flow.validate(self.root, TASK, "refute")
 
@@ -294,12 +312,12 @@ class Gate(unittest.TestCase):
     def test_old_label_is_blocked(self):
         old = REPORT.replace("제안: A", chr(0xad8c) + chr(0xace0) + ": A")
         with self.assertRaisesRegex(ValueError, "`제안` 항목이 없습니다"):
-            flow.check_research_result(old, ["검토 1. 도구"])
+            flow.check_research_result(old, ["조사 1. 도구"])
 
 
 # 새 양식 본문을 기존 절 이름과 칸 이름으로 바꾼다. 기존 이름은 sub_docs.legacy로 구한다.
 def old(text: str) -> str:
-    for term in ("## 검증 결과", "(정적, 검증)", "- 검증:", "### 검증 계획", "## 재검증 요청", "## 결정 기록"):
+    for term in ("## 검증 결과", "(정적, 검증)", "- 검증:", "### 검증 계획", "## 재검증 요청"):
         text = text.replace(term, sub_docs.legacy(term))
     return text
 
@@ -352,7 +370,7 @@ NEW_SCOPE = """### 배정 범위
 """
 NEW_PLAN = PLAN.replace(SCOPE, NEW_SCOPE)
 NEW_STATE = STATE.replace("기능 (정적, 검증)", "기능 (요구사항 1) (정적, 검증)")
-NEW_RESEARCH = RESEARCH.replace("### 검토 1. 도구", "### 검토 1. 도구 (요구사항 1)").replace(REPORT, REPORT.replace("검토 1. 도구", "검토 1. 도구 (요구사항 1)"))
+NEW_RESEARCH = RESEARCH.replace("### 조사 1. 도구", "### 조사 1. 도구 (요구사항 1)").replace(REPORT, REPORT.replace("조사 1. 도구", "조사 1. 도구 (요구사항 1)"))
 
 
 class NumberedGate(unittest.TestCase):
@@ -387,9 +405,9 @@ class NumberedGate(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "재작업 요청"):
             flow.validate(self.root, TASK, "implement")
 
-    # 조사 검토 항목과 검증 결과 항목에도 번호 표기를 요구한다.
+    # 조사 항목과 검증 결과 항목에도 번호 표기를 요구한다.
     def test_research_and_review_items_need_numbers(self):
-        self.put(research=NEW_RESEARCH.replace("### 검토 1. 도구 (요구사항 1)", "### 검토 1. 도구"))
+        self.put(research=NEW_RESEARCH.replace("### 조사 1. 도구 (요구사항 1)", "### 조사 1. 도구"))
         with self.assertRaisesRegex(ValueError, "조사 계획"):
             flow.validate(self.root, TASK, "kickoff")
         self.put(research=NEW_RESEARCH.replace("(요구사항 1)", "(요구사항 7)"))
@@ -439,7 +457,7 @@ class SpecLessGate(unittest.TestCase):
         old_execute = head + "사용자 승인 상태: 대기" + tail
         self.assertIn("요구사항 번호", flow.transition_reason(status, state, old_execute, NEW_PLAN) or "")
 
-    # 경과 문서 요구사항 목록이 없거나 검토 항목 번호가 목록에 없으면 막는다.
+    # 경과 문서 요구사항 목록이 없거나 조사 항목 번호가 목록에 없으면 막는다.
     def test_kickoff_needs_requirement_list(self):
         self.put(status=NEW_STATE)
         with self.assertRaisesRegex(ValueError, "요구사항 목록"):
@@ -511,12 +529,23 @@ class ReviewStatus(unittest.TestCase):
         task.mkdir(parents=True)
         for kind, body in (("status", NEW_STATE), ("spec", NEW_PLAN), ("research", NEW_RESEARCH), ("refute", REFUTE)):
             (task / f"{kind}.md").write_text(body, encoding="utf-8")
-        self.assertEqual(sub_docs.review_done(), ("검토 완료", "사후실측 필요"))
+        self.assertEqual(sub_docs.review_done(), ("검토 완료",))
         flow.validate(folder, TASK, "implement")
-        post = NEW_STATE.replace("상태: 검토 완료", "상태: 사후실측 필요")
-        (task / "status.md").write_text(post, encoding="utf-8")
-        flow.validate(folder, TASK, "implement")
-        for value in ("사후검증 필요", "검토 완료(일부)", "미검토"):
+
+        # 실측 필요 항목은 사전이면 실행 단계를, 사후면 완료 단계를 막고 실측 완료면 통과한다.
+        measure = "\n## 실측 필요\n- 재현\n  - 시점: {when}\n  - 상태: {status}\n"
+        for when, status, stage, blocked in (("사전", "실측 대기", "implement", True), ("사전", "실측 완료", "implement", False),
+                                            ("사후", "실측 대기", "implement", False), ("사후", "실측 대기", "complete", True),
+                                            ("사후", "실측 완료", "complete", False)):
+            (task / "status.md").write_text(NEW_STATE + measure.format(when=when, status=status), encoding="utf-8")
+            if blocked:
+                with self.assertRaisesRegex(ValueError, "실측"):
+                    flow.validate(folder, TASK, stage)
+            else:
+                flow.validate(folder, TASK, stage)
+
+        # 검토 필요 상태값 `사후실측 필요`는 허용 값이 아니다.
+        for value in ("사후실측 필요", "사후검증 필요", "검토 완료(일부)", "미검토"):
             (task / "status.md").write_text(NEW_STATE.replace("상태: 검토 완료", f"상태: {value}"), encoding="utf-8")
             with self.assertRaises(ValueError):
                 flow.validate(folder, TASK, "implement")

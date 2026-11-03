@@ -241,6 +241,13 @@ class RecordIncident(unittest.TestCase):
         self.assertNotIn("정상 줄", reason)
         self.assertNotIn("- 놓쳤어요.", reason)
 
+    # block 사유가 본문 재작성 금지 문구를 담고 이전 문구를 담지 않으며, 감지 표현이 없으면 출력이 없는지 확인한다. (요구사항 16)
+    def test_reason_forbids_rewriting_body(self):
+        reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "제 실수로 빠뜨렸습니다."})
+        self.assertIn("직전 응답의 본문은 다시 쓰지 마십시오.", reason)
+        self.assertNotIn("판단 과정 요약", reason)
+        self.assertIsNone(hook.record({"session_id": "abcdef123456", "last_assistant_message": "정상 응답입니다."}))
+
     # claude와 codex runner 모두 main 출력에 decision, reason, systemMessage가 있고 감지가 없으면 출력이 없는지 확인한다.
     def test_main_output_has_system_message(self):
         for runner in ("claude", "codex"):

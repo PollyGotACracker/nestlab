@@ -19,6 +19,7 @@ log/state의 기존 작업 문서는 임시로 기존 경로와 기존 절 이�
 - titles와 missing_titles는 제목 목록
 - section은 절 본문 문자열
 - review_done은 검토 필요 상태의 허용 값 튜플(스킬 원본을 읽지 못하면 ValueError)
+- measure_pending은 실측 필요 절의 미완료 항목 이름 목록
 - saved_report는 bool
 - 차단 사유 문자열은 없음
 """
@@ -75,7 +76,7 @@ def project_root(cwd: str | Path | None = None) -> Path:
 
 # 임시: log/state 기존 문서의 기존 절 이름이다. 기존 로그 삭제 뒤 제거한다.
 def legacy(title: str) -> str:
-    return title.replace("검증", "검수").replace("결정 기록", "작업 기록")  # 임시 기존 이름
+    return title.replace("검증", "검수")  # 임시 기존 이름
 
 
 # 저장소 루트, 작업 ID, 문서 종류(state, input, research, refute)로 작업 문서 경로를 반환한다.
@@ -199,6 +200,13 @@ def template_titles(skill: str) -> list[str]:
     return [t for t in titles(first_block(body)) if "<" not in t]
 
 
+# 스킬 본문 Template 절 첫 코드 블록 안의 title 절 본문이다. 스킬이나 절이 없으면 빈 문자열이다.
+def template_section(skill: str, title: str) -> str:
+    path = SKILLS / skill / "SKILL.md"
+    body = section(path.read_text(encoding="utf-8"), TEMPLATE_TITLE) if path.is_file() else ""
+    return section(first_block(body), title)
+
+
 # 템플릿 필수 제목 중 new에 없는 것이다. old가 있으면 old에 있던 제목만 따진다(이전 양식 문서 보존).
 def missing_titles(new: str, skill: str, old: str = "") -> list[str]:
     # 템플릿 필수 제목과 새 문서의 제목을 구한다.
@@ -248,3 +256,19 @@ def review_done() -> tuple[str, ...]:
     if not match:
         raise ValueError("nestlab-log-state 템플릿에 `모든 목록이 ... 일 때 승인 가능` 주석이 없습니다.")
     return tuple(re.split(r"\s*(?:또는|,)\s*", match[1]))
+
+
+# 경과 문서 실측 필요 절에서 상태가 `실측 완료`가 아닌 항목 이름 목록을 반환한다. times는 포함할 시점(사전, 사후)이며 `사후`가 아닌 시점은 사전으로 본다.
+def measure_pending(text: str, times: tuple[str, ...] = ("사전",)) -> list[str]:
+    # 항목은 0칸 들여쓴 `- ` 줄이고, 본문은 다음 항목 줄 전까지이다.
+    body = section(text, "실측 필요")
+    starts = list(re.finditer(r"(?m)^- (.+)$", body))
+    out = []
+    for i, m in enumerate(starts):
+        item = body[m.end():(starts[i + 1].start() if i + 1 < len(starts) else len(body))]
+        when = re.search(r"^\s*- 시점:\s*(.+?)\s*$", item, re.M)
+        state = re.search(r"^\s*- 상태:\s*(.+?)\s*$", item, re.M)
+        kind = "사후" if when and when[1] == "사후" else "사전"
+        if kind in times and not (state and state[1] == "실측 완료"):
+            out.append(m[1].strip())
+    return out

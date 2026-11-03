@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 
 from sub_agents import discover_agents, read_folder_agent
+from sub_call import CIPHER, task_prompt
 from sub_docs import ROOT
 from sub_session import CODEX_SESSIONS, read_session
 
@@ -47,7 +48,12 @@ def resolve_role(data: dict) -> str | None:
 
 # 대화 기록의 첫 사용자 메시지를 반환한다. 없으면 빈 문자열이다.
 def first_prompt(path: str | None) -> str:
-    return next((e["text"] for e in read_session(path or "") if e["role"] == "user"), "")
+    text = next((e["text"] for e in read_session(path or "") if e["role"] == "user"), "")
+    if text.strip() and not CIPHER.match(text.strip()):
+        return text
+
+    # 첫 메시지가 비었거나 암호문이면 rollout 첫 줄 전체에서 task_name을 찾아 요청을 복원한다.
+    return task_prompt(json.dumps(first_line(path), ensure_ascii=False))
 
 
 # Codex thread id에 해당하는 rollout 파일 경로를 반환한다. 없으면 빈 문자열이다.

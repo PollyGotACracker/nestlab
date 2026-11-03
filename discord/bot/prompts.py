@@ -66,7 +66,7 @@ ROLE_DUTIES = {
     "director": "작업 요청에서 사용자의 현재 질문과 교정 유지, 작업 요청의 주제 이탈과 새로운 정보 없는 반복 조정, 담당이 불분명하거나 여러 역할이 필요한 요청 배정, 투표 올리기, 스레드 만들기, 메시지 고정",
     "researcher": "새 정보 조사, 최신 정보 확인",
     "worker": "코드 조각, 글 초안, 정리, 계산 같은 결과물 작성",
-    "reviewer": "발언 검토, 인용 대조(채널 기록), 사실 검증(웹 검색)",
+    "reviewer": "발언 확인, 인용 대조(채널 기록), 사실 검증(웹 검색)",
     "documenter": "지식 저장소 조회, 기록, 삭제",
     "assistant": "알림 같은 생활형 요청",
 }
@@ -408,8 +408,8 @@ def read_common_rules(root: Path) -> str:
     return (root / COMMON_RULES_FILE).read_text(encoding="utf-8").strip()
 
 
-# 채팅은 `### 문장 표현` 절을 시스템 프롬프트 대신 턴 프롬프트 끝에 둔다.
-STYLE_SECTION = re.compile(r"^### 문장 표현[^\n]*\n.*?(?=^#{1,3} |\Z)", re.MULTILINE | re.DOTALL)
+# 채팅은 `## 서식 규칙` 절(하위 `###` 절 포함)을 시스템 프롬프트 대신 턴 프롬프트 끝에 둔다.
+STYLE_SECTION = re.compile(r"^## 서식 규칙[^\n]*\n.*?(?=^#{1,2} |\Z)", re.MULTILINE | re.DOTALL)
 
 
 # 공통 지침에서 응답 서식 절을 읽어 반환한다. 절이 없으면 빈 문자열이다.

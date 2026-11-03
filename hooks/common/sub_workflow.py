@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from sub_docs import legacy, review_done, section, sibling, task_doc, titles
+from sub_docs import legacy, measure_pending, review_done, section, sibling, task_doc, titles
 
 
 STAGES = ("kickoff", "research", "refute", "implement", "document", "rework", "complete")
@@ -115,7 +115,7 @@ class Document:
                 children = {
                     "요구사항 목록": r"\d+\. .+",
                     "작업 계획": r"변경 범위|검증 계획|" + legacy("검증 계획") + r"|잠재적 위험|진행 순서|작업 기준 자료|배정 범위|조회 대상|변경 대상|생성 대상|작업 유지 대상|작업 금지 대상|문서 갱신 대상",
-                    "조사 계획": r"검토 \d+\. .+",
+                    "조사 계획": r"조사 \d+\. .+",
                 }
                 pattern = children.get(title)
 
@@ -370,7 +370,7 @@ def plan_gaps(text: str) -> list[str]:
     return []
 
 
-R_ITEM_FORMAT = "조사 계획의 검토 항목 이름이 `검토 <번호>. <이름>` 형식이 아닙니다."
+R_ITEM_FORMAT = "조사 계획의 조사 항목 이름이 `조사 <번호>. <이름>` 형식이 아닙니다."
 R_NO_EXCLUDE = "조사 계획에 제외 범위가 없습니다."
 R_EXCLUDE_SOURCE = "조사 계획의 제외 조건에 URL 또는 `파일:행` 형식의 출처가 없습니다."
 SOURCE_FORMAT = re.compile(r"https?://\S+|[^\s:]*[./\\][^\s:]*:\d+")
@@ -383,13 +383,13 @@ def bad_source(line: str) -> str | None:
     return next((v.strip() for v in SOURCE_VALUE.findall(line) if not SOURCE_FORMAT.search(v)), None)
 
 
-# 조사 문서의 조사 계획을 검사하고 검토 항목 이름 목록을 반환한다.
+# 조사 문서의 조사 계획을 검사하고 조사 항목 이름 목록을 반환한다.
 def research_items(research: Document, plan: Document | None = None, state: Document | None = None) -> list[str]:
-    # 검토 항목 제목의 형식을 확인한다.
+    # 조사 항목 제목의 형식을 확인한다.
     body = research.section("조사 계획")
     start, end = research.bounds("조사 계획")
-    items = [name for i, level, name in research.headings if start <= i < end and name.startswith("검토 ")]
-    require(all(re.fullmatch(r"검토 \d+\. .+", name) for name in items), R_ITEM_FORMAT)
+    items = [name for i, level, name in research.headings if start <= i < end and name.startswith("조사 ")]
+    require(all(re.fullmatch(r"조사 \d+\. .+", name) for name in items), R_ITEM_FORMAT)
 
     # 새 양식 명세 문서가 주어지면 항목마다 요구사항 목록에 있는 번호 표기를 요구한다. 명세 문서가 없으면 경과 문서 요구사항 목록 번호를 쓴다.
     numbers = requirement_numbers(plan) if plan is not None else state_numbers(state)
@@ -411,7 +411,7 @@ R_RESULT_ITEM = "조사 원문에 `{item}` 항목이 없습니다."
 R_RESULT_LABEL = "조사 원문의 `{item}`에 `{label}` 항목이 없습니다."
 R_RESULT_FIT = "조사 원문의 `{item}`에 후보 충족 여부가 없습니다."
 
-# 조사 원문이 검토 항목마다 제안, 후보, 출처, 충족 여부를 담았는지 확인한다.
+# 조사 원문이 조사 항목마다 제안, 후보, 출처, 충족 여부를 담았는지 확인한다.
 def check_research_result(message: str, items: list[str]) -> None:
     # 결과가 비었는지 확인하고 확인할 항목이 없으면 끝낸다.
     require(filled(message), R_RESULT_EMPTY)
@@ -497,7 +497,7 @@ def check_research(state: Document, research: Document, items: list[str], review
     require(field(research.header(), "확인 상태") == "확인", R_USER_CONFIRM)
     timestamp("확인 시각", field(research.header(), "확인 시각"))
 
-    # 검토 항목마다 상태 문서의 검토 필요 기록이 끝났는지 확인한다.
+    # 조사 항목마다 상태 문서의 검토 필요 기록이 끝났는지 확인한다.
     review = state.section("검토 필요")
     entries = re.split(r"(?m)^- ", review)[1:]
     for item in items:
@@ -507,9 +507,8 @@ def check_research(state: Document, research: Document, items: list[str], review
         require(len(matches) == 1, R_REVIEW_ITEM.format(item=item))
         status = field(matches[0], "상태")
         require(status in review_done(), R_REVIEW_UNDONE.format(item=item))
-        if status == "검토 완료":  # 사후 항목은 템플릿대로 시각 `기록 없음`을 허용한다.
-            timestamp("사용자 검토 시각", field(matches[0], "사용자 검토 시각"))
-            require(filled(field(matches[0], "대응 근거")), R_NO_BASIS.format(item=item))
+        timestamp("사용자 검토 시각", field(matches[0], "사용자 검토 시각"))
+        require(filled(field(matches[0], "대응 근거")), R_NO_BASIS.format(item=item))
 
     # 반증이 남은 채 2회에 도달했으면 검증 미완 보고가 있는지 확인한다.
     if int(rows[-1][1]):
@@ -562,11 +561,23 @@ R_TASK_ID = "작업 ID 형식이 올바르지 않습니다."
 R_STAGE = "지원하지 않는 단계 `{stage}`입니다."
 R_OUTSIDE = "문서 경로가 저장소 밖을 가리킵니다."
 R_ID_MISMATCH = "`{name}`의 작업 ID가 요청한 작업 ID와 다릅니다."
-R_UNRESOLVED_STOP = "결정 기록에 미해결 중단 판정이 있어 다음 단계로 진행할 수 없습니다."
+R_UNRESOLVED_STOP = "중단 사유에 미해결 중단 판정이 있어 다음 단계로 진행할 수 없습니다."
 R_BAD_STATUS = "작업 상태가 중단이거나 이 단계에서 쓸 수 없는 값입니다."
-R_NO_ITEMS = "조사할 검토 항목이 없습니다."
+R_NO_ITEMS = "조사할 조사 항목이 없습니다."
 R_EXEC_STATUS = "실행 승인 뒤 작업 상태는 진행이어야 합니다."
 R_REVIEW_LEFT = "상태 문서의 검토 필요에 검토가 끝나지 않은 항목이 있습니다."
+R_MEASURE_LEFT = "상태 문서의 실측 필요에 실측이 끝나지 않은 항목({items})이 있습니다."
+
+
+# 경과 문서의 검토 필요 항목과 실측 필요 항목이 끝났는지 확인한다. 완료 단계(final)는 사후 실측도 요구한다.
+def check_review_left(state: Document, final: bool) -> None:
+    # 검토 필요 상태가 허용 값인지 확인한다.
+    pending = re.findall(r"^\s*- 상태:\s*(.+)$", state.section("검토 필요"), re.M)
+    require(all(v in review_done() for v in pending), R_REVIEW_LEFT)
+
+    # 실측 필요 항목이 시점에 맞게 실측 완료인지 확인한다.
+    left = measure_pending("\n".join(state.raw),("사전", "사후") if final else ("사전",))
+    require(not left, R_MEASURE_LEFT.format(items=", ".join(left[:3])))
 R_REWORK_TARGET = "`{title}`에 대상과 `{key}` 칸이 있어야 합니다."
 R_REWORK_POSITION = "`{title}`에 대상 위치가 없습니다."
 
@@ -598,7 +609,7 @@ def validate(root: Path, task: str, stage: str) -> None:
     state, plan, research, refute = documents
 
     # 미해결 중단 판정과 작업 상태를 확인한다.
-    require("중단 판정 미해결" not in state.section("결정 기록"), R_UNRESOLVED_STOP)
+    require("중단 판정 미해결" not in state.section("중단 사유"), R_UNRESOLVED_STOP)
     status = field(state.header(), "작업 상태")
     require(status in ("미개시", "진행") or (stage == "complete" and status == "완료"), R_BAD_STATUS)
 
@@ -617,15 +628,13 @@ def validate(root: Path, task: str, stage: str) -> None:
             check_research_result(research.raw_block("최종 조사 원문: 조사 단계"), items)
         return
 
-    # 실행 승인, 입력 문서 계획, 조사 기록, 검토 항목을 확인한다.
+    # 실행 승인, 입력 문서 계획, 조사 기록, 검토 필요와 실측 필요 항목을 확인한다.
     approval(state, "실행 승인 범위")
     require(status in ("진행", "완료"), R_EXEC_STATUS)
     check_numbers(state, plan)
     names = check_plan(plan)
     check_research(state, research, items, refute=refute)
-    review = state.section("검토 필요")
-    for value in re.findall(r"^\s*- 상태:\s*(.+)$", review, re.M):
-        require(value in review_done(), R_REVIEW_LEFT)
+    check_review_left(state, stage == "complete")
 
     # 재작업과 재검증 단계는 요청 절의 대상과 위치를 확인한다.
     if stage in ("rework", "reverify"):
@@ -682,11 +691,10 @@ def transition_reason(path: Path, new: str | None, old: str, plan: str) -> str |
         if execute or complete:
             require(plan_doc is not None, R_NO_SPEC)
             check_numbers(state_doc, plan_doc)
-            require("중단 판정 미해결" not in state_doc.section("결정 기록"), R_UNRESOLVED_STOP)
+            require("중단 판정 미해결" not in state_doc.section("중단 사유"), R_UNRESOLVED_STOP)
             names = check_plan(plan_doc)
             check_research(state_doc, research, research_items(research, plan_doc, state_doc), refute=refute_doc)
-            pending = re.findall(r"^\s*- 상태:\s*(.+)$", state_doc.section("검토 필요"), re.M)
-            require(all(v in review_done() for v in pending), R_REVIEW_LEFT)
+            check_review_left(state_doc, complete)
             if complete:
                 check_complete(state_doc, plan_doc, names)
     except OSError as error:

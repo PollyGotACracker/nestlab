@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 
 import sub_docs
-from sub_call import DOCUMENTER, REFUTE_MARKER, RESEARCHER, REVIEWER, ROLES, WORKER_REVIEWER, call_info
+from sub_call import CIPHER, DOCUMENTER, REFUTE_MARKER, RESEARCHER, REVIEWER, ROLES, WORKER_REVIEWER, call_info
 from sub_role import resolve_role
 from sub_write import read
 
@@ -80,8 +80,10 @@ REASON_RESEARCHER_CALL = "researcher는 다른 에이전트를 호출할 수 없
 REASON_REFUTE_FORMAT = "반증 요청은 `작업 종류: 반증` 한 줄과 `반증 문서: log/task/<작업-id>/refute.md` 한 줄만 허용합니다."
 REASON_WORKER_FORMAT = "worker, reviewer, documenter 입력은 `작업 종류: <종류>` 한 줄과 `명세 문서: log/task/<작업-id>/spec.md` 한 줄만 허용합니다."
 REASON_RESEARCHER_FORMAT = ("researcher 조사 입력은 `작업 종류: 조사` 줄(선택), "
-                            "`조사 문서: log/task/<작업-id>/research.md` 한 줄, 이어서 `항목: <검토 항목>` 줄만 허용합니다.")
+                            "`조사 문서: log/task/<작업-id>/research.md` 한 줄, 이어서 `항목: <조사 항목>` 줄만 허용합니다.")
 REASON_INPUT_FORMAT = "서브에이전트 입력 형식이 아닙니다."
+REASON_CIPHER = ("Codex spawn_agent의 task_name은 `<단계>__<작업 ID의 -를 _로 바꾼 값>` 형식이어야 합니다. "
+                 "단계: research, refute, implement, document, verify, rework, reverify.")
 
 # 위반 사유를 반환한다. 통과면 None이다.
 def check_input(data: dict, runner: str) -> str | None:
@@ -90,8 +92,12 @@ def check_input(data: dict, runner: str) -> str | None:
     if target not in ROLES:
         return None
 
-    # 요청 본문과 가리킨 문서에 세션 기록 정보가 섞였는지 확인한다.
-    text = "\n".join(v for v in (data.get("tool_input") or {}).values() if isinstance(v, str))
+    # Codex 호출의 본문이 task_name으로도 복원되지 않는 암호문이면 막는다.
+    if runner == "codex" and CIPHER.match(prompt.strip()):
+        return REASON_CIPHER
+
+    # 요청 본문과 가리킨 문서에 세션 기록 정보가 섞였는지 확인한다. 대체 요청이 가리키는 문서도 포함한다.
+    text = "\n".join([v for v in (data.get("tool_input") or {}).values() if isinstance(v, str)] + [prompt])
     leak = session_leak(text, data.get("cwd"), data.get("session_id"))
     if leak:
         return LEAK.format(leak=leak)

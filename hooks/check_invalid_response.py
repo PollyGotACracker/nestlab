@@ -194,7 +194,7 @@ def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str
 
 NOTICE_INCIDENT = "직전 응답에 문제가 있어 사건 문서에 기록했습니다: {link}"
 REASON_INCIDENT = ("직전 응답에서 문제 표현({hits})을 감지했습니다. 사건 분석은 별도 세션이 진행하므로 사건 문서를 작업하지 마십시오.\n"
-                   "위반한 지침이 무엇인지 확인한 후, 첫 줄에 아래 문장을 넣고, 위반 행동을 일으킨 판단 과정 요약과 기존 작업을 위한 내용으로 응답하십시오.\n"
+                   "첫 줄에 아래 문장을 넣고, 위반한 지침의 위치 한 줄만 덧붙이십시오. 직전 응답의 본문은 다시 쓰지 마십시오.\n"
                    + NOTICE_INCIDENT)
 MAX_BLOCKS = 8  # Claude Code 연속 continuation 한도 기본값. Codex는 한도가 없어 이 값이 유일한 반복 한도이다.
 WINDOWS_FLAGS = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW

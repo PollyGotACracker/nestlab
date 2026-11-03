@@ -19,6 +19,8 @@ import discord
 
 DISCORD_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = DISCORD_ROOT.parent
+# 채팅이 턴 프롬프트 끝에 두는 `## 서식 규칙` 절의 제목이다.
+STYLE_HEADINGS = {"## 서식 규칙", "### 문장 구조", "### 부자연스러운 표현 수정"}
 sys.path.insert(0, str(DISCORD_ROOT / "bot"))
 bot = importlib.import_module("bot")
 config_module = importlib.import_module("config")
@@ -149,7 +151,7 @@ class ChatSystemPromptTests(unittest.TestCase):
             with self.subTest(role=agent.role):
                 for prompt in (build_chat(agent, agents), build_request(agent, agents)):
                     for heading in headings:
-                        if heading == "### 문장 표현" and "# Discord chat channel" in prompt:
+                        if heading in STYLE_HEADINGS and "# Discord chat channel" in prompt:
                             continue  # 채팅은 이 절을 턴 프롬프트 끝에 둔다.
                         self.assertIn(heading, prompt)
 

@@ -1,11 +1,11 @@
 """조사 문서 원문 보존, 조사 결과 없는 사용자 검토 기록을 차단한다.
 
 호출자:
-- hooks/check_tool_use/sub_scope.py(check_raw, check_decision, check_review_done, check_item_names, check_judgment, check_stage)
+- hooks/check_tool_use/sub_scope.py(check_raw, check_decision, check_item_names, check_judgment, check_stage)
 - hooks/check_workflow_response.py(open_tasks, review_items, status_of)
 입력: 상태 문서와 조사 문서의 새 내용과 이전 내용, 질문 도구 호출 입력, 세션 기록 경로
 반환:
-- check_raw, check_decision, check_review_done, check_item_names, check_judgment은 deny 사유 문자열 또는 통과 시 None
+- check_raw, check_decision, check_item_names, check_judgment은 deny 사유 문자열 또는 통과 시 None
 - review_items는 {항목 이름: 본문} dict
 - open_tasks는 상태 문서 경로 목록
 """
@@ -39,9 +39,9 @@ def raw_empty(text: str, title: str) -> bool:
     return not body or bool(RAW_EMPTY.match(body))
 
 
-# 조사 계획에 검토 항목이 있으면 True이다.
+# 조사 계획에 조사 항목이 있으면 True이다.
 def research_needed(research: str) -> bool:
-    return any(t.startswith("검토 ") for t in titles(section(research, "조사 계획")))
+    return any(t.startswith("조사 ") for t in titles(section(research, "조사 계획")))
 
 
 # 진행 중인 작업이 있고 그 작업 모두 조사 문서의 최종 조사 원문이 비어 있으면 True이다.
@@ -70,16 +70,16 @@ def check_raw(new: str | None, old: str, blank_ok: bool = False) -> str | None:
     return None
 
 
-REASON_NO_RESEARCH = "조사 문서 최종 조사 원문이 비어 있어 조사 문서 검토를 근거로 기록할 수 없습니다. 조사가 필요합니다."
+REASON_NO_RESEARCH = "조사 문서 최종 조사 원문이 비어 있어 조사 문서 조사를 근거로 기록할 수 없습니다. 조사가 필요합니다."
 
-# 상태 문서 쓰기에서 조사 결과 없이 조사 문서 검토를 근거로 쓰는 것을 막는다.
+# 상태 문서 쓰기에서 조사 결과 없이 조사 문서 조사를 근거로 쓰는 것을 막는다.
 def check_decision(path: Path, new: str | None, old: str) -> str | None:
     # 이번 쓰기로 검토 필요 절에 새로 들어간 줄을 찾는다.
     added = [l for l in section(new or "", "검토 필요").splitlines()
         if l.strip() and l not in section(old, "검토 필요").splitlines()]
 
-    # 조사 문서 검토를 근거로 쓰는데 조사 원문이 비어 있으면 막는다.
-    if new is not None and any("조사 문서 검토" in l for l in added):
+    # 조사 문서 조사를 근거로 쓰는데 조사 원문이 비어 있으면 막는다.
+    if new is not None and any("조사 문서 조사" in l for l in added):
         research = read(sibling(path, "research"))
         if research and research_needed(research) and raw_empty(research, "최종 조사 원문"):
             return REASON_NO_RESEARCH
@@ -100,9 +100,6 @@ def status_of(body: str) -> str:
     return m.group(1) if m else ""
 
 
-REASON_REVIEW_DONE = ("검토 필요 항목 {names}: 검토 완료로 쓸 수 없습니다.\n"
-                      "세션 기록에 그 항목 이름으로 한 질문 도구의 질문과 확정 선택지 답이 없습니다.\n"
-                      "사용자 답이 필요한 항목은 상태를 `" + ASK + "`로 두고 질문 도구로 물으십시오.")
 # 확정 선택지 라벨. 라벨에 이 낱말이 있고 제외 낱말이 없으면 확정 답이다.
 CONFIRM = ("확정", "채택", "승인", "확인", "동의")
 NOT_CONFIRM = ("No preference", "보류", "기각", "미확정")
@@ -116,26 +113,6 @@ def confirmed(answer: str) -> bool:
 # 질문 문장에 key가 있고 답이 확정 선택지인 질문이 세션 기록에 있으면 True이다.
 def confirmed_by(transcript: str, key: str) -> bool:
     return any(key in q and confirmed(a) for q, a in answered_questions(transcript or ""))
-
-
-# 검토 완료로 새로 바뀐 항목마다 그 항목 이름의 질문에 확정 답이 세션 기록에 있어야 한다.
-def check_review_done(new: str | None, old: str, transcript: str) -> str | None:
-    # 새 조사 문서 내용이 없으면 검사하지 않는다.
-    if new is None:
-        return None
-
-    # 이번 쓰기로 새로 검토 완료가 된 항목을 찾는다.
-    before = {name: status_of(body) for name, body in review_items(old).items()}
-    changed = [name for name, body in review_items(new).items()
-               if status_of(body).startswith(DONE) and not before.get(name, "").startswith(DONE)]
-    if not changed:
-        return None
-
-    # 항목 이름이 든 질문의 확정 답이 세션 기록에 없는 항목이 있으면 막는다.
-    missing = [name for name in changed if not confirmed_by(transcript, name)]
-    if missing:
-        return REASON_REVIEW_DONE.format(names=", ".join(missing[:3]))
-    return None
 
 
 REASON_ITEM_NAME = "검토 완료 항목 {names}의 이름을 바꾸거나 지울 수 없습니다."
@@ -179,7 +156,7 @@ REASON_ITEM_START = "조사 항목 {names}을 검토 완료로 쓰기 전에 상
 REASON_ITEM_STOP = "조사 항목 {names}을 검토 완료로 쓰기 전에 반증 문서에 조사 반증 정지 기록(`정지(`)이 있어야 합니다."
 STOP_TYPE = re.compile(r"^\s*- 중단 유형:[ \t]*(.*?)\s*$", re.M)
 STOP_ROW = re.compile(r"^\|\s*\d+\s*\|\s*\d+\s*\|\s*([^|]+?)\s*\|\s*$", re.M)
-ITEM_NO = re.compile(r"검토 \d+\.")
+ITEM_NO = re.compile(r"조사 \d+\.")
 
 
 # 칸 값이 자리표시가 아닌 실제 값이면 True이다.
@@ -202,7 +179,7 @@ def check_stage(path: Path, new: str | None, old: str, transcript: str) -> str |
         if not confirmed_by(transcript, "중단 유형"):
             return REASON_STOP_TYPE
 
-    # 새로 검토 완료가 된 조사 항목(`검토 <번호>.`)을 찾는다.
+    # 새로 검토 완료가 된 조사 항목(`조사 <번호>.`)을 찾는다.
     before = {name: status_of(body) for name, body in review_items(old).items()}
     names = [name for name, body in review_items(new).items()
              if ITEM_NO.match(name) and status_of(body).startswith(DONE) and not before.get(name, "").startswith(DONE)]

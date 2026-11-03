@@ -14,7 +14,7 @@ modified: 2026-10-27
 
 # worker
 
-## 공통 스킬
+## 공통 스킬 규칙
 
 - 다음 작업은 명시된 스킬을 사용한다.
   - 파일 작업: `nestlab-implement`

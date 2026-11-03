@@ -113,7 +113,7 @@ class SaveResult(unittest.TestCase):
         first = "결과\n```py\nx = 1\n```\n끝"
         text = self.stop("nico", ASK_RESEARCH, first)
         self.assertIn("````\n" + first + "\n````", text)
-        text = self.stop("nico", ASK_RESEARCH + "\n항목: 검토 3", "두 번째")
+        text = self.stop("nico", ASK_RESEARCH + "\n항목: 조사 3", "두 번째")
         self.assertIn("````\n" + first + "\n\n---\n\n두 번째\n````\n\n## 후보 비교", text)
 
     # SubagentHandback 호출이 기록된 하위 기록으로 SubagentStop을 넣는다.

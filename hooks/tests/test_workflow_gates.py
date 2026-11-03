@@ -26,7 +26,7 @@ def setUpModule():
     unittest.addModuleCleanup(patcher.stop)
 
 
-ITEM = "검토 9. 예시 결정"
+ITEM = "조사 9. 예시 결정"
 STATE = """# t
 
 - 작업 ID: t
@@ -66,7 +66,7 @@ RESEARCH = """# 조사 문서: t
 ### 최종 조사 원문: 조사 단계
 
 ```
-검토 9. 예시 결정
+조사 9. 예시 결정
 후보 상태 기반 판정: 충족
 후보 표현 패턴 판정: 미충족(오탐 높음)
 후보 단계 실행기: 충족
@@ -136,47 +136,22 @@ class Gates(unittest.TestCase):
                 "agent_type": role, "cwd": str(self.root), "transcript_path": transcript, **extra}
         return hook.check(data, "claude")
 
-    # 검토 완료 기록 조건
-    def test_review_done_needs_answered_question(self):
-        doc = self.state / "t.md"
-        doc.write_text(STATE.format(item=ITEM, status="사용자 검토 필요", basis="사용자 판단"), encoding="utf-8")
-        done = STATE.format(item=ITEM, status="검토 완료", basis="사용자 판단")
-        self.assertIn("검토 완료로 쓸 수 없습니다", self.write("log/state/t.md", done, self.plain()))
-        self.assertIsNone(self.write("log/state/t.md", done, self.answered(f"{ITEM}: 어느 안으로 할까요?")))
-        self.assertIsNotNone(self.write("log/state/t.md", done, self.answered("다른 항목: 어느 안?")))
-
     # 질문 호출 id와 같은 id의 결과만 답이다. 다른 도구 결과, 답 없는 결과는 미답이다.
     def test_answered_questions_pairs_call_id(self):
         from sub_session import answered_questions
-        self.assertEqual(answered_questions(self.answered("검토 9. 예시 결정: 어느 안?")),
-                         [("결정\n검토 9. 예시 결정: 어느 안?", "확정")])
-        self.assertEqual(answered_questions(self.answered("검토 9. 예시 결정: 어느 안?", result_id="other")), [])
-        self.assertEqual(answered_questions(self.answered("검토 9. 예시 결정: 어느 안?", answer="")), [])
+        self.assertEqual(answered_questions(self.answered("조사 9. 예시 결정: 어느 안?")),
+                         [("결정\n조사 9. 예시 결정: 어느 안?", "확정")])
+        self.assertEqual(answered_questions(self.answered("조사 9. 예시 결정: 어느 안?", result_id="other")), [])
+        self.assertEqual(answered_questions(self.answered("조사 9. 예시 결정: 어느 안?", answer="")), [])
 
-    # 확정 선택지가 아닌 답으로는 검토 완료를 쓸 수 없다.
-    def test_review_done_needs_confirmed_answer(self):
-        (self.state / "t.md").write_text(STATE.format(item=ITEM, status="사용자 검토 필요", basis="x"), encoding="utf-8")
-        done = STATE.format(item=ITEM, status="검토 완료", basis="x")
-        q = f"{ITEM}: 어느 안으로 할까요?"
-        self.assertIn("확정 선택지", self.write("log/state/t.md", done, self.answered(q, answer="No preference")))
-        self.assertIsNone(self.write("log/state/t.md", done, self.answered(q, answer="확정: 안 A")))
-
-    # 검토 완료 항목 이름은 바꿀 수 없고 미검토 항목 이름은 바꿀 수 있다.
-    def test_review_item_name_kept(self):
-        doc = self.state / "t.md"
-        doc.write_text(STATE.format(item=ITEM, status="검토 완료", basis="x"), encoding="utf-8")
-        renamed = STATE.format(item="검토 9. 다른 이름", status="검토 완료", basis="x")
-        self.assertIn("이름", self.write("log/state/t.md", renamed, self.plain()))
-        doc.write_text(STATE.format(item=ITEM, status="사용자 검토 필요", basis="x"), encoding="utf-8")
-        self.assertIsNone(self.write("log/state/t.md", STATE.format(item="검토 9. 다른 이름", status="사용자 검토 필요",
-                                                                     basis="x"), self.plain()))
-
-    # 중단 판정 미해결 줄은 지울 수 없고 다른 절 수정은 통과한다.
+    # 중단 사유 절의 중단 판정 미해결 줄은 지우거나 바꿀 수 없고 다른 절 수정은 통과한다.
     def test_unresolved_line_kept(self):
-        base = STATE.format(item=ITEM, status="미검토", basis="x") + "\n- 중단 판정 미해결\n"
+        line = "- 중단 판정 미해결: 사유"
+        base = STATE.format(item=ITEM, status="미검토", basis="x") + f"\n## 중단 사유\n\n{line}\n"
         (self.state / "t.md").write_text(base, encoding="utf-8")
-        self.assertIn("중단 판정 미해결", self.write("log/state/t.md", base.replace("\n- 중단 판정 미해결\n", ""), self.plain()))
-        self.assertIsNone(self.write("log/state/t.md", base.replace("결정 뒤 기록", "기록함"), self.plain()))
+        self.assertIn("중단 판정 미해결", self.write("log/state/t.md", base.replace(line + "\n", ""), self.plain()))
+        self.assertIn("중단 판정 미해결", self.write("log/state/t.md", base.replace(line, line.replace("사유", "바꿈")), self.plain()))
+        self.assertIsNone(self.write("log/state/t.md", base.replace("- 범위 밖: 없음", "- 범위 밖: 변경"), self.plain()))
 
     # 조사 문서 확인 상태는 착수 승인과 `조사 문서 확인` 질문 확정 답이 있어야 쓸 수 있다.
     def test_research_confirm_needs_answer_and_approval(self):
@@ -193,28 +168,6 @@ class Gates(unittest.TestCase):
         self.assertIn("조사 문서 확인", self.write("log/state/t-research.md", new, self.plain()))
         self.assertIn("조사 문서 확인", self.write("log/state/t-research.md", new, self.answered(q, answer="No preference")))
         self.assertIsNone(self.write("log/state/t-research.md", new, self.answered(q)))
-
-    # 조사 항목 검토 완료는 착수 승인과 조사 반증 정지 기록이 있어야 한다. 요구사항 항목은 검사하지 않는다.
-    def test_research_item_done_needs_prior_stage(self):
-        q = f"{ITEM}: 어느 안으로 할까요?"
-        old = STATE.format(item=ITEM, status="사용자 검토 필요", basis="x")
-        done = STATE.format(item=ITEM, status="검토 완료", basis="x")
-        (self.state / "t.md").write_text(old, encoding="utf-8")
-        self.assertIsNone(self.write("log/state/t.md", done, self.answered(q)))
-        # 착수 승인이 없으면 막는다.
-        no_approval = done.split("\n## 승인")[0] + "\n"
-        (self.state / "t.md").write_text(old.split("\n## 승인")[0] + "\n", encoding="utf-8")
-        self.assertIn("착수 승인", self.write("log/state/t.md", no_approval, self.answered(q)))
-        # 정지 기록이 없으면 막는다.
-        (self.state / "t.md").write_text(old, encoding="utf-8")
-        (self.state / "t-research.md").write_text(LOOP.format(stop="계속"), encoding="utf-8")
-        self.assertIn("정지 기록", self.write("log/state/t.md", done, self.answered(q)))
-        # 요구사항 항목은 앞 단계를 검사하지 않는다.
-        req = "요구사항 3. 예시"
-        (self.state / "t.md").write_text(STATE.format(item=req, status="사용자 검토 필요", basis="x").split("\n## 승인")[0] + "\n",
-                                         encoding="utf-8")
-        req_done = STATE.format(item=req, status="검토 완료", basis="x").split("\n## 승인")[0] + "\n"
-        self.assertIsNone(self.write("log/state/t.md", req_done, self.answered(f"{req}: 어느 안?")))
 
     # 중단 유형 칸은 실행 승인과 `중단 유형` 질문 확정 답이 있어야 쓸 수 있다.
     def test_stop_type_needs_answer_and_approval(self):
@@ -253,7 +206,7 @@ class Gates(unittest.TestCase):
         self.assertIsNone(ask(self.plain("계속"), "최종 확인", "모두 확정할까요?"))
         self.assertIn("한 번만", ask(self.answered("모두 확정할까요?", header="최종 확인"), "최종 확인", "다시?"))
 
-    # 조사 원문이 빈 진행 중 작업의 `검토 <번호>.` 질문은 막고 조사 원문이 있으면 통과한다. (요구사항 7)
+    # 조사 원문이 빈 진행 중 작업의 `조사 <번호>.` 질문은 막고 조사 원문이 있으면 통과한다. (요구사항 7)
     def test_question_gate_blocks_before_research(self):
         (self.state / "t.md").write_text(STATE.format(item=ITEM, status="미검토", basis="x"), encoding="utf-8")
         table = "| 안 | 장점 |\n| -- | -- |\n| A | 빠름 |"
@@ -295,34 +248,24 @@ class Gates(unittest.TestCase):
         self.assertIn("안 비교", ask(none, base + "\n| 안 | 장점 |"))
         self.assertIn("안 비교", ask(none, base + "\n### 안 A\n\n"))
 
-    # 비교 표와 질문 호출, hook 실행 attachment가 순서대로 쌓인 기록에서 `검토 <번호>. <이름>` 질문은 통과하고 비교가 없으면 막는다.
+    # 비교 표와 질문 호출, hook 실행 attachment가 순서대로 쌓인 기록에서 `조사 <번호>. <이름>` 질문은 통과하고 비교가 없으면 막는다.
     def test_question_after_comparison_with_attachment(self):
         def ask(transcript):
             data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": transcript,
                     "tool_input": {"questions": [{"header": "결정", "question": f"{ITEM}: 어느 안으로 할까요?"}]}}
             return hook.check(data, "claude")
-        table = "### 검토 9. 예시 결정\n\n| 안 | 장점 |\n| -- | -- |\n| A | 빠름 |"
+        table = "### 조사 9. 예시 결정\n\n| 안 | 장점 |\n| -- | -- |\n| A | 빠름 |"
         call = claude_line("assistant", [{"type": "tool_use", "id": "q1", "name": "AskUserQuestion", "input": {}}])
         attach = json.dumps({"type": "attachment", "attachment": {"type": "hook_success", "hookEvent": "PreToolUse"}})
         user = claude_line("user", "시작")
         self.assertIsNone(ask(self.transcript(user, claude_line("assistant", [{"type": "text", "text": table}]), call, attach)))
         self.assertIn("안 비교", ask(self.transcript(user, claude_line("assistant", [{"type": "text", "text": "설명"}]), call, attach)))
 
-    # 이미 검토 완료였던 항목과 검토 완료가 아닌 상태 변경은 질문 없이 통과한다.
-    def test_review_done_kept_and_other_status_pass(self):
-        doc = self.state / "t.md"
-        done = STATE.format(item=ITEM, status="검토 완료", basis="사용자 판단")
-        doc.write_text(done, encoding="utf-8")
-        self.assertIsNone(self.write("log/state/t.md", done.replace("결정 뒤 기록", "기록함"), self.plain()))
-        doc.write_text(STATE.format(item=ITEM, status="미검토", basis="x"), encoding="utf-8")
-        self.assertIsNone(self.write("log/state/t.md", STATE.format(item=ITEM, status="사후실측 필요", basis="x"),
-                                     self.plain()))
-
     # 템플릿 필수 절
     def test_template_titles(self):
         folder = self.skills / "nestlab-log-state"
         folder.mkdir(parents=True)
-        template = "# <작업명>\n\n## 요구사항\n\n### 검토 필요\n\n```\n## 코드 안 제목\n```\n"
+        template = "# <작업명>\n\n## 요구사항\n\n```\n## 코드 안 제목\n```\n\n### 검토 필요\n"
         (folder / "SKILL.md").write_text(f"# 스킬\n\n## 절차\n\n## 제목 밖\n\n## Template\n\n````markdown\n{template}````\n\n## 끝\n",
                                          encoding="utf-8")
         ok = "# t\n\n## 요구사항\n\n### 검토 필요\n"
@@ -339,7 +282,7 @@ class Gates(unittest.TestCase):
     def test_task_folder_status_titles(self):
         folder = self.skills / "nestlab-log-state"
         folder.mkdir(parents=True)
-        template = "# <작업명>\n\n## 요구사항\n\n## 검증 결과\n\n## 결정 기록\n"
+        template = "<!-- 쓰기 전 확인\n- 이 코드 블록의 모든 제목을 남긴다.\n-->\n# <작업명>\n\n## 요구사항\n\n## 검증 결과\n\n## 결정 기록\n"
         (folder / "SKILL.md").write_text(f"# 스킬\n\n## Template\n\n````markdown\n{template}````\n", encoding="utf-8")
         rel = "log/task/t/status.md"
 
@@ -375,7 +318,7 @@ class Gates(unittest.TestCase):
         folder = self.root / "log/task/t"
         folder.mkdir(parents=True)
         (folder / "research.md").write_text(
-            "# 조사\n\n- 작업 ID: t\n\n## 조사 계획\n\n- 제외 범위: 없음\n\n### 검토 1. 도구 (요구사항 1)\n\n"
+            "# 조사\n\n- 작업 ID: t\n\n## 조사 계획\n\n- 제외 범위: 없음\n\n### 조사 1. 도구 (요구사항 1)\n\n"
             "- 질문: 도구\n\n## 프로젝트 환경\n\nPython (출처: a.py:1)\n", encoding="utf-8")
         old = "# t\n\n- 작업 ID: t\n- 작업 상태: 진행\n\n## 요구사항\n\n### 요구사항 목록\n\n1. 기능: 변경\n\n## 승인\n\n### 착수 승인 범위\n\n"
         fields = "- 사용자 승인 상태: {s}\n- 사용자 승인 시각: 2026-10-26 10:00:00\n- 연결 대상: x\n- 승인 행동: x\n- 영향 범위: x\n- 범위 밖: 없음\n"

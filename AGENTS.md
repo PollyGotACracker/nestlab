@@ -3,7 +3,7 @@ title: 저장소 공통 지침
 description: "nestlab 저장소의 경로 목록, 스크립트와 문서 컨벤션, Git 규칙을 정의한다."
 type: instruction
 created: 2026-10-03
-modified: 2026-10-27
+modified: 2026-11-03
 ---
 
 # 저장소 공통 지침
@@ -45,7 +45,7 @@ modified: 2026-10-27
 | Claude 사용자 설정 | ~/.claude/settings.json         |
 | Codex 사용자 설정  | ~/.codex/config.toml            |
 
-## 컨벤션
+## 컨벤션 규칙
 
 ### 스크립트
 
@@ -90,7 +90,7 @@ modified: 2026-10-27
 ```text
 <type>: <title> (제목은 40자 이내)
 
-<description> (한 줄 띄우고 작성. 72자 이내로 줄 바꿈)
+<description> (한 줄 띄우고 작성. 목록 형식 명사구. 72자 이내로 줄 바꿈)
 
 Resolves: #<이슈번호>(생략 가능)
 See also: #<이슈번호>(생략 가능)

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -81,6 +82,7 @@ def workdir_reason(data: dict) -> str | None:
 
 REASON_SUB_SPAWN = "서브에이전트는 다른 에이전트를 호출할 수 없습니다. " + RETRY
 REASON_KICKOFF = "director는 nestlab-kickoff 스킬을 호출하기 전에 Skill 외 도구를 호출할 수 없습니다. " + RETRY
+REASON_ASYNC = "경과 문서를 쓴 세션에서는 request_user_input_async의 답을 기록할 수 없습니다. request_user_input을 쓰십시오."
 
 # 위반 사유를 반환한다. 통과면 None이다.
 def check(data: dict, runner: str) -> str | None:
@@ -102,9 +104,14 @@ def check(data: dict, runner: str) -> str | None:
         reason = check_agent_call(data) if data.get("tool_name") == "Agent" else None
         return reason or check_fork(data, runner) or check_input(data, runner) or call_reason(data)
 
+    # 경과 문서를 쓴 세션의 비동기 질문 도구는 답을 기록할 수 없으므로 막는다.
+    if re.match(r"^\w*request_user_input_async$", str(data.get("tool_name"))):
+        from check_workflow_response import written_status
+        return REASON_ASYNC if written_status(data, runner) else None
+
     # 질문 도구는 재질문과 안 비교 유무를 검사한다.
     if data.get("tool_name") in QUESTION_TOOLS:
-        return check_question(data)
+        return check_question(data, runner)
 
     # 셸 도구의 cd, git -c, workdir는 모든 세션과 승인 상태에서 가장 먼저 막는다.
     shell = data.get("tool_name") in SHELLS

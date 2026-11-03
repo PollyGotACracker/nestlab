@@ -11,14 +11,14 @@ import re
 from pathlib import Path
 
 from sub_approval import APPROVED, approved, last_user
-from sub_docs import doc_kind, missing_titles, project_root, record_leak, review_done, section, sibling, task_doc, task_id
+from sub_docs import (doc_kind, measure_pending, missing_titles, project_root, record_leak, review_done, section, sibling, task_doc,
+                      task_id, template_section)
 from sub_path import command_paths, in_incident, in_temp
 from sub_role import first_prompt, main_session, resolve_role
 from sub_session import agent_transcript, read_session, turn
 from sub_plan import check_plan
-from sub_judgment import (check_decision, check_item_names, check_judgment, check_raw, check_review_done, check_stage,
-                          review_items, status_of)
-from sub_write import RETRY, added_lines, bash_command, bash_write_reason, is_write_bash, read, strings
+from sub_judgment import check_decision, check_item_names, check_judgment, check_raw, check_stage, review_items, status_of
+from sub_write import RETRY, added_lines, bash_command, bash_write_reason, is_write_bash, patched_text, read, strings
 from sub_workflow import R_SOURCE_FORMAT, bad_source, transition_reason
 
 READONLY = {"researcher", "reviewer"}
@@ -37,7 +37,23 @@ def rel(path: Path, root: Path) -> str:
 
 
 REASON_NO_APPROVAL = "사용자 마지막 메시지에 '승인'이 없어 승인 상태를 승인으로 쓸 수 없습니다.\n승인 요청 지침과 스킬을 확인하십시오. " + RETRY
-REASON_UNRESOLVED = "결정 기록의 `중단 판정 미해결` 줄은 지우거나 바꿀 수 없습니다. " + RETRY
+REASON_UNRESOLVED = "중단 사유의 `중단 판정 미해결` 줄은 지우거나 바꿀 수 없습니다. " + RETRY
+REASON_LOCKED = "경과 문서의 요구사항 목록과 검토 필요 절은 hook만 바꿀 수 있습니다. 질문 도구로 확정받으십시오."
+LOCKED = ("요구사항 목록", "검토 필요")
+
+
+# 경과 문서 쓰기 후 전문에서 요구사항 목록과 검토 필요 절이 기존 문서와 다르면 True이다.
+# 새 문서는 두 절이 경과 문서 양식 원문과 같아야 한다. 전문을 구할 수 없는 apply_patch는 True이다.
+def state_locked(data: dict, path: Path, new: str | None, old: str) -> bool:
+    # apply_patch는 기존 본문에 패치를 적용해 전문을 만든다.
+    if new is None:
+        new = patched_text(data, path)
+        if new is None:
+            return True
+
+    # 기존 문서는 기존 본문과, 새 문서는 양식 원문과 절 본문을 비교한다.
+    return any(section(new, t).strip() != (section(old, t) if old else template_section(SKILL_OF["state"], t)).strip()
+               for t in LOCKED)
 REASON_MISSING_TITLES = "작업 문서에 {skill} 템플릿의 필수 절({titles})이 없습니다. " + RETRY
 
 # 작업 문서 한 개 쓰기 검사이다.
@@ -72,10 +88,13 @@ def check_doc(data: dict, path: Path, r: str, user: str) -> str | None:
     if kind == "state":
         plan = read(sibling(path, "input"))
         # 이전 본문의 중단 판정 미해결 줄이 새 본문에 그대로 있어야 한다.
-        if new is not None and any(UNRESOLVED in l and l not in new.splitlines() for l in old.splitlines()):
+        if new is not None and any(UNRESOLVED in l and l not in section(new, "중단 사유").splitlines()
+                                   for l in section(old, "중단 사유").splitlines()):
             return REASON_UNRESOLVED
+        if state_locked(data, path, new, old):
+            return REASON_LOCKED
         return (check_plan(new, old, plan) or check_decision(path, new, old)
-                or check_review_done(new, old, transcript) or check_stage(path, new, old, transcript) or check_item_names(new, old)
+                or check_stage(path, new, old, transcript) or check_item_names(new, old)
                 or transition_reason(path, new, old, plan))
     return None
 
@@ -139,7 +158,7 @@ WRITE_ROLES = {"worker", "documenter"}
 IN_PROGRESS = re.compile(r"^- 작업 상태:\s*진행\s*$", re.M)
 EXEC_APPROVED = re.compile(r"^\s*- (?:사용자 )?승인 상태:\s*승인\s*$", re.M)
 REASON_LOG_BASH = "이 쓰기 명령은 log/ 폴더 경로를 포함합니다. " + RETRY
-REASON_REVIEW_LEFT = "진행 중인 작업의 검토 필요 항목({items})이 끝나지 않아 log/ 밖에 쓸 수 없습니다. " + RETRY
+REASON_REVIEW_LEFT = "진행 중인 작업의 검토 필요 또는 사전 실측 필요 항목({items})이 끝나지 않아 log/ 밖에 쓸 수 없습니다. " + RETRY
 
 
 # 작업 상태가 진행이고 실행 승인이 승인인 작업 문서 본문 목록을 반환한다.
@@ -154,13 +173,14 @@ def running_states(root: Path) -> list[str]:
     return out
 
 
-# 진행 중인 작업의 검토 필요 항목 중 허용 값이 아닌 상태의 항목 이름 목록을 반환한다. 허용 값을 읽지 못하면 ValueError이다.
+# 진행 중인 작업의 검토 필요 항목 중 허용 값이 아닌 상태의 항목과 미완료 사전 실측 항목 이름 목록을 반환한다. 허용 값을 읽지 못하면 ValueError이다.
 def unreviewed_items(root: Path) -> list[str]:
     states = running_states(root)
     if not states:
         return []
     done = review_done()
-    return [name for text in states for name, item in review_items(text).items() if status_of(item) not in done]
+    return [name for text in states
+            for name in [n for n, item in review_items(text).items() if status_of(item) not in done] + measure_pending(text)]
 
 
 # 실행 승인 뒤의 worker나 documenter 세션이면 True이다. 첫 요청의 명세 문서로 작업을 찾아 실행 승인 기록을 본다.
