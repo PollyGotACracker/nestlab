@@ -12,6 +12,8 @@ sandbox_mode = "workspace-write"
 approval_policy = "on-request"
 # Codex 기본 성격 지시를 끄고 SOUL.md 페르소나만 남긴다.
 personality = "none"
+# Codex에는 응답 언어 설정이 없어 AGENTS.md보다 먼저 주입되는 지시로 응답 언어를 고정한다.
+developer_instructions = "항상 한국어로 응답한다. 고유 용어와 코드는 원문을 유지한다."
 
 [features]
 hooks = true
