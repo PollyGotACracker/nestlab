@@ -18,6 +18,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -54,15 +55,17 @@ def invoke(root: Path, runner: str, stage: str, prompt: str) -> str:
         allowed = ["Skill", "Read", "Grep", "Glob", "Write", "Edit", "WebSearch", "WebFetch"]
 
     # runner에 맞는 CLI 명령을 만들어 실행한다.
-    command = (["claude", "-p", "--permission-mode", "dontAsk", "--allowedTools", ",".join(allowed),
+    # Windows에서 PATH에 .cmd만 있어도 실행되도록 CLI를 which로 찾은 경로로 실행한다.
+    command = ([shutil.which("claude") or "claude", "-p", "--permission-mode", "dontAsk", "--allowedTools", ",".join(allowed),
                 "--output-format", "json"]
                + (["--disallowedTools", "Bash", "--settings", '{"disableAllHooks": true}'] if incident else [])
-               + ["--", request] if runner == "claude" else
-               ["codex", "exec"] + (["--disable", "hooks"] if incident else [])
-               + ["--sandbox", "workspace-write", "--json", "--", request])
+               if runner == "claude" else
+               [shutil.which("codex") or "codex", "exec"] + (["--disable", "hooks"] if incident else [])
+               + ["--sandbox", "workspace-write", "--json", "-"])
+    # 요청은 줄바꿈이 .cmd 실행 파일에서 잘리지 않도록 stdin으로 넘긴다.
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     result = subprocess.run(command, cwd=root, capture_output=True, text=True, encoding="utf-8", check=True,
-                            creationflags=flags)
+                            creationflags=flags, input=request)
 
     # 출력에서 오류 여부를 확인하고 최종 메시지를 꺼낸다.
     if runner == "claude":

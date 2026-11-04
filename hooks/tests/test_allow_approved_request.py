@@ -95,7 +95,7 @@ class AllowApprovedRequest(unittest.TestCase):
             return out.getvalue()
         decision = json.loads(run("Bash"))["hookSpecificOutput"]["decision"]
         self.assertEqual(decision["behavior"], "deny")
-        self.assertTrue(decision["message"].endswith("다른 방식으로 작업하십시오."))
+        self.assertTrue(decision["message"].endswith(hook.APPROVAL_RETRY))
         self.assertEqual(run("AskUserQuestion"), "")
 
     # 승인 뒤 하네스 항목은 건너뛰어 승인이 유지되고, 실제 사용자 발화가 오면 승인이 끝난다.
@@ -193,7 +193,7 @@ class AllowApprovedRequest(unittest.TestCase):
 
     # 승인 전 메인 세션은 PreToolUse 검사를 통과한 작업 문서 apply_patch만 allow이고 코드 파일이 섞이면 deny이다.
     def test_permission_request_task_doc_before_approval(self):
-        proj = self.project()
+        proj = self.project("승인 대기")
         rollout = self.root / "rollout-1-M.jsonl"
         rollout.write_text(codex_meta() + "\n" + codex_msg("user", "안 B로 해") + "\n", encoding="utf-8")
         (proj / "hooks").mkdir(exist_ok=True)
@@ -203,10 +203,8 @@ class AllowApprovedRequest(unittest.TestCase):
             text = "*** Begin Patch\n" + "".join(f"*** Update File: {f}\n@@\n-old\n+new\n" for f in files) + "*** End Patch"
             return hook.decide({"tool_name": "apply_patch", "tool_input": {"command": text}, "cwd": str(proj),
                                 "transcript_path": str(rollout)}, "codex")
-        import check_tool_use
         import sub_scope
-        with patch.object(check_tool_use, "kickoff_missing", return_value=False), \
-             patch.object(sub_scope, "skill_called", return_value=True):
+        with patch.object(sub_scope, "skill_called", return_value=True):
             self.assertEqual(patch_of("log/task/T1/spec.md"), "allow")
             self.assertEqual(patch_of("hooks/a.py"), "deny")
             self.assertEqual(patch_of("log/task/T1/spec.md", "hooks/a.py"), "deny")

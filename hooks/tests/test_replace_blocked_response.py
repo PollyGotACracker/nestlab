@@ -57,7 +57,7 @@ class Display(unittest.TestCase):
         self.assertEqual(send("viol-1", QUESTION, True), hook.REPLACEMENT)
         self.assertFalse(hook.batch_file("viol-1").exists())
 
-    # 통과 응답은 마지막 batch에서 모은 원문 전체로 표시되는지 확인한다.
+    # 통과 응답은 마지막 batch에서 누적한 원문 전체로 표시되는지 확인한다.
     def test_pass_shows_collected_text(self):
         self.assertEqual(send("pass-1", "수정했습니다.\n\n", False), "")
         self.assertEqual(send("pass-1", "- `hooks/a.py`: 추가\n", False), "")

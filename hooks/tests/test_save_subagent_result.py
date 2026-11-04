@@ -198,6 +198,16 @@ class SaveResult(unittest.TestCase):
         claims = self.refute.read_text(encoding="utf-8")
         self.assertIn("## 주장 목록\n\n- 주장 1: 사실 하나 (출처: https://a.example)\n\n## 조사 및 반증 루프", claims)
 
+    # 반증 문서가 없으면 주장 줄이 있는 조사 결과 저장 때 양식으로 만들고, 주장 줄이 없으면 만들지 않는다.
+    def test_refute_doc_created_from_template(self):
+        self.refute.unlink()
+        self.stop("nico", ASK_RESEARCH, "근거는 a.jsonl 기록에 있다")
+        self.assertFalse(self.refute.exists())
+        self.stop("nico", ASK_RESEARCH, "후보 A\n- 주장 1: 사실 하나 (출처: https://a.example)")
+        created = self.refute.read_text(encoding="utf-8")
+        self.assertIn("- 작업 ID: t\n", created)
+        self.assertIn("## 주장 목록\n\n- 주장 1: 사실 하나 (출처: https://a.example)\n\n## 조사 및 반증 루프", created)
+
 
 if __name__ == "__main__":
     unittest.main()

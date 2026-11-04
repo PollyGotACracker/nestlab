@@ -24,19 +24,8 @@ import sub_input
 import sub_role
 import sub_path
 import sub_scope
-import sub_plan
 import sub_question
 import sub_write
-
-REAL_KICKOFF = hook.kickoff_missing
-
-
-# 모든 테스트는 kickoff 게이트를 끄고, KickoffGate 테스트만 실제 판정을 쓴다.
-def setUpModule():
-    patcher = patch.object(hook, "kickoff_missing", return_value=False)
-    patcher.start()
-    unittest.addModuleCleanup(patcher.stop)
-
 
 RESEARCH ="""# 조사 문서: t
 
@@ -137,7 +126,6 @@ class WriteScope(unittest.TestCase):
         # 단계 게이트는 test_sub_workflow의 완전한 세 문서 fixture로 검사한다.
         self.patches = [patch.object(hook, "call_reason", return_value=None),
                         patch.object(sub_scope, "transition_reason", return_value=None),
-                        patch("sub_workflow.plan_gaps", side_effect=sub_plan.plan_gaps),
                         patch.object(sub_path, "TEMP", Path(self.ostemp.name).resolve()),
                         patch.object(sub_scope, "project_root", return_value=self.root),
                         patch.object(sub_docs, "project_root", return_value=self.root), patch.object(sub_role, "CODEX_SESSIONS", self.sessions),
@@ -175,6 +163,40 @@ class WriteScope(unittest.TestCase):
         self.assertIsNone(self.write("log/incident/a.md", "# 사건", transcript=no))
         self.assertIsNotNone(self.write("hooks/a.py", "x", transcript=no))
         self.assertIsNone(self.write("hooks/a.py", "x"))
+
+    # 기대 결과 변경은 막고 기존 작업 칸과 다른 칸 변경은 허용한다.
+    def test_spec_cells_locked(self):
+        spec = self.root / "log" / "task" / "t" / "spec.md"
+        spec.parent.mkdir(parents=True)
+        spec.write_text(PLAN_OK, encoding="utf-8")
+        edit = lambda old, new: hook.check({
+            "tool_name": "Edit", "tool_input": {"file_path": str(spec), "old_string": old, "new_string": new},
+            "agent_type": "rio", "cwd": str(self.root),
+            "transcript_path": self.transcript(("assistant", "보고"), ("user", "승인"))}, "claude")
+        self.assertIsNone(edit("- 작업:\n  - c", "- 작업:\n  - x"))
+        self.assertEqual(edit("- 기대 결과:\n  - e", "- 기대 결과:\n  - x"), sub_scope.REASON_SPEC_LOCKED)
+        self.assertIsNone(edit("  - d (정적)", "  - x (정적)"))
+
+        # 새 명세 문서는 기대 결과가 양식 자리표시 값일 때만 쓸 수 있다.
+        blank = PLAN_OK.replace("  - e\n", "  - <판정 기준>\n")
+        self.assertIsNone(self.write("log/task/n/spec.md", blank))
+        self.assertEqual(self.write("log/task/n/spec.md", PLAN_OK), sub_scope.REASON_SPEC_LOCKED)
+
+    # Codex apply_patch에서도 기대 결과 변경을 막고 기존 작업 칸 변경을 허용한다.
+    def test_spec_cells_locked_codex(self):
+        spec = self.root / "log" / "task" / "t" / "spec.md"
+        spec.parent.mkdir(parents=True)
+        spec.write_text(PLAN_OK, encoding="utf-8")
+
+        # 패치 본문을 명세 문서에 적용하는 apply_patch 입력으로 검사를 실행한다.
+        def patch_of(body):
+            text = f"*** Begin Patch\n*** Update File: {spec}\n{body}\n*** End Patch"
+            return hook.check({"tool_name": "apply_patch", "tool_input": {"command": text}, "agent_type": "rio",
+                               "cwd": str(self.root),
+                               "transcript_path": self.transcript(("assistant", "보고"), ("user", "승인"))}, "codex")
+        self.assertIsNone(patch_of("@@\n - 작업:\n-  - c\n+  - x"))
+        self.assertEqual(patch_of("@@\n - 기대 결과:\n-  - e\n+  - x"), sub_scope.REASON_SPEC_LOCKED)
+        self.assertIsNone(patch_of("@@\n-  - d (정적)\n+  - x (정적)"))
 
     # 승인 뒤 스킬 본문과 hook 피드백이 user 역할로 쌓여도 사람이 보낸 마지막 메시지로 판정한다.
     def test_injected_user_messages_skipped(self):
@@ -221,7 +243,7 @@ class WriteScope(unittest.TestCase):
         approved = self.transcript(("assistant", "계획"), ("user", "승인"), name="yes.jsonl")
         for cmd in ("echo a > f.txt", "echo x > out.txt", "cmd >> f", "Set-Content f x", "git status && echo x > a",
                     "bash -c 'echo hi > f'", "ls | tee out.txt", "cat > notes.md <<'EOF'\nhi\nEOF"):
-            self.assertTrue((bash(cmd) or "").endswith("다른 방식으로 작업하십시오."), cmd)
+            self.assertTrue((bash(cmd) or "").endswith(sub_write.RETRY), cmd)
             self.assertIsNone(bash(cmd, approved), cmd)  # 승인 턴은 보안, 외부 경로, git 비가역 작업만 막는다.
             self.assertNotIn("·", bash(cmd) or "", cmd)
         # 쓰기 호출이 있는 인라인 코드는 승인 전에 막고 승인 턴에는 통과한다.
@@ -244,22 +266,28 @@ class WriteScope(unittest.TestCase):
                 "cwd": str(self.root), "transcript_path": self.transcript(("assistant", "보고"), ("user", "승인"))}
         self.assertIn("출처", hook.check(data, "codex") or "")
 
+    # 백틱이 든 출처 값은 사유에 백틱 한 겹으로 들어간다.
+    def test_source_reason_single_backticks(self):
+        reason = self.write("log/state/n-research.md", RESEARCH + "\n- 제외 범위: 사전 실측 (출처: `a/b.md`)\n")
+        self.assertIn("출처 `", reason)
+        self.assertNotIn("``", reason)
+
     # 경과 문서의 요구사항 목록과 검토 필요 절은 Edit, Write, apply_patch 모두 바꿀 수 없고 다른 절은 바꿀 수 있다.
     def test_state_sections_locked(self):
-        template = ("# <작업명>\n\n### 요구사항 목록\n\n1. <요구사항 이름>: <내용>\n\n### 검토 필요\n\n- <항목>\n\n"
+        template = ("# <작업명>\n\n- 작업 상태: <미개시 | 진행>\n\n### 요구사항 목록\n\n1. <요구사항 이름>: <내용>\n\n### 검토 필요\n\n- <항목>\n\n"
                     "### 작업 경과\n\n- 갱신 시각: <시각>\n")
         skill = self.root / "skills" / "nestlab-log-state"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text(f"## Template\n\n```markdown\n{template}```\n", encoding="utf-8")
         rel = "log/task/t/status.md"
         path = self.root / rel
-        locked = "요구사항 목록과 검토 필요 절은 hook만 바꿀 수 있습니다. 질문 도구로 확정받으십시오."
+        locked = sub_scope.REASON_LOCKED
         doc = template.replace("<작업명>", "t")
         transcript = self.transcript(("assistant", "보고"), ("user", "승인"))
 
         # 새 문서는 두 절이 양식 원문이어야 통과한다.
         self.assertIsNone(self.write(rel, doc))
-        self.assertEqual(self.write(rel, doc.replace("1. <요구사항 이름>", "1. 내가 쓴 요구사항")), "경과 문서의 " + locked)
+        self.assertEqual(self.write(rel, doc.replace("1. <요구사항 이름>", "1. 내가 쓴 요구사항")), locked)
         path.parent.mkdir(parents=True)
         path.write_text(doc, encoding="utf-8")
 
@@ -267,8 +295,8 @@ class WriteScope(unittest.TestCase):
         def edit(old, new):
             return hook.check({"tool_name": "Edit", "tool_input": {"file_path": str(path), "old_string": old, "new_string": new},
                                "agent_type": "rio", "cwd": str(self.root), "transcript_path": transcript}, "claude")
-        self.assertEqual(edit("1. <요구사항 이름>", "1. 바꿈"), "경과 문서의 " + locked)
-        self.assertEqual(self.write(rel, doc.replace("- <항목>\n\n", "")), "경과 문서의 " + locked)
+        self.assertEqual(edit("1. <요구사항 이름>", "1. 바꿈"), locked)
+        self.assertEqual(self.write(rel, doc.replace("- <항목>\n\n", "")), locked)
         self.assertIsNone(edit("<시각>", "2026-11-03"))
 
         # apply_patch도 기존 본문에 적용한 결과로 같게 판정한다. 적용할 수 없는 패치는 막는다.
@@ -276,9 +304,13 @@ class WriteScope(unittest.TestCase):
             text = f"*** Begin Patch\n*** Update File: {path}\n{body}\n*** End Patch"
             return hook.check({"tool_name": "apply_patch", "tool_input": {"command": text}, "agent_type": "rio",
                                "cwd": str(self.root), "transcript_path": transcript}, "codex")
-        self.assertEqual(patch_of("@@\n ### 검토 필요\n \n-- <항목>\n+- 내가 쓴 항목"), "경과 문서의 " + locked)
+        self.assertEqual(patch_of("@@\n ### 검토 필요\n \n-- <항목>\n+- 내가 쓴 항목"), locked)
         self.assertIsNone(patch_of("@@\n ### 작업 경과\n \n - 갱신 시각: <시각>\n+- 추가 줄"))
-        self.assertEqual(patch_of("@@\n-없는 줄\n+새 줄"), "경과 문서의 " + locked)
+        self.assertEqual(patch_of("@@\n-없는 줄\n+새 줄"), locked)
+
+        # 작업 상태 줄 변경은 막는다.
+        self.assertEqual(edit("- 작업 상태: <미개시 | 진행>", "- 작업 상태: 완료"), locked)
+        self.assertEqual(self.write(rel, doc.replace("<미개시 | 진행>", "진행")), locked)
 
     # 질문 도구 입력에 출처 없는 확인 주장이 있으면 막고, 출처가 있거나 주장이 없으면 통과한다.
     def test_question_unsourced_claim(self):
@@ -304,25 +336,14 @@ class WriteScope(unittest.TestCase):
         self.assertIsNone(bash({"command": "git status", "description": "작업 트리 상태 확인"}))
         self.assertIsNone(bash({"command": "git status"}, "codex"))
 
-    # 입력 문서 계획이 채워져야 실행 승인 기록이 통과하는지 확인한다.
-    def test_execution_approval_needs_filled_plan(self):
-        self.assertIsNotNone(self.write("log/state/t.md", STATE_APPROVED))  # 입력 문서 없음
-        plan = self.state / "t-input.md"
-        plan.write_text(PLAN_OK, encoding="utf-8")
-        self.assertIsNone(self.write("log/state/t.md", STATE_APPROVED))
-        for broken in (PLAN_OK.replace("`python -m unittest`", "`<명령>`"),
-                       PLAN_OK.replace("- 기대 결과:\n  - e\n", ""),
-                       PLAN_OK.replace("목표:\n  - a", "목표:\n  - <요구사항의 목표>"),
-                       PLAN_OK.replace("### 1. 예시", ""),
-                       PLAN_OK.replace("- 한계:", "- 제약:"),
-                       PLAN_OK.replace("| 허용 | 정상 문서 | `python -m unittest` | 통과 |\n", ""),
-                       PLAN_OK.replace("| 차단 | 누락 문서 | `python -m unittest` | deny |", "| 차단 | 누락 문서 |  | deny |")):
-            plan.write_text(broken, encoding="utf-8")
-            self.assertIsNotNone(self.write("log/state/t.md", STATE_APPROVED))
-        commented = PLAN_OK.replace("### 검증 계획", "<!-- 안내 -->\n\n### 검증 계획").replace("목표:\n  - a", "목표:\n  - `<타입>` 형식 확인")
-        plan.write_text(commented, encoding="utf-8")
-        self.assertIsNone(self.write("log/state/t.md", STATE_APPROVED))
-        self.assertIsNone(self.write("log/state/t-input.md", "# 입력 문서 쓰기는 계획 검사 대상이 아니다"))
+    # 실행 승인 기록 쓰기에서 명세 문서 계획 검사(transition_reason)가 한 번만 실행되고 그 사유로 deny되는지 확인한다.
+    def test_execution_approval_plan_checked_once(self):
+        with patch.object(sub_scope, "transition_reason", return_value="계획 칸이 비었습니다.") as check:
+            self.assertEqual(self.write("log/state/t.md", STATE_APPROVED), "계획 칸이 비었습니다.")
+            self.assertEqual(check.call_count, 1)
+        with patch.object(sub_scope, "transition_reason", return_value=None) as check:
+            self.assertIsNone(self.write("log/state/t.md", STATE_APPROVED))
+            self.assertEqual(check.call_count, 1)
 
     # 사용자 승인 명령이 있어야 승인 상태를 쓸 수 있는지 확인한다.
     def test_approval_status_needs_user_approval(self):
@@ -346,7 +367,7 @@ class WriteScope(unittest.TestCase):
         self.assertIsNone(self.write("log/state/t-research.md", rounds.replace("| A    | 낮음 |", "| A | 중간 |")))
         self.assertIsNotNone(self.write("log/state/n-research.md", rounds))
 
-    # 반증 문서는 빈 양식 전체 덮어쓰기만 허용하고 회차 블록 일부만 지우는 쓰기는 deny한다. (요구사항 6 결함 5)
+    # 반증 문서는 빈 양식 전체 덮어쓰기만 허용하고 회차 블록 일부만 지우는 쓰기는 deny한다.
     def test_refute_doc_blank_overwrite_only(self):
         blank = "# 반증 문서: t\n\n## 조사 및 반증 루프\n\n## 회차 기록\n\n### 최종 반증 원문\n\n```\n기록 없음\n```\n"
         rounds = ("# 반증 문서: t\n\n## 조사 및 반증 루프\n\n## 회차 기록\n\n"
@@ -358,7 +379,7 @@ class WriteScope(unittest.TestCase):
         partial = rounds[:rounds.index("### 2회차")]
         self.assertIn("회차 반증 블록", self.write("log/task/t/refute.md", partial) or "")
 
-    # nestlab-rule 호출 없이 전역 지침과 역할 MAIN.md, SUB.md를 고치는 쓰기는 deny하고 호출 뒤에는 통과한다. (요구사항 4)
+    # nestlab-rule 호출 없이 전역 지침과 역할 MAIN.md, SUB.md를 고치는 쓰기는 deny하고 호출 뒤에는 통과한다.
     def test_rule_skill_required_for_guideline_files(self):
         for rel in ("AGENTS.global.md", ".claude/agents/director/MAIN.md", ".claude/agents/researcher/SUB.md"):
             with self.subTest(rel=rel):
@@ -374,9 +395,9 @@ class WriteScope(unittest.TestCase):
 
     # 스킬 원본 템플릿 주석과 진행 중인 작업 경과 문서를 준비한다. status는 검토 필요 항목의 상태이고 approved는 실행 승인 여부이며 measure는 실측 필요 항목 (시점, 상태)이다.
     def running_task(self, status, approved=True, measure=None):
-        skill = self.root / "skills" / "nestlab-log-state"
+        skill = self.root / "skills" / "nestlab-log-spec"
         skill.mkdir(parents=True, exist_ok=True)
-        (skill / "SKILL.md").write_text("<!-- 모든 목록이 검토 완료일 때 승인 가능 -->\n", encoding="utf-8")
+        (skill / "SKILL.md").write_text("<!-- 모든 목록이 검토 완료 또는 폐기일 때 승인 가능 -->\n", encoding="utf-8")
         folder = self.root / "log" / "task" / "t"
         folder.mkdir(parents=True, exist_ok=True)
         approval = "승인" if approved else "승인 대기"
@@ -406,6 +427,16 @@ class WriteScope(unittest.TestCase):
         self.running_task("미검토", approved=False)
         self.assertIsNone(self.write("hooks/a.py", "x"))
 
+    # 조사 문서에 답 없는 `### 검토 <번호>.` 보고가 있으면 실행 승인 뒤 log 밖 쓰기를 막고, 경과 문서에 검토 완료나 폐기로 있으면 통과한다.
+    def test_unanswered_report_blocks_outside_write(self):
+        path = self.running_task("검토 완료")
+        (path.parent / "research.md").write_text("# 조사\n\n## 검토 보고\n\n### 검토 4. X\n\n- 비교\n", encoding="utf-8")
+        self.assertIn("검토 4. X", self.write("hooks/a.py", "x") or "")
+        for status in ("검토 완료", "폐기"):
+            path.write_text(path.read_text(encoding="utf-8") + f"\n- 검토 4. X: 정한다.\n  - 상태: {status}\n", encoding="utf-8")
+            self.assertIsNone(self.write("hooks/a.py", "x"), status)
+            path.write_text(path.read_text(encoding="utf-8").split("\n- 검토 4.")[0] + "\n", encoding="utf-8")
+
     # 경과 문서 검증 결과에 새 항목을 쓰면 nestlab-verdict 호출을 요구한다.
     def test_verdict_skill_required_for_verification_item(self):
         body = "# t\n\n## 검증 결과\n\n- 2026-10-27 05:00:00: PASS\n"
@@ -418,7 +449,7 @@ class WriteScope(unittest.TestCase):
     # 템플릿 주석이 없으면 진행 중인 작업이 있는 log 밖 쓰기를 막는다.
     def test_missing_template_comment_blocks_outside_write(self):
         self.running_task("검토 완료")
-        (self.root / "skills" / "nestlab-log-state" / "SKILL.md").write_text("# 주석 없음\n", encoding="utf-8")
+        (self.root / "skills" / "nestlab-log-spec" / "SKILL.md").write_text("# 주석 없음\n", encoding="utf-8")
         self.assertIn("주석이 없습니다", self.write("hooks/a.py", "x") or "")
 
     # 메인 세션 Bash는 승인 전 쓰기 명령을 막고 승인 턴에는 통과시키며 읽기 명령은 통과한다.
@@ -428,7 +459,7 @@ class WriteScope(unittest.TestCase):
                                "agent_type": "rio", "cwd": str(self.root),
                                "transcript_path": self.transcript(("assistant", "계획"), ("user", user))}, "claude")
         for cmd in ("sed -i s/a/b/ a.py", "echo x > a.txt", "rm a.txt"):
-            self.assertTrue((bash(cmd, "다시 생각해") or "").endswith("다른 방식으로 작업하십시오."), cmd)
+            self.assertTrue((bash(cmd, "다시 생각해") or "").endswith((sub_write.RETRY, sub_write.APPROVAL_RETRY)), cmd)
             self.assertIsNone(bash(cmd), cmd)
         self.assertIsNone(bash("git status"))
         self.assertIsNone(bash("grep -n def hooks/common/sub_write.py"))
@@ -582,6 +613,172 @@ class WriteScope(unittest.TestCase):
             self.assertIsNotNone(self.agent(prompt, "이 부분 고쳐"), kind)
             path.write_text(STATE_APPROVED, encoding="utf-8")
             self.assertIsNone(self.agent(prompt, "이 부분 고쳐"), kind)
+
+    # 복원된 문서 작성과 구현은 같은 작업의 실행 승인과 실제 대기 재작업이 모두 있어야 허용한다.
+    def test_restored_work_requires_approved_pending_rework(self):
+        folder = self.root / "log/task/20261104-234558-test"
+        folder.mkdir(parents=True)
+        status, spec = folder / "status.md", folder / "spec.md"
+        pending = "# 명세\n## 재작업 요청\n- hooks/a.py: 입력 검사 수정 (요구사항 1)\n  - 기대 결과: 올바른 입력을 처리한다\n"
+        for kind in sub_approval.RESTORED_WORK:
+            prompt = f"{kind}\n명세 문서: log/task/20261104-234558-test/spec.md"
+            spec.write_text(pending, encoding="utf-8")
+            status.write_text(STATE_APPROVED.replace("상태: 승인", "상태: 승인 대기"), encoding="utf-8")
+            self.assertEqual(sub_approval.approval_reason("수정해 주세요", prompt, str(self.root)), sub_approval.REASON_APPROVAL)
+            status.write_text(STATE_APPROVED, encoding="utf-8")
+            self.assertIsNone(sub_approval.approval_reason("수정해 주세요", prompt, str(self.root)))
+            for empty in ("", "없음", "- 없음", "- hooks/a.py: <수정 위치>\n  - 기대 결과: <동작>"):
+                with self.subTest(kind=kind, empty=empty):
+                    spec.write_text("# 명세\n## 재작업 요청\n" + empty, encoding="utf-8")
+                    self.assertEqual(sub_approval.approval_reason("수정해 주세요", prompt, str(self.root)), sub_approval.REASON_APPROVAL)
+            spec.write_text(pending, encoding="utf-8")
+            other = prompt.replace("234558-test", "234558-other")
+            self.assertEqual(sub_approval.approval_reason("수정해 주세요", other, str(self.root)), sub_approval.REASON_APPROVAL)
+
+    # 항목의 실제 대상과 기대 결과만 판정하고 설명의 질문 양식 예시는 대기 작업을 지우지 않는다.
+    def test_pending_rework_ignores_example_in_description(self):
+        folder = self.root / "log/task/20261104-234558-test"
+        folder.mkdir(parents=True)
+        (folder / "status.md").write_text(STATE_APPROVED, encoding="utf-8")
+        spec = folder / "spec.md"
+        example = "  - 설명: 문제 정의 확인: <보고한 문제 정의와 범위> (작업 MMDD-HHMMSS)\n"
+        valid = "- hooks/a.py: 입력 검사 수정 (요구사항 1)\n  - 기대 결과: 올바른 입력을 처리한다\n"
+        for kind in sub_approval.RESTORED_WORK:
+            prompt = f"{kind}\n명세 문서: log/task/20261104-234558-test/spec.md"
+            for body in (valid + example, valid + example + "- <다른 대상>: <수정 위치>\n  - 기대 결과: <동작>\n"):
+                with self.subTest(kind=kind, body=body):
+                    spec.write_text("# 명세\n## 재작업 요청\n" + body, encoding="utf-8")
+                    self.assertIsNone(sub_approval.approval_reason("수정해 주세요", prompt, str(self.root)))
+            spec.write_text("# 명세\n## 재작업 요청\n" + valid.replace("  - 기대 결과: 올바른 입력을 처리한다\n", "") + example, encoding="utf-8")
+            self.assertEqual(sub_approval.approval_reason("수정해 주세요", prompt, str(self.root)), sub_approval.REASON_APPROVAL)
+            for target, location, result in (("", "수정", "입력을 처리한다"), ("<파일>", "수정", "입력을 처리한다"),
+                                             ("hooks/a.py", "", "입력을 처리한다"), ("hooks/a.py", "<수정 위치>", "입력을 처리한다"),
+                                             ("hooks/a.py", "수정", ""), ("hooks/a.py", "수정", "<관측할 동작>")):
+                with self.subTest(kind=kind, target=target, location=location, result=result):
+                    body = f"- {target}: {location}\n  - 기대 결과: {result}\n" + example
+                    spec.write_text("# 명세\n## 재작업 요청\n" + body, encoding="utf-8")
+                    self.assertEqual(sub_approval.approval_reason("수정해 주세요", prompt, str(self.root)), sub_approval.REASON_APPROVAL)
+
+    # 암호문과 task_name에서 복원된 두 역할의 읽기 호출도 기존 승인 근거를 확인한다.
+    def test_codex_restored_rework_allows_get_content(self):
+        folder = self.root / "log/task/20261104-234558-test"
+        folder.mkdir(parents=True)
+        status, spec = folder / "status.md", folder / "spec.md"
+        status.write_text(STATE_APPROVED, encoding="utf-8")
+        spec.write_text("# 명세\n## 재작업 요청\n- hooks/a.py: 입력 검사 수정 (요구사항 1)\n  - 기대 결과: 입력을 처리한다\n", encoding="utf-8")
+        parent = self.sessions / "rollout-1-P.jsonl"
+        parent.write_text(codex_meta() + "\n" + codex_msg("user", "기존 작업을 수정해 주세요.") + "\n", encoding="utf-8")
+        for stage, role in (("document", "pepper"), ("implement", "jelly")):
+            child = self.sessions / f"rollout-1-{stage}.jsonl"
+            child.write_text(codex_meta(agent_role=role, task_name=f"{stage}__20261104_234558_test",
+                                       source={"subagent": {"thread_spawn": {"parent_thread_id": "P"}}})
+                             + "\n" + codex_msg("user", "gAAAAAopaque") + "\n", encoding="utf-8")
+            data = {"tool_name": "exec_command", "tool_input": {"cmd": f'Get-Content -LiteralPath "{spec}"'},
+                    "cwd": str(self.root), "transcript_path": str(child)}
+            with self.subTest(stage=stage):
+                self.assertIsNone(hook.check(data, "codex"))
+                spec.write_text("# 명세\n## 재작업 요청\n없음\n", encoding="utf-8")
+                self.assertEqual(hook.check(data, "codex"), sub_approval.REASON_APPROVAL)
+                spec.write_text("# 명세\n## 재작업 요청\n- hooks/a.py: 입력 검사 수정 (요구사항 1)\n  - 기대 결과: 입력을 처리한다\n", encoding="utf-8")
+
+    # 두 runner의 실제 질문 답 형식과 UTC 시각을 사용해 문제 정의 확인 기록을 만든다.
+    def problem_reply(self, runner, answer="확인", tag="1104-234558", later=None):
+        question = f"문제 정의 확인: 파일 처리 문제와 수정 범위 (작업 {tag})"
+        queries = [("q1", question, answer)]
+        if later is not None:
+            queries.append(("q2", question.replace("수정 범위", "추가 수정 범위"), later))
+        rows = []
+        if runner == "claude":
+            rows.append({"type": "user", "message": {"content": "문제를 확인해 주세요."}})
+            for qid, text, value in queries:
+                rows += [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": qid, "name": "AskUserQuestion",
+                          "input": {"questions": [{"question": text, "options": [{"label": "확인"}, {"label": "수정 요청"}]}]}}]}},
+                         {"type": "user", "timestamp": "2026-11-04T19:20:00Z", "message": {"content": [
+                             {"type": "tool_result", "tool_use_id": qid, "content": "답변"}]}, "toolUseResult": {"answers": {text: value}}}]
+        else:
+            item = lambda payload: {"type": "response_item", "timestamp": "2026-11-04T19:20:00Z", "payload": payload}
+            rows.append(item({"type": "message", "role": "user", "content": [{"text": "문제를 확인해 주세요."}]}))
+            for qid, text, value in queries:
+                rows += [item({"type": "function_call", "name": "request_user_input", "call_id": qid,
+                               "arguments": json.dumps({"questions": [{"id": qid, "question": text,
+                                             "options": [{"label": "확인"}, {"label": "수정 요청"}]}]})}),
+                         item({"type": "function_call_output", "call_id": qid, "output": json.dumps({
+                             "answers": {qid: {"answers": [value] if value else []}}})})]
+        path = self.root / f"{runner}-problem.jsonl"
+        path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+        return str(path)
+
+    # 새 문제 정의는 실제 같은 작업의 긍정 답, 답 시각과 확인 요약을 갖춰야 쓸 수 있다.
+    def test_problem_definition_confirmation(self):
+        path = self.root / "log/task/20261104-234558-test/status.md"
+        path.parent.mkdir(parents=True)
+        old = "# 작업\n## 문제 정의\n"
+        path.write_text(old, encoding="utf-8")
+        block = ("- 파일 처리 문제: 입력 오류를 확인한다\n"
+                 "  - 요구 구분: {kind}\n  - 사용자 확인 시각: {stamp}\n  - 확인 내용: {summary}\n")
+        stamp = "2026-11-05 04:20:00"
+        for runner in ("claude", "codex"):
+            for kind in (f"director 해석 (사용자 확인 {stamp})", "사용자 지시 (로그 2026-11-05 04:00:00)"):
+                content = old + block.format(kind=kind, stamp=stamp, summary="보고한 문제와 범위를 확정했다")
+                data = {"tool_name": "Write", "tool_input": {"file_path": str(path), "content": content}, "agent_type": "rio",
+                        "cwd": str(self.root), "transcript_path": self.problem_reply(runner)}
+                with self.subTest(runner=runner, kind=kind):
+                    self.assertIsNone(hook.check(data, runner))
+                    for answer, tag, later in (("수정 요청", "1104-234558", None), ("", "1104-234558", None),
+                                               ("확인", "1104-999999", None), ("확인", "1104-234558", "수정 요청")):
+                        data["transcript_path"] = self.problem_reply(runner, answer, tag, later)
+                        self.assertIn("실제 사용자 확인", hook.check(data, runner) or "")
+                    data["transcript_path"] = self.problem_reply(runner)
+                    for summary in ("", "<사용자 답 요약>"):
+                        data["tool_input"]["content"] = content.replace("보고한 문제와 범위를 확정했다", summary)
+                        self.assertIn("실제 사용자 확인", hook.check(data, runner) or "")
+                    data["tool_input"]["content"] = content.replace("  - 확인 내용: 보고한 문제와 범위를 확정했다\n", "")
+                    self.assertIn("실제 사용자 확인", hook.check(data, runner) or "")
+                    for value in ("", "<시각>", "2026-11-05 04:21:00"):
+                        data["tool_input"]["content"] = content.replace(f"사용자 확인 시각: {stamp}", f"사용자 확인 시각: {value}")
+                        self.assertIn("실제 사용자 확인", hook.check(data, runner) or "")
+                    data["tool_input"]["content"] = content.replace(f"  - 사용자 확인 시각: {stamp}\n", "")
+                    self.assertIn("실제 사용자 확인", hook.check(data, runner) or "")
+                    if kind.startswith("director"):
+                        data["tool_input"]["content"] = content.replace(f"사용자 확인 {stamp}", "사용자 확인 2026-11-05 04:21:00")
+                        self.assertIn("실제 사용자 확인", hook.check(data, runner) or "")
+
+    # 기존 검토 번호 방식의 역사적 확인 기록은 기존 상태 대조를 유지한다.
+    def test_legacy_problem_confirmation_kept(self):
+        added = ["  - 요구 구분: director 해석 (검토 3)"]
+        self.assertEqual(sub_scope.unconfirmed(added, ""), "3")
+        self.assertIsNone(sub_scope.unconfirmed(added, "## 검토 필요\n- 검토 3. 해석\n  - 상태: 검토 완료\n"))
+
+    # 실제 문제 항목의 누락과 임의 값은 다른 정상 항목의 확인 근거로도 통과할 수 없다.
+    def test_problem_definition_kind_required(self):
+        path = self.root / "log/task/20261104-234558-test/status.md"
+        path.parent.mkdir(parents=True)
+        old = "# 작업\n## 문제 정의\n"
+        path.write_text(old, encoding="utf-8")
+        confirmation = "  - 사용자 확인 시각: 2026-11-05 04:20:00\n  - 확인 내용: 문제와 범위를 확정했다\n"
+        valid = "- 첫 문제: 입력 오류\n  - 요구 구분: 사용자 지시 (로그 2026-11-05 04:00:00)\n" + confirmation
+        for runner in ("claude", "codex"):
+            for kind in (None, "", "임의 값", "사용자 지시 임의 값", "<사용자 지시 | director 해석>"):
+                for prefix in ("", valid):
+                    with self.subTest(runner=runner, kind=kind, prefix=bool(prefix)):
+                        field = f"  - 요구 구분: {kind}\n" if kind is not None else ""
+                        content = old + prefix + "- 새 문제: 다른 입력 오류\n" + field + confirmation
+                        data = {"tool_name": "Write", "tool_input": {"file_path": str(path), "content": content},
+                                "agent_type": "rio", "cwd": str(self.root), "transcript_path": self.problem_reply(runner)}
+                        self.assertIn("실제 사용자 확인", hook.check(data, runner) or "")
+                        self.assertIn("실제 사용자 확인", sub_scope.check_doc(data, path, "log/task/20261104-234558-test/status.md", "") or "")
+
+    # 빈 양식과 변경하지 않은 역사적 항목은 새 문제 정의로 판정하지 않는다.
+    def test_problem_definition_template_and_history_kept(self):
+        path = self.root / "log/task/20261104-234558-test/status.md"
+        path.parent.mkdir(parents=True)
+        base = "# 작업\n## 문제 정의\n"
+        template = base + "- <항목>: <관측 사실>\n  - 요구 구분: <사용자 지시 | director 해석>\n"
+        history = base + "- 이전 문제: 과거 기록\n  - 요구 구분: 이전 분류\n"
+        for old, new in ((base, template), (history, history)):
+            path.write_text(old, encoding="utf-8")
+            self.assertIsNone(sub_scope.problem_confirmation_gap({}, path, new, old))
+        self.assertIn("실제 사용자 확인", sub_scope.problem_confirmation_gap({}, path, history.replace("과거 기록", "변경한 기록"), history) or "")
 
     # 검증 호출에는 사용자 승인이 필요한지 확인한다.
     def test_review_needs_user_approval(self):
@@ -796,7 +993,7 @@ class CodexPath(unittest.TestCase):
                           ("Write", {"file_path": ".env", "content": "x"})):
             self.assertIsNotNone(run(name, tin), (name, tin))
         self.assertIn(str(self.home), run("Read", {"file_path": f"{self.home}/notes.txt"}))
-        self.assertEqual("이 명령은 리다이렉트로 `out.txt`에 내용을 씁니다. 다른 방식으로 작업하십시오.",
+        self.assertEqual("이 명령은 리다이렉트로 `out.txt`에 내용을 씁니다. " + sub_write.RETRY,
                          run("Bash", {"command": "echo hi > out.txt"}))
         for name, tin in (("Bash", {"command": "cat ./x"}),
                           ("Read", {"file_path": "AGENTS.md"}), ("Read", {"file_path": f"{self.home}/.claude/CLAUDE.md"}),
@@ -820,7 +1017,7 @@ class CodexPath(unittest.TestCase):
             for runner in ("claude", "codex"):
                 run = lambda cmd: self.claude("Bash", {"command": cmd}, runner)
                 self.assertIsNone(run(f"cat {base}/a"), (base, runner))
-                self.assertTrue((run(f"echo x > {base}/new") or "").endswith("다른 방식으로 작업하십시오."), (base, runner))
+                self.assertTrue((run(f"echo x > {base}/new") or "").endswith((sub_write.RETRY, sub_write.APPROVAL_RETRY)), (base, runner))
                 self.assertIsNotNone(run(f"cat {base}/.env"), (base, runner))
             self.assertIsNone(self.claude("Read", {"file_path": f"{base}/a"}), base)
             self.assertIsNone(self.claude("Write", {"file_path": f"{base}/new", "content": "x"}), base)
@@ -1082,7 +1279,7 @@ class AgentInput(unittest.TestCase):
         self.assertIsNotNone(self.check(claude("researcher", RESEARCH_IN + "\n추가 설명"), "claude"))
         self.assertIsNone(self.check(claude("researcher", RESEARCH_IN), "claude"))
 
-    # researcher 입력 차단 사유가 실제 허용 형식(작업 종류, 조사 문서, 항목 줄)을 안내하고 그 형식은 통과하는지 확인한다. (요구사항 6 결함 8)
+    # researcher 입력 차단 사유가 실제 허용 형식(작업 종류, 조사 문서, 항목 줄)을 안내하고 그 형식은 통과하는지 확인한다.
     def test_researcher_reason_matches_allowed_format(self):
         reason = self.check(claude("researcher", INPUT_IN), "claude")
         for word in ("작업 종류", "조사 문서", "항목"):
@@ -1230,29 +1427,6 @@ class Entry(unittest.TestCase):
         self.assertIn("작업 종류", json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"])
 
 
-class PlanGaps(unittest.TestCase):
-    # 문서 갱신 대상을 넣은 입력 문서 본문을 만든다.
-    def doc(self, target: str, extra: str = "") -> str:
-        return ("## 요구사항 목록\n\n### 1. a\n\n- 검증: x\n  기대 결과: y\n\n## 작업 계획\n\n"
-                f"{extra}- 문서 갱신 대상: {target}\n\n### 검증 계획\n\n- 검증 명령\n  - `python t.py`: 1\n")
-
-    # 문서 갱신 대상 또는 미충족 칸 관련 사유만 골라 반환한다.
-    def gaps(self, text: str) -> list[str]:
-        import sub_plan
-        return [g for g in sub_plan.plan_gaps(text) if "문서 갱신 대상" in g or "채우지" in g]
-
-    # 들여쓴 코드 블록 안의 꺾쇠를 자리표시로 보지 않는지 확인한다.
-    def test_indented_fence_placeholder_ignored(self):
-        extra = "- 문구 diff:\n\n  ```diff\n  +<a> b\n  ```\n"
-        self.assertEqual(self.gaps(self.doc("docs/a.md:12", extra)), [])
-
-    # 문서 갱신 대상이 `파일:행` 또는 검색어 없음 기록일 때만 통과하는지 확인한다.
-    def test_doc_target_format(self):
-        self.assertTrue(self.gaps(self.doc("docs/a.md")))
-        self.assertEqual(self.gaps(self.doc("docs/a.md:12 (권한)")), [])
-        self.assertEqual(self.gaps(self.doc('"검색어와 일치 없음"(검색어: 권한)')), [])
-
-
 class ApprovalGate(unittest.TestCase):
     """승인 전과 승인 턴의 메인 세션 Bash 판정, 스크립트 파일 쓰기, cd, 보안 파일 문자열, 패치 파일 구간을 검사한다."""
     setUp, tearDown, transcript, write = WriteScope.setUp, WriteScope.tearDown, WriteScope.transcript, WriteScope.write
@@ -1268,7 +1442,16 @@ class ApprovalGate(unittest.TestCase):
     def test_approval_turn_before_denies(self):
         for cmd in ("git commit -m x", "git push", "git add a.py", "python -c \"open('a.txt','w').write('x')\"",
                     "python tools/run_workflow.py", "python -m pytest", "cat /etc/hosts"):
-            self.assertTrue((self.shell(cmd) or "").endswith("다른 방식으로 작업하십시오."), cmd)
+            self.assertTrue((self.shell(cmd) or "").endswith((sub_write.RETRY, sub_write.APPROVAL_RETRY)), cmd)
+
+    # 승인 필요 차단 사유 7개가 APPROVAL_RETRY로 끝나고 RETRY를 포함하지 않으며, 일반 차단은 RETRY를 유지한다.
+    def test_approval_reasons_use_approval_retry(self):
+        for reason in (sub_scope.REASON_NO_APPROVAL, sub_scope.REASON_OUTSIDE_LOG, sub_scope.REASON_SCRIPT_FILE, hook.REASON_SCRIPT,
+                       sub_write.REASON_GIT_WRITE, sub_approval.REASON_APPROVAL):
+            self.assertIn("nestlab-approval", reason)
+            self.assertNotIn("권한 일시 우회", reason)
+        self.assertTrue(sub_scope.REASON_NO_APPROVAL.endswith(sub_write.APPROVAL_RETRY))
+        self.assertTrue(sub_write.REASON_INLINE.endswith(sub_write.RETRY))
 
     # 승인 전 메인 세션도 읽기, 쓰기 호출 없는 인라인 코드, heredoc, 셸 변수, 허용 목록 명령은 통과한다.
     def test_approval_turn_before_allows(self):
@@ -1347,7 +1530,7 @@ class CodexTaskName(unittest.TestCase):
 
     # 임시 저장소에 완전한 작업 문서 네 개를 준비한다.
     def setUp(self):
-        from test_sub_workflow import PLAN, REFUTE as REFUTE_DOC, RESEARCH as RESEARCH_DOC, STATE, TASK
+        from hooks.tests.test_sub_workflow import PLAN, REFUTE as REFUTE_DOC, RESEARCH as RESEARCH_DOC, STATE, TASK
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -1382,8 +1565,46 @@ class CodexTaskName(unittest.TestCase):
         self.assertIn("승인 상태가 승인이 아닙니다", hook.check(self.call(task_name=self.NAME), "codex") or "")
 
 
+REPORT_DOC = """# 조사 문서: t
+
+- 확인 상태: 확인
+
+## 조사 계획
+
+- 제외 범위: 없음
+
+## 검토 보고
+
+### 검토 3. X
+
+| **안** | **기준** |
+| :----- | :------- |
+| A | 충족 |
+| B | 미충족 |
+
+#### 안 1. A
+
+- 적용할 작업: a
+
+#### 안 2. B
+
+- 적용할 작업: b
+"""
+REVIEW_STATE = """# t
+
+- 작업 상태: 진행
+
+### 검토 필요
+
+- 검토 3. X: A를 정한다.
+  - 상태: {status}
+  - 확정: A
+  - 근거 위치: 조사 문서 > 검토 보고 > 검토 3. X > 안 1. A
+"""
+
+
 class QuestionGuards(unittest.TestCase):
-    """경과 문서를 쓴 세션의 질문 도구 선택지 라벨과 비동기 질문 도구를 검사한다. (요구사항 17, 18, 20)"""
+    """번호 접두 질문의 형식, 확정 라벨, 검토 보고, 구현 질문 시점을 PreToolUse에서 검사한다. (요구사항 2, 4, 7, 8)"""
 
     # 임시 저장소와 경과 문서를 준비한다.
     def setUp(self):
@@ -1394,6 +1615,7 @@ class QuestionGuards(unittest.TestCase):
         status.parent.mkdir(parents=True)
         status.write_text("# t\n", encoding="utf-8")
         self.status = status
+        self.research = status.with_name("research.md")
 
     # 경과 문서를 쓴 기록(written=True)이나 쓰지 않은 기록 파일 경로를 runner 형식으로 만든다.
     def transcript(self, runner, written):
@@ -1412,89 +1634,254 @@ class QuestionGuards(unittest.TestCase):
         path.write_text("\n".join(json.dumps(l, ensure_ascii=False) for l in lines) + "\n", encoding="utf-8")
         return str(path)
 
-    # 라벨 목록으로 질문 도구 입력을 만들어 검사한다. 이름은 runner별 질문 도구이다.
-    def ask(self, labels, runner="claude", written=True, tool=None):
+    # 질문 문장과 라벨 목록으로 질문 도구 입력을 만들어 검사한다. 이름은 runner별 질문 도구이다.
+    def ask(self, labels, question="요구사항 1. 이름: 결과 문장", runner="claude", written=True, tool=None):
         tool = tool or ("AskUserQuestion" if runner == "claude" else "request_user_input")
-        question = {"id": "q1", "header": "결정", "question": "어느 안으로 할까요?",
-                    "options": [{"label": l, "description": "설명"} for l in labels]}
-        data = {"tool_name": tool, "tool_input": {"questions": [question]}, "cwd": str(self.root),
+        body = {"id": "q1", "header": "결정", "question": question,
+                "options": [{"label": l, "description": "설명"} for l in labels]}
+        data = {"tool_name": tool, "tool_input": {"questions": [body]}, "cwd": str(self.root),
                 "transcript_path": self.transcript(runner, written)}
         return hook.check(data, runner)
 
-    # 라벨에 확정 판정 단어가 없으면 막고, 있거나 경과 문서를 쓰지 않은 세션이면 통과한다. Codex 입력도 같다.
-    def test_confirm_label_required(self):
+    # 형식을 어긴 번호 접두 질문과 물음표 끝 질문은 막고, 형식을 지킨 질문과 접두 없는 질문은 통과한다.
+    def test_prefixed_format(self):
+        self.research.write_text(REPORT_DOC, encoding="utf-8")
         for runner in ("claude", "codex"):
             with self.subTest(runner=runner):
-                self.assertEqual(self.ask(["허용 (Recommended)", "현행 유지"], runner), sub_question.REASON_NO_CONFIRM)
-                self.assertIsNone(self.ask(["확정 (Recommended)", "보류"], runner))
-                self.assertIsNone(self.ask(["A", "B"], runner, written=False))
-        self.assertEqual(self.ask(["A", "B"], "codex"), sub_question.REASON_NO_CONFIRM)
+                for question in ("검토 3. X: 언제 기록할까요?", "조사 1. Codex 입력: 안 2를 채택한다.", "요구사항 1 이름 없는 문장",
+                                 "구현 1. 요약", "요구사항 1. 이름: 결과 문장?"):
+                    self.assertIsNotNone(self.ask(["A", "B"], question, runner), question)
+                self.assertIsNone(self.ask(["안 1. A", "안 2. B"], "검토 3. X: 기록 방식을 정한다.", runner))
+                self.assertIsNone(self.ask(["확정", "보류"], "요구사항 1. 이름: 결과 문장", runner))
+                self.status.write_text(REVIEW_STATE.format(status="검토 완료"), encoding="utf-8")
+                self.assertEqual(self.ask(["확정", "보류"], "구현 1. 요약 (요구사항 1)", runner), sub_question.REASON_IMPLEMENTATION)
+                self.assertIsNone(self.ask(["확정", "보류"], "요구사항 1 폐기: 사유", runner))
+                self.assertIsNone(self.ask(["A", "B"], "어느 쪽으로 할까요?", runner))
+        self.assertEqual(self.ask(["A"], "조사 1. Codex 입력: 안 2를 채택한다."), sub_question.REASON_RESEARCH)
+
+    # 요구사항 질문에는 확정 라벨을 요구하고 검토 질문에는 안 번호 라벨을 쓴다.
+    def test_confirm_label_required(self):
+        self.research.write_text(REPORT_DOC, encoding="utf-8")
+        for runner in ("claude", "codex"):
+            with self.subTest(runner=runner):
+                self.assertEqual(self.ask(["허용 (Recommended)", "현행 유지"], runner=runner), sub_question.REASON_NO_CONFIRM)
+                self.assertIsNone(self.ask(["확정 (Recommended)", "보류"], runner=runner))
+                self.assertIsNone(self.ask(["A", "B"], runner=runner, written=False))
+                self.assertIsNone(self.ask(["안 1. A", "안 2. B"], "검토 3. X: 기록 방식을 정한다.", runner))
 
     # 라벨이 `수정`인 선택지는 막고, 다른 라벨 조합은 통과한다.
     def test_edit_label_denied(self):
         for runner in ("claude", "codex"):
             with self.subTest(runner=runner):
-                self.assertEqual(self.ask(["확정", "수정"], runner), sub_question.REASON_EDIT_LABEL)
-                self.assertIsNone(self.ask(["확정", "보류"], runner))
+                self.assertEqual(self.ask(["확정", "수정"], runner=runner), sub_question.REASON_EDIT_LABEL)
+                self.assertIsNone(self.ask(["확정", "보류"], runner=runner))
 
     # 경과 문서를 쓴 Codex 세션의 request_user_input_async는 막고, 쓰지 않은 세션은 통과한다.
     def test_async_question_denied(self):
-        self.assertEqual(self.ask(["확정"], "codex", tool="request_user_input_async"), hook.REASON_ASYNC)
-        self.assertIsNone(self.ask(["확정"], "codex", written=False, tool="request_user_input_async"))
+        self.assertEqual(self.ask(["확정"], "어느 안으로 할까요?", "codex", tool="request_user_input_async"), hook.REASON_ASYNC)
+        self.assertIsNone(self.ask(["확정"], "어느 안으로 할까요?", "codex", written=False, tool="request_user_input_async"))
+
+    # 비교표 데이터 행이 하나인 검토는 `폐기`, `재조사` 라벨을 행 없이 허용하고, 비교표에 없는 다른 라벨은 막는다.
+    def test_single_row_review_extra_labels(self):
+        one = REPORT_DOC.replace("| B | 미충족 |\n", "").replace("#### 안 2. B\n\n- 적용할 작업: b\n", "")
+        self.research.write_text(one, encoding="utf-8")
+        question = "검토 3. X: 기록 방식을 정한다."
+        for runner in ("claude", "codex"):
+            with self.subTest(runner=runner):
+                self.assertIsNone(self.ask(["안 1. A", "폐기", "재조사"], question, runner))
+                self.assertIsNotNone(self.ask(["안 1. A", "수정 필요"], question, runner))
+        # 행이 둘인 검토는 `폐기` 라벨도 행이 있어야 한다.
+        self.research.write_text(REPORT_DOC, encoding="utf-8")
+        self.assertIsNotNone(self.ask(["안 1. A", "안 2. B", "폐기"], question))
+
+    # 검토 질문은 검토 보고 절의 비교표 행과 안 블록에 모든 라벨이 있어야 통과한다.
+    def test_review_report_required(self):
+        question = "검토 3. X: 기록 방식을 정한다."
+        # 조사 문서가 없거나 해당 번호의 보고가 없으면 막는다.
+        self.assertIn("검토 3.", self.ask(["안 1. A", "안 2. B"], question))
+        self.research.write_text(REPORT_DOC.replace("### 검토 3. X", "### 검토 4. X"), encoding="utf-8")
+        self.assertIn("검토 3.", self.ask(["안 1. A", "안 2. B"], question))
+
+        # heading만 있고 표가 없으면 막는다.
+        table = REPORT_DOC[REPORT_DOC.index("| **안**"):REPORT_DOC.index("#### 안 1. A")]
+        self.research.write_text(REPORT_DOC.replace(table, ""), encoding="utf-8")
+        self.assertIn("비교표", self.ask(["안 1. A", "안 2. B"], question))
+
+        # 표에 라벨 하나가 없거나 안 블록이 하나 없으면 막는다.
+        self.research.write_text(REPORT_DOC.replace("| B | 미충족 |\n", ""), encoding="utf-8")
+        self.assertIn("행이 없습니다", self.ask(["안 1. A", "안 2. B"], question))
+        self.research.write_text(REPORT_DOC.replace("#### 안 2. B", "#### 비고"), encoding="utf-8")
+        self.assertIn("블록이 없습니다", self.ask(["안 1. A", "안 2. B"], question))
+
+        # 모든 라벨이 표 행과 안 블록에 있으면 통과하고 라벨이 없는 질문은 막는다.
+        self.research.write_text(REPORT_DOC, encoding="utf-8")
+        for runner in ("claude", "codex"):
+            self.assertIsNone(self.ask(["안 1. A", "안 2. B (Recommended)"], question, runner), runner)
+        self.assertEqual(self.ask([], question), sub_question.REASON_NO_LABELS)
+
+    # 구현 질문은 조사 확인 및 검토 상태와 관계없이 막는다.
+    def test_implementation_question_timing(self):
+        question = "구현 1. 요약 (요구사항 1)"
+        self.research.write_text(REPORT_DOC.replace("확인 상태: 확인", "확인 상태: <확인 | 보류 | 기각>"), encoding="utf-8")
+        self.status.write_text(REVIEW_STATE.format(status="검토 완료"), encoding="utf-8")
+        self.assertEqual(sub_question.REASON_IMPLEMENTATION, self.ask(["확정"], question))
+
+        # 조사 문서 확인이 끝나도 미완료 검토나 답 없는 검토 보고가 있으면 막는다.
+        self.research.write_text(REPORT_DOC, encoding="utf-8")
+        self.status.write_text(REVIEW_STATE.format(status="사용자 검토 필요"), encoding="utf-8")
+        self.assertEqual(sub_question.REASON_IMPLEMENTATION, self.ask(["확정"], question))
+        self.status.write_text("# t\n\n- 작업 상태: 진행\n", encoding="utf-8")
+        self.assertEqual(sub_question.REASON_IMPLEMENTATION, self.ask(["확정"], question))
+
+        # 검토가 끝났거나 조사 항목이 없어도 구현 질문은 막는다.
+        self.status.write_text(REVIEW_STATE.format(status="검토 완료"), encoding="utf-8")
+        self.assertEqual(sub_question.REASON_IMPLEMENTATION, self.ask(["확정"], question))
+        plain = REPORT_DOC.replace("확인 상태: 확인", "확인 상태: <확인 | 보류 | 기각>").replace("- 제외 범위: 없음", "- 조사 항목 없음")
+        self.research.write_text(plain, encoding="utf-8")
+        self.assertEqual(sub_question.REASON_IMPLEMENTATION, self.ask(["확정"], question))
 
 
-class KickoffGate(unittest.TestCase):
-    """director 메인 세션의 nestlab-kickoff 호출 전 도구 호출을 deny한다."""
+class SpecTiming(unittest.TestCase):
+    """구형 명세의 검토 선행 검사와 새 명세 초안의 쓰기를 확인한다."""
 
-    # 임시 폴더와 실제 kickoff 판정을 준비한다.
+    # 임시 저장소와 patch를 준비한다.
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
-        patcher = patch.object(hook, "kickoff_missing", REAL_KICKOFF)
+        self.folder = self.root / "log" / "task" / "t"
+        self.folder.mkdir(parents=True)
+        patches = [patch.object(sub_scope, "project_root", return_value=self.root),
+                   patch.object(sub_docs, "project_root", return_value=self.root),
+                   patch.object(sub_docs, "SKILLS", self.root / "skills"),
+                   patch.object(sub_scope, "skill_called", return_value=True)]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        log = self.root / "t.jsonl"
+        log.write_text(claude_line("assistant", "보고") + "\n" + claude_line("user", "승인") + "\n", encoding="utf-8")
+        self.log = str(log)
+        skill = self.root / "skills" / "nestlab-log-spec"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("<!-- 모든 목록이 검토 완료 또는 폐기일 때 승인 가능 -->\n", encoding="utf-8")
+
+    # 명세 문서 Write 입력으로 검사를 실행한다.
+    def write_spec(self):
+        data = {"tool_name": "Write", "tool_input": {"file_path": str(self.folder / "spec.md"), "content": "# t 입력\n"},
+                "agent_type": "rio", "cwd": str(self.root), "transcript_path": self.log}
+        return hook.check(data, "claude")
+
+    # 구형 명세는 검토 상태로 판정하며 조사 확인 상태와 무관하다.
+    def test_spec_write_waits_for_review(self):
+        (self.folder / "status.md").write_text(REVIEW_STATE.format(status="검토 완료"), encoding="utf-8")
+        (self.folder / "research.md").write_text(REPORT_DOC.replace("확인 상태: 확인", "확인 상태: <확인 | 보류 | 기각>"), encoding="utf-8")
+        self.assertIsNone(self.write_spec())
+        (self.folder / "research.md").write_text(REPORT_DOC, encoding="utf-8")
+        (self.folder / "status.md").write_text(REVIEW_STATE.format(status="사용자 검토 필요"), encoding="utf-8")
+        self.assertIn("검토 3. X", self.write_spec() or "")
+        (self.folder / "status.md").write_text(REVIEW_STATE.format(status="검토 완료"), encoding="utf-8")
+        self.assertIsNone(self.write_spec())
+
+
+class NoKickoffGate(unittest.TestCase):
+    """director 메인 세션은 nestlab-kickoff 호출 없이도 Skill 외 도구를 호출할 수 있다."""
+
+    # kickoff 호출이 없는 director 세션의 Bash `ls`는 통과한다.
+    def test_bash_without_kickoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "c.jsonl"
+            log.write_text(claude_line("user", "시작") + chr(10), encoding="utf-8")
+            data = {"tool_name": "Bash", "tool_input": {"command": "ls", "description": "테스트 명령"},
+                    "agent_type": "rio", "cwd": tmp, "transcript_path": str(log)}
+            self.assertIsNone(hook.check(data, "claude"))
+
+
+class ApplyPatchFullText(unittest.TestCase):
+    """apply_patch가 Write와 같은 쓰기 후 전문으로 전이, 필수 절 검사를 받는다. (요구사항 2)"""
+    setUp, tearDown, transcript, write = WriteScope.setUp, WriteScope.tearDown, WriteScope.transcript, WriteScope.write
+
+    # 파일 한 개를 갱신하는 apply_patch 입력으로 검사를 실행한다.
+    def patch_of(self, path, body):
+        text = f"*** Begin Patch\n*** Update File: {path}\n{body}\n*** End Patch"
+        return hook.check({"tool_name": "apply_patch", "tool_input": {"command": text}, "agent_type": "rio",
+                           "cwd": str(self.root), "transcript_path": self.transcript(("assistant", "보고"), ("user", "승인"))}, "codex")
+
+    # added_lines가 apply_patch 입력에서 쓰기 후 전문을 반환하고, 패치 구간을 찾지 못하면 None을 반환한다.
+    def test_added_lines_full_text(self):
+        doc = self.root / "log" / "task" / "t" / "status.md"
+        doc.parent.mkdir(parents=True)
+        doc.write_text("a\nb\n", encoding="utf-8")
+        data = lambda body: {"tool_name": "apply_patch", "cwd": str(self.root), "tool_input": {
+            "command": f"*** Begin Patch\n*** Update File: {doc}\n{body}\n*** End Patch"}}
+        self.assertEqual(sub_write.added_lines(data("@@\n a\n+x"), doc), (["x"], "a\nx\nb\n"))
+        self.assertEqual(sub_write.added_lines(data("@@\n-없음\n+x"), doc), (["x"], None))
+
+    # 실행 승인 줄을 더하는 패치는 전이 검사를 받아 deny하고, 작업 경과 절만 고치는 패치는 통과한다.
+    def test_execution_approval_transition(self):
+        status = self.root / "log" / "task" / "t" / "status.md"
+        status.parent.mkdir(parents=True)
+        status.write_text("# t\n\n### 실행 승인 범위\n\n- 사용자 승인 상태: 승인 대기\n\n### 작업 경과\n\n- 갱신 시각: x\n", encoding="utf-8")
+        gate = lambda path, new, old, plan: "전이 미달" if "승인 상태: 승인\n" in (new or "") else None
+        with patch.object(sub_scope, "transition_reason", side_effect=gate):
+            self.assertEqual(self.patch_of(status, "@@\n-- 사용자 승인 상태: 승인 대기\n+- 사용자 승인 상태: 승인"), "전이 미달")
+            self.assertIsNone(self.patch_of(status, "@@\n-- 갱신 시각: x\n+- 갱신 시각: y"))
+
+    # 조사 문서 필수 절을 지우는 패치는 deny한다.
+    def test_required_section_removed(self):
+        skill = self.root / "skills" / "nestlab-log-research"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("## Template\n\n```markdown\n# t\n\n## 조사 계획\n\n## 후보 비교\n```\n", encoding="utf-8")
+        research = self.root / "log" / "task" / "t" / "research.md"
+        research.parent.mkdir(parents=True)
+        research.write_text("# t\n\n## 조사 계획\n\n## 후보 비교\n", encoding="utf-8")
+        self.assertIn("필수 절", self.patch_of(research, "@@\n ## 조사 계획\n \n-## 후보 비교"))
+
+
+class ApprovedPlanLock(unittest.TestCase):
+    """실행 승인 뒤에는 명세 문서 계획과 조사 문서 검토 보고를 고칠 수 없다. (요구사항 3, 5)"""
+    setUp, tearDown, transcript, write = WriteScope.setUp, WriteScope.tearDown, WriteScope.transcript, WriteScope.write
+
+    # 실행 승인 상태를 정해 작업 폴더를 만들고 명세 문서와 조사 문서를 반환한다.
+    def task(self, state="승인"):
+        folder = self.root / "log" / "task" / "t"
+        folder.mkdir(parents=True, exist_ok=True)
+        patcher = patch.object(sub_scope, "early_items", return_value=[])  # 검토 완료 판정은 이 테스트가 다루지 않는다.
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.addCleanup(self.tmp.cleanup)
+        (folder / "status.md").write_text(f"# t\n\n### 실행 승인 범위\n\n- 사용자 승인 상태: {state}\n", encoding="utf-8")
+        (folder / "spec.md").write_text(PLAN_OK + "\n## 재작업 요청\n\n### 재작업 범위\n", encoding="utf-8")
+        report = REPORT_DOC.replace("- 적용할 작업: a", "- 적용할 작업: a\n- 장점: 동작 개선 (출처: hooks/a.py:1)\n- 단점: 수정 필요 (출처: hooks/a.py:2)")
+        (folder / "research.md").write_text(report, encoding="utf-8")
+        return folder / "spec.md", folder / "research.md"
 
-    # Skill 호출 기록이 있거나 없는 Claude 기록 파일을 만들고 경로를 반환한다.
-    def claude_log(self, called: bool) -> str:
-        lines = [claude_line("user", "시작")]
-        if called:
-            block = {"type": "tool_use", "id": "1", "name": "Skill", "input": {"skill": "nestlab-kickoff"}}
-            lines.append(json.dumps({"type": "assistant", "message": {"content": [block]}}))
-        path = self.root / "c.jsonl"
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        return str(path)
+    # Edit 입력으로 검사를 실행한다.
+    def edit(self, path, old, new):
+        return hook.check({"tool_name": "Edit", "tool_input": {"file_path": str(path), "old_string": old, "new_string": new},
+                           "agent_type": "rio", "cwd": str(self.root),
+                           "transcript_path": self.transcript(("assistant", "보고"), ("user", "승인"))}, "claude")
 
-    # Codex rollout 파일을 만들고 경로를 반환한다. read이면 kickoff SKILL.md를 읽은 호출이 있다.
-    def codex_log(self, read: bool) -> str:
-        lines = [codex_meta(), codex_msg("user", "시작")]
-        if read:
-            call = {"type": "function_call", "name": "shell", "call_id": "1",
-                    "arguments": json.dumps({"command": "cat skills/nestlab-kickoff/SKILL.md"})}
-            lines.append(json.dumps({"type": "response_item", "payload": call}))
-        path = self.root / "r.jsonl"
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        return str(path)
+    # 승인 뒤 명세 문서 계획과 조사 문서 검토 보고 수정은 deny하고 재작업 요청 추가는 통과한다. 승인 전에는 모두 통과한다.
+    def test_locked_after_approval(self):
+        spec, research = self.task()
+        self.assertEqual(self.edit(spec, "  - `python -m unittest`: 요구사항 1", "  - `python -m pytest`: 요구사항 1"),
+                         sub_scope.REASON_PLAN_LOCKED)
+        self.assertEqual(self.edit(research, "- 적용할 작업: a", "- 적용할 작업: z"), sub_scope.REASON_PLAN_LOCKED)
+        self.assertIsNone(self.edit(spec, "### 재작업 범위\n", "### 재작업 범위\n\n- 수정 위치: a.py:1\n"))
+        spec, research = self.task("승인 대기")
+        self.assertIsNone(self.edit(spec, "  - `python -m unittest`: 요구사항 1", "  - `python -m pytest`: 요구사항 1"))
+        self.assertIsNone(self.edit(research, "- 적용할 작업: a", "- 적용할 작업: z"))
 
-    # 역할과 기록 경로를 바꿔 Bash 입력을 검사하는 보조 함수이다.
-    def bash(self, cmd, log, role="rio", runner="claude", **extra):
-        return hook.check({"tool_name": "Bash", "tool_input": {"command": cmd, "description": "테스트 명령"},
-                           "agent_type": role, "cwd": str(self.root), "transcript_path": log, **extra}, runner)
-
-    # kickoff 호출 전 Bash는 deny하고 호출 뒤 같은 Bash와 서브에이전트, director가 아닌 역할은 게이트를 받지 않는다.
-    def test_kickoff_gate_claude(self):
-        self.assertEqual(self.bash("ls", self.claude_log(False)), hook.REASON_KICKOFF)
-        self.assertNotEqual(self.bash("ls", self.claude_log(True)), hook.REASON_KICKOFF)
-        self.assertNotEqual(self.bash("ls", self.claude_log(False), role="jelly", agent_id="a1"), hook.REASON_KICKOFF)
-        self.assertNotEqual(self.bash("ls", self.claude_log(False), role="buddy"), hook.REASON_KICKOFF)
-
-    # Codex는 kickoff SKILL.md를 읽는 명령만 호출 전에 통과한다.
-    def test_kickoff_gate_codex(self):
-        log = self.codex_log(False)
-        self.assertEqual(self.bash("ls", log, runner="codex"), hook.REASON_KICKOFF)
-        self.assertNotEqual(self.bash("cat skills/nestlab-kickoff/SKILL.md", log, runner="codex"), hook.REASON_KICKOFF)
-        self.assertNotEqual(self.bash("ls", self.codex_log(True), runner="codex"), hook.REASON_KICKOFF)
-
+    # 따옴표 안 이스케이프 따옴표, `>`, 경로 형식 문자열은 판정에서 빠지고 따옴표 밖 리다이렉트는 막는다.
+    def test_bash_quoted_strings(self):
+        bash = lambda cmd: hook.check({"tool_name": "Bash", "tool_input": {"command": cmd, "description": "테스트 명령"},
+                                       "agent_type": "rio", "cwd": str(self.root),
+                                       "transcript_path": self.transcript(("assistant", "보고"), ("user", "다시 생각해"))}, "claude")
+        regex = r'''python -I -c "re.findall(r'[^.\"]*>', l)"'''
+        self.assertIsNone(bash(regex))
+        self.assertIsNone(bash(r'python -I -c "print(\"/opt/x/y\")"'))
+        self.assertIsNotNone(bash("echo a > out.txt"))
+        self.assertFalse(sub_write.is_write_bash(regex))
+        self.assertTrue(sub_write.is_write_bash("echo a > out.txt"))
 
 if __name__ == "__main__":
     unittest.main()

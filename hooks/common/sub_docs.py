@@ -44,7 +44,7 @@ DOC_PATH = re.compile(
     r"|^log/state/(?!\.)[\w.\-]+?(-input|-research)?\.md$")
 LOOP_ROW = re.compile(r"^\| *(\d+) *\|", re.M)
 HEADING = re.compile(r"^(#{1,6}) (.*)$")
-TOKEN = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s;&|<>()=\"']+")
+TOKEN = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'|[^\s;&|<>()=\"']+")
 # 세션 기록 경로, 기록 파일, 세션, thread, 서브에이전트 id, 사건 ID, 사건 문서 파일 경로 형식이다.
 SESSION = re.compile(
     r"\.claude[\\/]+projects|\.codex[\\/]+sessions|\.jsonl\b|\brollout-\d|\bagent-[0-9a-f]{8,}\b"
@@ -159,7 +159,7 @@ FENCE_LINE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 # 코드 블록 밖 제목 문자열 목록이다. `#` 개수는 보지 않는다.
 def titles(text: str) -> list[str]:
-    # 코드 블록 밖의 제목 줄만 모은다.
+    # 코드 블록 밖의 제목 줄만 추출한다.
     out, fence = [], ""
     for line in (text or "").splitlines():
         f = FENCE_LINE.match(line)
@@ -200,6 +200,12 @@ def template_titles(skill: str) -> list[str]:
     return [t for t in titles(first_block(body)) if "<" not in t]
 
 
+# 스킬 본문 Template 절 첫 코드 블록 전문이다. 스킬이 없으면 빈 문자열이다.
+def template_text(skill: str) -> str:
+    path = SKILLS / skill / "SKILL.md"
+    return first_block(section(path.read_text(encoding="utf-8"), TEMPLATE_TITLE)) if path.is_file() else ""
+
+
 # 스킬 본문 Template 절 첫 코드 블록 안의 title 절 본문이다. 스킬이나 절이 없으면 빈 문자열이다.
 def template_section(skill: str, title: str) -> str:
     path = SKILLS / skill / "SKILL.md"
@@ -222,7 +228,7 @@ def missing_titles(new: str, skill: str, old: str = "") -> list[str]:
 
 # title로 시작하는 제목 절의 본문을 같은 수준 이상의 다음 제목 전까지 반환한다. 코드 블록 안의 줄은 제목이 아니다. 없으면 빈 문자열이다.
 def section(text: str, title: str) -> str:
-    # 제목 줄부터 같은 수준 이상의 다음 제목 전까지 줄을 모은다.
+    # 제목 줄부터 같은 수준 이상의 다음 제목 전까지 줄을 추출한다.
     out: list[str] = []
     level = None
     fence = ""
@@ -244,17 +250,95 @@ def section(text: str, title: str) -> str:
     return "\n".join(out)
 
 
+CODE_OR_OPEN = re.compile(r"(`+).+?(?<!`)\1(?!`)|<!--")
+
+
+# 코드 블록과 인라인 코드 밖의 HTML 주석을 지운 본문이다. 주석만 있던 줄은 지우고, 닫히지 않은 주석이 있으면 원문을 반환한다.
+def strip_comments(text: str) -> str:
+    out: list[str] = []
+    fence = ""
+    comment = False
+    dropped = False
+    for raw in text.splitlines(keepends=True):
+        body = raw.rstrip("\r\n")
+        eol = raw[len(body):]
+
+        # 코드 블록 안의 줄은 그대로 둔다.
+        if fence:
+            out.append(raw)
+            if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*", body):
+                fence = ""
+            dropped = False
+            continue
+
+        # 인라인 코드를 건너뛰며 주석 구간을 뺀 줄을 만든다.
+        line, i, had = "", 0, comment
+        while i < len(body):
+            if comment:
+                end = body.find("-->", i)
+                if end < 0:
+                    break
+                i, comment = end + 3, False
+                continue
+            m = CODE_OR_OPEN.search(body, i)
+            if not m:
+                line += body[i:]
+                break
+            if m.group(0) == "<!--":
+                line += body[i:m.start()]
+                comment, had = True, True
+            else:
+                line += body[i:m.end()]
+            i = m.end()
+
+        # 주석만 있던 줄은 지우고, 그 때문에 빈 줄이 겹치면 하나만 남긴다.
+        if had:
+            line = line.rstrip()
+            if not line:
+                dropped = True
+                continue
+        elif not line.strip() and dropped and out and not out[-1].strip():
+            continue
+        dropped = False
+        opening = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if opening:
+            fence = opening.group(1)
+        out.append(line + eol if had else raw)
+    return text if comment else "".join(out)
+
+
+# log/task 아래 작업 문서면 코드 블록 밖 HTML 주석을 지워 파일에 다시 쓴다. 문서가 아니거나 읽지 못하면 건너뛴다.
+def strip_task_comments(path: Path) -> None:
+    if path.suffix != ".md" or path.parent.parent.name != "task" or path.parent.parent.parent.name != "log":
+        return
+    try:
+        old = path.read_bytes().decode("utf-8")
+        new = strip_comments(old)
+        if new != old:
+            path.write_bytes(new.encode("utf-8"))
+    except (OSError, UnicodeDecodeError):
+        pass
+
+
 REVIEW_COMMENT = re.compile(r"<!--\s*모든 목록이\s*(.+?)\s*일 때 승인 가능\s*-->")
 
-# nestlab-log-state 템플릿 주석에서 검토 필요 상태의 허용 값 튜플을 읽는다. 읽지 못하거나 주석이 없으면 ValueError를 던진다.
+# 명세 문서에 검토 절이 있으면 확정 기록 경로로 쓰고, 기존 형식은 원래 경로에서 읽는다.
+def decision_path(path: Path, kind: str = "state") -> Path:
+    spec = sibling(path, "input")
+    if spec.is_file() and "검토" in titles(spec.read_text(encoding="utf-8-sig")):
+        return spec
+    return sibling(path, kind)
+
+
+# 명세 양식 주석에서 검토 필요 상태의 허용 값 튜플을 읽는다.
 def review_done() -> tuple[str, ...]:
     try:
-        text = (SKILLS / "nestlab-log-state" / "SKILL.md").read_text(encoding="utf-8")
+        text = (SKILLS / "nestlab-log-spec" / "SKILL.md").read_text(encoding="utf-8")
     except OSError as error:
-        raise ValueError(f"nestlab-log-state 스킬 원본을 읽지 못했습니다({error}).")
+        raise ValueError(f"nestlab-log-spec 스킬 원본을 읽지 못했습니다({error}).")
     match = REVIEW_COMMENT.search(text)
     if not match:
-        raise ValueError("nestlab-log-state 템플릿에 `모든 목록이 ... 일 때 승인 가능` 주석이 없습니다.")
+        raise ValueError("nestlab-log-spec 템플릿에 `모든 목록이 ... 일 때 승인 가능` 주석이 없습니다.")
     return tuple(re.split(r"\s*(?:또는|,)\s*", match[1]))
 
 

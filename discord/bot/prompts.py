@@ -126,7 +126,7 @@ def read_agent_name(agents_file: Path) -> str | None:
 
 # .claude/agents에서 에이전트 ID와 호출 이름을 찾는다.
 def discover_agents(root: Path) -> dict[str, str]:
-    # 역할 폴더마다 이름을 읽어 역할과 짝지어 모은다.
+    # 역할 폴더마다 이름을 읽어 역할과 짝지어 기록한다.
     agents: dict[str, str] = {}
     # 역할 폴더마다 이름을 읽어 역할 이름과 짝지운다.
     for role_dir in sorted((root / ".claude" / "agents").iterdir()):
@@ -144,7 +144,7 @@ SOUL_IDENTITY_FIELDS = (("Species", "종"), ("MBTI", "MBTI"))
 
 # SOUL.md의 Identity 항목에서 종 및 MBTI 값을 읽는다.
 def read_soul_identity(soul_path: Path) -> list[str]:
-    # SOUL 문서에서 정체성 항목을 찾아 문장으로 모은다.
+    # SOUL 문서에서 정체성 항목을 찾아 문장으로 결합한다.
     text = soul_path.read_text(encoding="utf-8")
     parts = []
     for key, label in SOUL_IDENTITY_FIELDS:
@@ -166,7 +166,7 @@ def read_tone_guide(soul_path: Path) -> str:
 def prompt_source_signature(
     root: Path, role: str, roster_roles: tuple[str, ...] = ()
 ) -> tuple[tuple[str, int, int], ...]:
-    # 프롬프트에 쓰는 원본 파일을 모아 서명을 계산한다.
+    # 프롬프트에 쓰는 원본 파일을 선별해 서명을 계산한다.
     role_dir = canonical_role_dir(root, role)
     paths = [
         root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / ROLE_MAIN_FILE, role_dir / "SOUL.md",
@@ -211,7 +211,7 @@ def render_variant(template: str, kind: str) -> str:
             index += 1
             continue
 
-        # 표식 종류를 확인하고 닫는 표식까지 본문을 모은다.
+        # 표식 종류를 확인하고 닫는 표식까지 본문을 추출한다.
         indent, marker_kind = match.groups()
         if marker_kind not in PROMPT_KINDS:
             raise ValueError(f"알 수 없는 변형 표식입니다: {marker_kind} ({index + 1}행)")
@@ -506,7 +506,7 @@ def suppress_handoff_body(text: str, next_name: str) -> str:
     if next_name == "stop" or not text:
         return text
 
-    # 문장마다 넘김 설명을 빼고 남은 문장을 모은다.
+    # 문장마다 넘김 설명을 빼고 남은 문장을 결합한다.
     kept_lines = []
     for line in text.splitlines():
         sentences = [match.group(0) for match in SENTENCE_PATTERN.finditer(line) if match.group(0)]
@@ -541,7 +541,7 @@ def collect_tool_evidence(
     if not isinstance(content, list):
         return
 
-    # 도구 사용 블록은 URL을 모아 기록하고, 결과 블록은 성공과 실패를 판정해 기록한다.
+    # 도구 사용 블록은 URL을 추출해 기록하고, 결과 블록은 성공과 실패를 판정해 기록한다.
     for block in content:
         if isinstance(block, (ToolUseBlock, ServerToolUseBlock)):
             urls = sorted(set(URL_PATTERN.findall(json.dumps(block.input, ensure_ascii=False))))

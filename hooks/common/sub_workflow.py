@@ -2,7 +2,7 @@
 """작업 문서(경과, 명세, 조사, 반증 문서)의 단계 선행 조건을 판정하는 공용 모듈이다.
 
 호출자:
-- hooks/check_tool_use.py, hooks/check_tool_use/sub_plan.py
+- hooks/check_tool_use.py
 - hooks/check_tool_use/sub_judgment.py
 - hooks/save_handback_report.py, hooks/save_subagent_result.py, tools/run_workflow.py
 입력: 작업 문서 본문 또는 저장소 루트, 작업 ID, 단계 이름
@@ -10,7 +10,6 @@
 - 검사 함수(validate, check_plan, check_research, check_complete 등)는 통과하면 None을 반환하고
   미달이면 사유 문자열을 담은 ValueError를 던진다.
 - transition_reason, call_reason은 차단 사유 문자열 또는 통과 시 None을 반환한다.
-- plan_gaps는 사유 문자열 목록을 반환한다(통과는 빈 목록).
 한계: 문서의 구조와 칸 형식만 판정하고 자연어 내용의 정확성은 판정하지 않는다.
 """
 from __future__ import annotations
@@ -34,6 +33,11 @@ CASE_ROW = re.compile(r"^\|\s*(차단|허용)\s*\|([^|\n]*)\|([^|\n]*)\|([^|\n]*
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
+
+
+# 백틱으로 감싼 자리표시자에 넣을 문서 값에서 백틱을 지운다.
+def bare(value) -> str:
+    return str(value).replace("`", "")
 
 
 # 값이 비어 있지 않고 자리표시자가 남지 않았으면 True를 반환한다.
@@ -95,7 +99,7 @@ class Document:
             self.lines.append("" if line.startswith(("    ", "\t")) else line)
         require(not fence and not comment, R_UNCLOSED)
 
-        # 제목 위치와 수준을 모은다.
+        # 제목 위치와 수준을 추출한다.
         self.headings = []
         for index, line in enumerate(self.lines):
             match = re.match(r"^(#{1,6}) (.+?)\s*$", line)
@@ -113,8 +117,8 @@ class Document:
             if name in (title, legacy(title)):
                 # 하위 항목 제목은 절 안에 포함하는 절의 패턴이다.
                 children = {
-                    "요구사항 목록": r"\d+\. .+",
-                    "작업 계획": r"변경 범위|검증 계획|" + legacy("검증 계획") + r"|잠재적 위험|진행 순서|작업 기준 자료|배정 범위|조회 대상|변경 대상|생성 대상|작업 유지 대상|작업 금지 대상|문서 갱신 대상",
+                    "요구사항 목록": r"(?:요구사항 )?\d+\. .+",
+                    "작업 계획": r"변경 범위|검증 계획|" + legacy("검증 계획") + r"|잠재적 위험|진행 순서|작업 기준 자료|배정 범위|조회 대상|변경 대상|생성 대상|문서 갱신 대상",
                     "조사 계획": r"조사 \d+\. .+",
                 }
                 pattern = children.get(title)
@@ -170,7 +174,7 @@ def values(body: str, name: str) -> list[str]:
             continue
         parts = [match[2]]
 
-        # 칸보다 깊게 들여쓴 줄을 값으로 모은다.
+        # 칸보다 깊게 들여쓴 줄을 값으로 추출한다.
         for following in lines[index + 1:]:
             if following.strip() and len(following) - len(following.lstrip()) <= len(match[1]):
                 break
@@ -183,7 +187,7 @@ R_TIME_FORMAT = "`{name}` 칸의 값이 `YYYY-MM-DD HH:MM:SS` 형식이 아닙�
 
 # 시각 문자열이 `YYYY-MM-DD HH:MM:SS` 형식이고 실제 존재하는 시각인지 확인한다.
 def timestamp(name: str, value: str) -> None:
-    require(bool(re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", value)), R_TIME_FORMAT.format(name=name, value=value))
+    require(bool(re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", value)), R_TIME_FORMAT.format(name=bare(name), value=bare(value)))
     datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
 
 
@@ -205,20 +209,31 @@ def approval(state: Document, title: str) -> None:
     field(body, "범위 밖")
 
 
+REQ_TITLE = r"(?:요구사항 )?\d+\. .+"
 R_NO_REQ = "요구사항 목록에 요구사항이 없습니다."
 R_REQ_NAME = "요구사항 제목이 `<번호>. <이름>` 형식이 아닙니다."
 
 # 입력 문서의 요구사항 (제목, 본문) 목록을 반환한다.
 def requirements(plan: Document) -> list[tuple[str, str]]:
-    # 요구사항 목록 절 안의 `<번호>. <이름>` 제목을 모은다.
+    # 요구사항 목록 절 안의 `<번호>. <이름>` 제목을 추출한다.
     start, end = plan.bounds("요구사항 목록")
     items = [(name, plan.section(name)) for i, level, name in plan.headings
-             if start <= i < end and re.fullmatch(r"\d+\. .+", name)]
+             if start <= i < end and re.fullmatch(REQ_TITLE, name)]
 
     # 요구사항이 있는지, 제목 형식이 맞는지 확인한다.
     require(bool(items), R_NO_REQ)
-    require(all(re.fullmatch(r"\d+\. .+", name) for name, _ in items), R_REQ_NAME)
+    require(all(re.fullmatch(REQ_TITLE, name) for name, _ in items), R_REQ_NAME)
     return items
+
+
+# 요구사항 제목에서 번호를 읽는다. 폐기한 절의 제목은 `요구사항 <번호>. 폐기`이다.
+def number_of(name: str) -> str:
+    return re.search(r"\d+", name)[0]
+
+
+# 요구사항 절이 폐기됐으면 True이다. 제목이 `요구사항 <번호>. 폐기`이거나 기대 결과 칸이 `폐기`로 시작한다.
+def dropped(name: str, body: str) -> bool:
+    return name.endswith(". 폐기") or any(v.startswith("폐기") for v in values(body, "기대 결과"))
 
 
 REQ_REF = re.compile(r"\(요구사항 (\d+(?:, ?\d+)*)\)")
@@ -241,7 +256,7 @@ def requirement_numbers(plan: Document | None) -> set[str] | None:
     if plan is None or not numbered(plan):
         return None
     try:
-        return {name.split(".")[0] for name, _ in requirements(plan)}
+        return {number_of(name) for name, _ in requirements(plan)}
     except ValueError:
         return None
 
@@ -254,7 +269,7 @@ def state_numbers(state: Document | None) -> set[str] | None:
         body = state.section("요구사항 목록")
     except ValueError:
         return None
-    return set(re.findall(r"^(\d+)\. ", body, re.M)) or None
+    return set(re.findall(r"^(?:요구사항 )?(\d+)\. ", body, re.M)) or None
 
 
 R_NUM_MISMATCH = "명세 문서 요구사항 번호가 경과 문서 요구사항 목록 번호와 다릅니다."
@@ -272,7 +287,7 @@ def check_refs(body: str, numbers: set[str], title: str) -> None:
     for line in body.splitlines():
         item = line[2:].strip() if line.startswith("- ") else ""
         if item and item.rstrip(".") not in ("없음", "기록 없음"):
-            require(has_ref(item, numbers), R_REQ_REF.format(title=title, item=item[:40]))
+            require(has_ref(item, numbers), R_REQ_REF.format(title=title, item=bare(item[:40])))
 
 
 R_ITEM_FIELD = "`{name}`의 `{key}` 칸이 비어 있습니다."
@@ -290,10 +305,13 @@ def check_plan(plan: Document) -> list[str]:
     # 요구사항마다 필수 칸, 검증 유형, 한계와 Test Case 표를 확인한다.
     items = requirements(plan)
     for name, body in items:
-        for key in ("목표", "결과", "작업", "검증", "기대 결과"):
+        # 폐기한 요구사항 절은 필수 칸을 검사하지 않는다.
+        if dropped(name, body):
+            continue
+        for key in ("목표", "결과", "검증", "기대 결과"):
             entries = values(body, key)
-            require(bool(entries) and all(filled(v) for v in entries), R_ITEM_FIELD.format(name=name, key=key))
-        require(all(re.search(r"\((?:정적|실제 동작)\)", v) for v in values(body, "검증")), R_REVIEW_TYPE.format(name=name))
+            require(bool(entries) and all(filled(v) for v in entries), R_ITEM_FIELD.format(name=bare(name), key=key))
+        require(all(re.search(r"\((?:정적|실제 동작)\)", v) for v in values(body, "검증")), R_REVIEW_TYPE.format(name=bare(name)))
         require(not case_gaps(name, body), "; ".join(case_gaps(name, body)))
 
     # 필수 절에 자리표시자나 빈 내용이 없는지 확인한다.
@@ -313,12 +331,12 @@ def check_plan(plan: Document) -> list[str]:
             field(scope, key)
         target = field(scope, "문서 갱신 대상")
     else:
-        for key in ("배정 범위", "조회 대상", "변경 대상", "생성 대상", "작업 유지 대상", "작업 금지 대상"):
+        for key in ("배정 범위", "조회 대상", "변경 대상", "생성 대상"):
             require(bool(plan.section(key).strip()), R_SECTION_EMPTY.format(title=key))
         target = plan.section("문서 갱신 대상")
 
         # 항목마다 요구사항 목록에 있는 `(요구사항 <번호>)` 표기가 있는지 확인한다.
-        numbers = {name.split(".")[0] for name, _ in items}
+        numbers = {number_of(name) for name, _ in items}
         for key in ("배정 범위", "변경 대상", "생성 대상", "문서 갱신 대상", "재작업 요청", "재검증 요청"):
             if key in names:
                 check_refs(plan.section(key), numbers, key)
@@ -332,7 +350,8 @@ def check_plan(plan: Document) -> list[str]:
     require(filled(actual) and "출처:" in actual, R_CHECK_ACTUAL)
     require(bool(re.search(r"^- 검증 명령\s*\n(?:  - `[^`<>\n]+`[^\n]*\n?)+", checks, re.M)),
             R_CHECK_CMDS)
-    return [name.split(".")[0] if "변경 범위" not in names else name.split(". ", 1)[1] for name, _ in items]
+    return [number_of(name) if "변경 범위" not in names else name.split(". ", 1)[1] for name, body in items
+            if not dropped(name, body)]
 
 
 R_GAP_LIMIT = "요구사항 `{name}`에 한계, 출처와 확인 방법이 없습니다."
@@ -347,27 +366,18 @@ def case_gaps(name: str, body: str) -> list[str]:
     # 한계에 출처와 확인 방법이 있는지 확인한다.
     limits = values(body, "한계")
     if not limits or not all(filled(v) and "출처:" in v and "확인 방법:" in v for v in limits):
-        gaps.append(R_GAP_LIMIT.format(name=name))
+        gaps.append(R_GAP_LIMIT.format(name=bare(name)))
 
     # Test Case 표에 차단 행과 허용 행이 있는지 확인한다.
     rows = CASE_ROW.findall(body)
     kinds = {kind for kind, *_ in rows}
     if kinds != {"차단", "허용"}:
-        gaps.append(R_GAP_KINDS.format(name=name))
+        gaps.append(R_GAP_KINDS.format(name=bare(name)))
 
     # 사례 행마다 입력, 명령, 기대 결과가 채워졌는지 확인한다.
     if any(not all(filled(v.strip().strip('`')) for v in row[1:]) for row in rows):
-        gaps.append(R_GAP_FIELDS.format(name=name))
+        gaps.append(R_GAP_FIELDS.format(name=bare(name)))
     return gaps
-
-
-# 입력 문서 본문이 계획 검사에 미달하면 사유 목록을, 통과하면 빈 목록을 반환한다.
-def plan_gaps(text: str) -> list[str]:
-    try:
-        check_plan(Document(text))
-    except ValueError as error:
-        return [str(error)]
-    return []
 
 
 R_ITEM_FORMAT = "조사 계획의 조사 항목 이름이 `조사 <번호>. <이름>` 형식이 아닙니다."
@@ -380,22 +390,58 @@ R_SOURCE_FORMAT = "조사 문서의 출처가 URL 또는 `파일:행` 형식이 
 
 # 줄의 `출처:` 값 중 URL 또는 `파일:행` 형식이 아닌 첫 값을 반환한다. 모두 형식에 맞으면 None이다.
 def bad_source(line: str) -> str | None:
-    return next((v.strip() for v in SOURCE_VALUE.findall(line) if not SOURCE_FORMAT.search(v)), None)
+    # 조사 문서 양식의 `<`로 시작하는 자리표시자 값은 제외한다.
+    return next((v.strip() for v in SOURCE_VALUE.findall(line)
+                 if not v.strip().startswith("<") and not SOURCE_FORMAT.search(v)), None)
+
+
+OPTION_HEAD = re.compile(r"(?m)^#{4,5} (안 \d+\..*)$")
+OPTION_LINE = {"장점": re.compile(r"^\s*- 장점:.*\(출처:\s*\S.*\)\s*$", re.M),
+               "단점": re.compile(r"^\s*- 단점:.*\(출처:\s*\S.*\)\s*$", re.M)}
+R_OPTION_GAP = "조사 문서 검토 보고의 `#### {title}` 블록에 출처 괄호가 있는 `{key}` 줄이 없습니다. `- {key}: <내용> (출처: <파일:행 | URL>)` 줄을 쓰십시오."
+
+
+# 검토 보고 절의 안 블록 {(검토 제목, 안 제목): 본문}이다. 본문은 다음 제목 줄 전까지이다.
+def option_blocks(research: str) -> dict[tuple[str, str], str]:
+    body = section(research, "검토 보고")
+    heads = list(OPTION_HEAD.finditer(body))
+    out = {}
+    for i, m in enumerate(heads):
+        rest = body[m.end():(heads[i + 1].start() if i + 1 < len(heads) else len(body))]
+        reviews = re.findall(r"(?m)^#{3,4} (검토 \d+\..*)$", body[:m.start()])
+        out[(reviews[-1].strip() if reviews else "", m[1].strip())] = re.split(r"(?m)^#{1,6} ", rest)[0]
+    return out
+
+
+# 새로 쓰거나 바뀐 안 블록에 출처 괄호가 있는 장점 줄과 단점 줄이 없으면 사유를 반환한다. 없으면 None이다.
+def option_gap(new: str, old: str) -> str | None:
+    before = option_blocks(old)
+    for key, body in option_blocks(new).items():
+        if before.get(key) == body:
+            continue
+        for name, pattern in OPTION_LINE.items():
+            if not pattern.search(body):
+                return R_OPTION_GAP.format(title=bare(key[1]), key=name)
+    return None
+
+
+PROBLEM_REF = re.compile(r"\(문제 (\d+(?:, ?\d+)*)\)")
+R_PROBLEM_REF = "조사 계획의 항목 `{item}`에 `(문제 <번호>)` 표기가 없거나 `문제 <번호> 조사 필요 판정`에 없는 번호입니다."
 
 
 # 조사 문서의 조사 계획을 검사하고 조사 항목 이름 목록을 반환한다.
-def research_items(research: Document, plan: Document | None = None, state: Document | None = None) -> list[str]:
+def research_items(research: Document) -> list[str]:
     # 조사 항목 제목의 형식을 확인한다.
     body = research.section("조사 계획")
     start, end = research.bounds("조사 계획")
     items = [name for i, level, name in research.headings if start <= i < end and name.startswith("조사 ")]
     require(all(re.fullmatch(r"조사 \d+\. .+", name) for name in items), R_ITEM_FORMAT)
 
-    # 새 양식 명세 문서가 주어지면 항목마다 요구사항 목록에 있는 번호 표기를 요구한다. 명세 문서가 없으면 경과 문서 요구사항 목록 번호를 쓴다.
-    numbers = requirement_numbers(plan) if plan is not None else state_numbers(state)
-    if numbers is not None:
-        for name in items:
-            require(has_ref(name, numbers), R_REQ_REF.format(title="조사 계획", item=name[:40]))
+    # 항목마다 `(문제 <번호>)` 표기를 요구한다. 조사 문서에 `문제 <번호> 조사 필요 판정` 제목이 있으면 그 번호여야 한다.
+    judged = {m[1] for _, _, t in research.headings if (m := re.fullmatch(r"문제 (\d+) 조사 필요 판정", t))}
+    for name in items:
+        refs = [n for group in PROBLEM_REF.findall(name) for n in re.split(r", ?", group)]
+        require(bool(refs) and all(n in judged for n in refs if judged), R_PROBLEM_REF.format(item=bare(name[:40])))
 
     # 제외 범위마다 출처가 있는지 확인한다.
     excluded = values(body, "제외 범위")
@@ -420,24 +466,29 @@ def check_research_result(message: str, items: list[str]) -> None:
 
     # 항목마다 마지막 회차 구간에서 필수 표시를 찾는다.
     for item in items:
-        segments = [part for part in message.split("\n\n---\n\n") if item in part]
-        require(bool(segments), R_RESULT_ITEM.format(item=item))
+        segments = [part for part in message.split("\n\n---\n\n") if item.split(". ", 1)[0] + "." in part]
+        require(bool(segments), R_RESULT_ITEM.format(item=bare(item)))
         latest = segments[-1]
         for label in ("제안", "후보", "출처"):
-            require(label in latest, R_RESULT_LABEL.format(item=item, label=label))
-        require("충족" in latest or "결론 불가" in latest, R_RESULT_FIT.format(item=item))
+            require(label in latest, R_RESULT_LABEL.format(item=bare(item), label=label))
+        require("충족" in latest or "결론 불가" in latest, R_RESULT_FIT.format(item=bare(item)))
 
 
 R_NO_VERDICT = "반증 판정과 출처가 없습니다."
 R_VERDICT_SOURCE = "반증 판정의 출처가 URL 또는 `파일:행` 형식이 아닙니다."
+R_VERDICT_FORMAT = "반증 판정 줄이 `주장 <번호>: <지지 | 반증 | 미확인> | 출처: <URL 또는 파일:행>` 형식이 아닙니다. 줄: `{line}`"
+CLAIM_START = re.compile(r"^[\s\-*]*주장\s*\d+\s*[:：]")
 
 # 반증 원문에 판정 줄이 있고 출처가 URL 또는 `파일:행`인지 확인한다.
 def check_refutation(message: str) -> None:
     # 판정 상수를 불러온다.
     from sub_call import VERDICT
 
-    # 판정 줄을 모은다.
-    verdicts = [VERDICT.match(line) for line in message.splitlines()]
+    # 판정 줄을 선별하고, `주장 <번호>:`로 시작하지만 판정 형식이 아닌 줄은 거부한다.
+    lines = message.splitlines()
+    for line in lines:
+        require(VERDICT.match(line) or not CLAIM_START.match(line), R_VERDICT_FORMAT.format(line=bare(line.strip()[:80])))
+    verdicts = [VERDICT.match(line) for line in lines]
     verdicts = [m for m in verdicts if m]
     require(bool(verdicts), R_NO_VERDICT)
 
@@ -456,12 +507,26 @@ R_NOT_FINISHED = "조사와 반증이 아직 정지하지 않았습니다."
 R_USER_CONFIRM = "조사 결과를 사용자가 확인하지 않았습니다."
 R_REVIEW_ITEM = "상태 문서의 검토 필요에 `{item}` 항목이 없거나 중복돼 있습니다."
 R_REVIEW_UNDONE = "`{item}`의 사용자 검토가 끝나지 않았습니다."
-R_NO_BASIS = "`{item}`의 대응 근거가 비어 있습니다."
+R_NO_BASIS = "`{item}`의 근거 위치가 조사 문서 검토 보고의 실제 안 블록을 가리키지 않습니다."
+LOCATION = re.compile(r"^(?:조사 문서 > |명세 문서 > 검토 > )검토 보고 > (검토 \d+\. .+?) > (안 \d+\. .+)$")
+
+
+# 근거 위치 값이 조사 문서 검토 보고 절의 실제 `검토 <번호>. <이름>` 아래 `안 <번호>. <안 이름>` 제목을 가리키면 True이다.
+def basis_exists(research: Document, location: str) -> bool:
+    m = LOCATION.match(location.strip())
+    if not m:
+        return False
+    # 제목 수준과 무관하게, 검토 제목 뒤 다음 검토 제목 전까지의 제목에서 안 제목을 찾는다.
+    found = [name for _, _, name in research.headings]
+    if m[1] not in found:
+        return False
+    later = found[found.index(m[1]) + 1:]
+    return m[2] in later[:next((i for i, name in enumerate(later) if re.match(r"검토 \d+\.", name)), len(later))]
 R_UNVERIFIED = "반증 2회에 도달했으므로 검증 미완을 사용자 보고로 기록해야 합니다."
 
 # 조사 원문, 반증 회차, 사용자 확인과 검토 항목 기록이 갖춰졌는지 확인한다. reviewed가 False면 사용자 확인 전 검사만 한다.
 def check_research(state: Document, research: Document, items: list[str], reviewed: bool = True,
-                   refute: Document | None = None) -> None:
+                   refute: Document | None = None, plan: Document | None = None) -> None:
     # 확인할 항목이 없으면 끝낸다.
     if not items:
         return
@@ -497,18 +562,24 @@ def check_research(state: Document, research: Document, items: list[str], review
     require(field(research.header(), "확인 상태") == "확인", R_USER_CONFIRM)
     timestamp("확인 시각", field(research.header(), "확인 시각"))
 
-    # 조사 항목마다 상태 문서의 검토 필요 기록이 끝났는지 확인한다.
-    review = state.section("검토 필요")
-    entries = re.split(r"(?m)^- ", review)[1:]
+    # 조사 항목마다 상태 문서의 검토 필요 기록이 끝났는지 확인한다. 검토 필요는 `검토 <번호>.` 항목만 대조하고,
+    # 같은 번호 항목을 찾고, 없으면 첫 줄에 항목 이름이 든 항목을 찾는다. 번호 대응을 앞세워 이름 중복을 피한다.
+    decisions = plan if plan is not None and "검토" in titles("\n".join(plan.raw)) else state
+    report = plan if decisions is plan else research
+    review = decisions.section("검토 필요")
+    entries = [e for e in re.split(r"(?m)^- ", review)[1:] if e.startswith("검토 ")]
     for item in items:
-        number = item.split(". ", 1)[0]
-        name = item.split(". ", 1)[1]
-        matches = [entry for entry in entries if number in entry.splitlines()[0] or name in entry.splitlines()[0]]
-        require(len(matches) == 1, R_REVIEW_ITEM.format(item=item))
+        number, name = item.split(". ", 1)
+        base = PROBLEM_REF.sub("", name).strip()
+        matches = ([entry for entry in entries if entry.startswith("검토 " + number.split()[1] + ".")]
+                   or [entry for entry in entries if base in entry.splitlines()[0]])
+        require(len(matches) == 1, R_REVIEW_ITEM.format(item=bare(item)))
         status = field(matches[0], "상태")
-        require(status in review_done(), R_REVIEW_UNDONE.format(item=item))
+        require(status in review_done(), R_REVIEW_UNDONE.format(item=bare(item)))
+        if status == "폐기":
+            continue
         timestamp("사용자 검토 시각", field(matches[0], "사용자 검토 시각"))
-        require(filled(field(matches[0], "대응 근거")), R_NO_BASIS.format(item=item))
+        require(basis_exists(report, field(matches[0], "근거 위치")), R_NO_BASIS.format(item=bare(item)))
 
     # 반증이 남은 채 2회에 도달했으면 검증 미완 보고가 있는지 확인한다.
     if int(rows[-1][1]):
@@ -532,7 +603,7 @@ def check_complete(state: Document, plan: Document, names: list[str]) -> None:
     by_number = numbered(plan)
     if by_number:
         for entry in entries:
-            require(has_ref(entry.splitlines()[0], set(names)), R_REQ_REF.format(title="검증 결과", item=entry.splitlines()[0][:40]))
+            require(has_ref(entry.splitlines()[0], set(names)), R_REQ_REF.format(title="검증 결과", item=bare(entry.splitlines()[0][:40])))
 
     # 요구사항마다 마지막 검증 항목이 PASS인지 확인한다.
     for name in names:
@@ -542,10 +613,10 @@ def check_complete(state: Document, plan: Document, names: list[str]) -> None:
             + r" \((정적|실제 동작), (?:검증|" + legacy("검증") + r"|재검증 [12]/2|" + legacy("재검증") + r" [12]/2)\)\s*$",
             entry.splitlines()[0])]
         shown = f"요구사항 {name}" if by_number else name
-        require(bool(matches), R_REVIEW_MISSING.format(name=shown))
+        require(bool(matches), R_REVIEW_MISSING.format(name=bare(shown)))
         result = matches[-1]
         require(bool(re.search(r"^  - PASS: \S", result, re.M)) and
-                not re.search(r"^  - (?:FAIL|미측정):", result, re.M), R_REVIEW_NOT_PASS.format(name=shown))
+                not re.search(r"^  - (?:FAIL|미측정):", result, re.M), R_REVIEW_NOT_PASS.format(name=bare(shown)))
 
     # 남은 문제가 없고 처리하지 않은 재작업과 재검증 요청이 없는지 확인한다.
     require(bool(entries) and field(entries[-1], "남은 문제") in ("없음", "없음."), R_REMAINING)
@@ -569,15 +640,41 @@ R_REVIEW_LEFT = "상태 문서의 검토 필요에 검토가 끝나지 않은 �
 R_MEASURE_LEFT = "상태 문서의 실측 필요에 실측이 끝나지 않은 항목({items})이 있습니다."
 
 
+# 조사 문서 검토 보고 절의 {검토 번호: 제목}이다. 제목은 `검토 <번호>. <이름>` 형식이다.
+def reported(research: str) -> dict[int, str]:
+    return {int(m[1]): t for t in titles(section(research, "검토 보고")) if (m := re.match(r"검토 (\d+)\.", t))}
+
+
+# 조사 문서 검토 보고의 제목 중 경과 문서에 done 상태로 없는 것의 목록이다.
+def unanswered_titles(state: str, research: str, done: tuple[str, ...]) -> list[str]:
+    finished = set()
+    for entry in re.split(r"(?m)^- ", section(state, "검토 필요"))[1:]:
+        m, status = re.match(r"검토 (\d+)", entry), re.search(r"^\s*- 상태:\s*(.+?)\s*$", entry, re.M)
+        if m and status and status[1] in done:
+            finished.add(int(m[1]))
+    return [title for number, title in reported(research).items() if number not in finished]
+
+
 # 경과 문서의 검토 필요 항목과 실측 필요 항목이 끝났는지 확인한다. 완료 단계(final)는 사후 실측도 요구한다.
-def check_review_left(state: Document, final: bool) -> None:
-    # 검토 필요 상태가 허용 값인지 확인한다.
-    pending = re.findall(r"^\s*- 상태:\s*(.+)$", state.section("검토 필요"), re.M)
+# research가 있으면 조사 문서 검토 보고 중 답이 없는 번호도 끝나지 않은 검토로 본다.
+def check_review_left(state: Document, final: bool, research: Document | None = None,
+                      plan: Document | None = None) -> None:
+    # 검토 필요 상태가 허용 값인지 확인한다. 양식 주석 안의 형식 예시는 읽지 않는다.
+    decisions = plan if plan is not None and "검토" in titles("\n".join(plan.raw)) else state
+    body = re.sub(r"<!--.*?-->", "", decisions.section("검토 필요"), flags=re.S)
+    pending = re.findall(r"^\s*- 상태:\s*(.+)$", body, re.M)
     require(all(v in review_done() for v in pending), R_REVIEW_LEFT)
 
+    # 조사 문서 검토 보고에 답이 없는 번호가 없는지 확인한다.
+    if research is not None:
+        report = plan if decisions is plan else research
+        require(not unanswered_titles("\n".join(decisions.raw), "\n".join(report.raw), review_done()), R_REVIEW_LEFT)
+
     # 실측 필요 항목이 시점에 맞게 실측 완료인지 확인한다.
-    left = measure_pending("\n".join(state.raw),("사전", "사후") if final else ("사전",))
+    left = measure_pending("\n".join(state.raw), ("사전", "사후") if final else ("사전",))
     require(not left, R_MEASURE_LEFT.format(items=", ".join(left[:3])))
+
+
 R_REWORK_TARGET = "`{title}`에 대상과 `{key}` 칸이 있어야 합니다."
 R_REWORK_POSITION = "`{title}`에 대상 위치가 없습니다."
 
@@ -615,12 +712,12 @@ def validate(root: Path, task: str, stage: str) -> None:
 
     # 착수 단계는 착수 종료 조건만 확인한다.
     if stage == "kickoff":
-        check_kickoff(state, plan, research)
+        check_kickoff(research)
         return
 
     # 착수 승인과 조사 계획을 확인한다. 조사와 반증 단계는 여기서 끝난다.
     approval(state, "착수 승인 범위")
-    items = research_items(research, plan, state)
+    items = research_items(research)
     if stage in ("research", "refute"):
         require(bool(items), R_NO_ITEMS)
         if stage == "refute":
@@ -633,15 +730,22 @@ def validate(root: Path, task: str, stage: str) -> None:
     require(status in ("진행", "완료"), R_EXEC_STATUS)
     check_numbers(state, plan)
     names = check_plan(plan)
-    check_research(state, research, items, refute=refute)
-    check_review_left(state, stage == "complete")
+    check_research(state, research, items, refute=refute, plan=plan)
+    check_review_left(state, stage == "complete", research, plan=plan)
 
     # 재작업과 재검증 단계는 요청 절의 대상과 위치를 확인한다.
     if stage in ("rework", "reverify"):
-        title, key = ("재작업 요청", "기대 결과") if stage == "rework" else ("재검증 요청", "필요한 근거")
+        title = "재작업 요청" if stage == "rework" else "재검증 요청"
         body = plan.section(title)
+        key = "기대 결과" if stage == "rework" else "필요한 근거"
         require(filled(body) and bool(values(body, key)) and all(filled(v) for v in values(body, key)), R_REWORK_TARGET.format(title=title, key=key))
         require(bool(re.search(r"^- .+: .+", body, re.M)), R_REWORK_POSITION.format(title=title))
+        if stage == "rework":
+            for item in re.split(r"(?m)^- ", body)[1:]:
+                if re.match(r"[^\n]+: .+", item):
+                    expected = values(item, key)
+                    require(bool(expected) and all(filled(value) for value in expected),
+                            R_REWORK_TARGET.format(title=title, key=key))
 
     # 완료 단계는 최종 검증 기록을 확인한다.
     if stage == "complete":
@@ -649,18 +753,18 @@ def validate(root: Path, task: str, stage: str) -> None:
 
 
 R_KICKOFF_ENV = "조사 문서의 프로젝트 환경에 확인 내용과 출처가 없습니다."
+R_KICKOFF_FLOW = "조사 문서의 `기존 흐름` 절에 코드 블록이 없습니다."
 
-# 착수 종료 조건으로 프로젝트 환경, 요구사항, 조사 계획을 확인한다.
-def check_kickoff(state: Document, plan: Document | None, research: Document) -> None:
+
+# 착수 종료 조건으로 프로젝트 환경, 기존 흐름 코드 블록, 조사 계획을 확인한다. 요구사항 목록은 계획 단계에서 확정하므로 요구하지 않는다.
+def check_kickoff(research: Document) -> None:
     environment = research.section("프로젝트 환경")
     require(filled(environment) and "출처:" in environment, R_KICKOFF_ENV)
 
-    # 명세 문서가 없으면 경과 문서 요구사항 목록을, 있으면 명세 문서 요구사항을 요구한다.
-    if plan is None:
-        require(state_numbers(state) is not None, R_NO_REQ)
-    else:
-        requirements(plan)
-    research_items(research, plan, state)
+    # 기존 흐름 절 안에 비어 있지 않은 코드 블록이 있는지 확인한다.
+    start, end = research.bounds("기존 흐름")
+    require(any(start <= first < last < end and filled(body) for first, last, body in research.blocks), R_KICKOFF_FLOW)
+    research_items(research)
 
 
 R_IO = "작업 문서를 읽지 못했습니다({error})."
@@ -686,15 +790,15 @@ def transition_reason(path: Path, new: str | None, old: str, plan: str) -> str |
         refute = sibling(path, "refute")
         refute_doc = Document(refute.read_text(encoding="utf-8-sig")) if refute.is_file() else None
         if kickoff:
-            # 착수 승인은 명세 문서 없이 경과 문서 요구사항만 검사한다.
-            check_kickoff(state_doc, None, research)
+            # 착수 승인은 조사 문서만 검사한다.
+            check_kickoff(research)
         if execute or complete:
             require(plan_doc is not None, R_NO_SPEC)
             check_numbers(state_doc, plan_doc)
             require("중단 판정 미해결" not in state_doc.section("중단 사유"), R_UNRESOLVED_STOP)
             names = check_plan(plan_doc)
-            check_research(state_doc, research, research_items(research, plan_doc, state_doc), refute=refute_doc)
-            check_review_left(state_doc, complete)
+            check_research(state_doc, research, research_items(research), refute=refute_doc, plan=plan_doc)
+            check_review_left(state_doc, complete, research, plan=plan_doc)
             if complete:
                 check_complete(state_doc, plan_doc, names)
     except OSError as error:

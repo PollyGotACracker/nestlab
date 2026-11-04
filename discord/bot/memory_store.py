@@ -53,7 +53,7 @@ MAX_TERMS = 20
 
 # 검색 문장을 소문자 낱말 목록으로 나눈다. 조사를 뗀 형태도 함께 넣는다.
 def search_terms(text: str) -> list[str]:
-    # 소문자 단어를 뽑고 조사를 뗀 후보를 함께 모은다.
+    # 소문자 단어를 뽑고 조사를 뗀 후보를 함께 추출한다.
     terms: list[str] = []
     for word in re.findall(r"[0-9A-Za-z가-힣_]{2,}", text.lower()):
         candidates = [word]

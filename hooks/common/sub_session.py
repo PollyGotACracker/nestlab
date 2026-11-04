@@ -11,6 +11,7 @@
 - session_path와 agent_transcript는 경로 문자열
 - answered_questions는 (질문 문장, 답 문자열) 목록, question_answers는 (질문 dict, 답 문자열) 목록
 - turn은 (마지막 사용자 메시지, 직전 assistant 텍스트, 현재 턴 항목) 튜플
+- user_messages는 세션 전체 사용자 메시지 문자열 목록
 - 차단 사유 문자열은 없음
 한계: 읽을 수 없는 기록 줄은 건너뛰고 빈 목록을 반환할 수 있다. Codex 질문 답은 출력 JSON의 answers를 질문 id로 나누고, JSON이 아니면 출력 문자열 전체이다.
 """
@@ -24,10 +25,12 @@ from pathlib import Path
 CODEX_SESSIONS = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "sessions"
 INJECTED = ("# AGENTS.md instructions", "<environment_context", "<user_instructions")
 QUESTION_TOOLS = ("AskUserQuestion", "request_user_input")
+HOOK_PROMPT = re.compile(r"<hook_prompt\b(?=[^>]*\bhook_run_id\s*=)[^>]*>.*?</hook_prompt\s*>", re.S)
 # Claude Code가 사용자 메시지 자리에 넣는 하네스 알림이다. 사용자 발화로 보지 않는다.
 HARNESS = ("<task-notification>", "<local-command-", "<command-name>", "<command-message>",
            "Base directory for this skill", "Stop hook feedback", "PreToolUse:", "PostToolUse:", "SubagentStop hook feedback",
-           "Skill /", "(Re-invocation of /", "Another Claude session sent a message", "<system-reminder>")
+           "Skill /", "(Re-invocation of /", "Another Claude session sent a message", "<system-reminder>",
+           "This session is being continued from a previous conversation")
 
 
 # 공백을 한 칸으로 줄이고 앞뒤를 자른다.
@@ -70,7 +73,7 @@ def _claude_entry(d: dict) -> dict | None:
     if d.get("type") not in ("user", "assistant") or d.get("isMeta") or d.get("sourceToolUseID"):
         return None
 
-    # 내용 블록에서 도구 결과 문자열을 모은다.
+    # 내용 블록에서 도구 결과 문자열을 추출한다.
     blocks = [{"type": "text", "text": content}] if isinstance(content, str) else [b for b in content if isinstance(b, dict)]
     results = []
     replies = {}
@@ -79,7 +82,7 @@ def _claude_entry(d: dict) -> dict | None:
             # 질문 도구 결과의 answers 값을 호출 id로 보관한다.
             meta = d.get("toolUseResult")
             answers = meta.get("answers") if isinstance(meta, dict) else None
-            replies[b.get("tool_use_id")] = answers if isinstance(answers, dict) else {}
+            replies[b.get("tool_use_id")] = answers if isinstance(answers, dict) and not b.get("is_error") else {}
             body = b.get("content")
             results.append(body if isinstance(body, str) else
                            "\n".join(x.get("text", "") for x in body or [] if isinstance(x, dict)))
@@ -117,11 +120,13 @@ def _codex_entry(d: dict) -> dict | None:
         out = p.get("output")
         out = out if isinstance(out, str) else json.dumps(out, ensure_ascii=False) if out else ""
         return {"role": "user", "text": "", "calls": [], "results": [out] if out.strip() else [],
-                "ids": [], "replies": {p.get("call_id"): {"": out}} if out.strip() else {}}
+                "ids": [], "replies": {p.get("call_id"): {"": out}} if out.strip() and not p.get("is_error") else {}}
 
-    # 사용자와 assistant 메시지는 텍스트 항목으로 바꾸고, 주입된 지침은 뺀다.
+    # 사용자와 assistant 메시지는 텍스트 항목으로 바꾸고, 주입된 지침과 hook 알림 요소는 뺀다.
     if p.get("type") == "message" and p.get("role") in ("user", "assistant"):
         text = "\n".join(b.get("text", "") for b in p.get("content") or [] if isinstance(b, dict))
+        if p["role"] == "user" and HOOK_PROMPT.search(text):
+            text = HOOK_PROMPT.sub("\n", text).strip()
         if p["role"] == "user" and text.startswith(INJECTED):
             return None
         return {"role": p["role"], "text": text, "calls": [], "results": [], "ids": [], "replies": {}}
@@ -155,6 +160,9 @@ def _codex_answer(output: str, qid: str) -> str:
         return entry
     if not isinstance(entry, dict):
         return ""
+    listed = entry.get("answers")
+    if isinstance(listed, list):
+        return ", ".join(str(v) for v in listed if str(v).strip())
     picked = entry.get("selected") or []
     values = [str(v) for v in (picked if isinstance(picked, list) else [picked])] + [str(entry.get("other") or "")]
     return ", ".join(v for v in values if v.strip())
@@ -163,7 +171,7 @@ def _codex_answer(output: str, qid: str) -> str:
 # 질문 도구 호출과 같은 id의 결과에 답이 있는 (질문 dict, 답 문자열) 목록이다. 다른 도구 결과와 답 없는 결과는 답으로 보지 않는다.
 # Codex 출력이 answers JSON이면 질문 id로 질문별 답을 나누고, 아니면 출력 문자열 전체를 답으로 본다.
 def question_answers(entries: list[dict]) -> list[tuple[dict, str]]:
-    # 호출 id별 결과 답을 모은다.
+    # 호출 id별 결과 답을 집계한다.
     replies = {}
     for entry in entries:
         replies.update(entry.get("replies") or {})
@@ -188,6 +196,32 @@ def question_answers(entries: list[dict]) -> list[tuple[dict, str]]:
     return out
 
 
+# PostToolUse 입력의 질문 목록과 tool_response로 (질문 dict, 답 문자열) 목록을 만든다.
+# Claude는 {"answers": {질문 문장: 답}}, Codex는 문자열 또는 객체 JSON {"answers": {질문 id: {"answers": [...]}}}이다.
+def response_answers(questions, response) -> list[tuple[dict, str]]:
+    # 응답을 JSON 문자열로 맞추고 answers를 꺼낸다.
+    raw = response if isinstance(response, str) else json.dumps(response or {}, ensure_ascii=False)
+    try:
+        answers = json.loads(raw).get("answers")
+    except (ValueError, AttributeError):
+        answers = None
+
+    # 질문마다 답을 찾는다. answers가 없으면 출력 전체를 답으로 본다.
+    out = []
+    for q in questions if isinstance(questions, list) else []:
+        if not isinstance(q, dict):
+            continue
+        if isinstance(answers, dict):
+            answer = answers.get(q.get("question"))
+            if not isinstance(answer, str) and q.get("id"):
+                answer = _codex_answer(raw, q["id"])
+        else:
+            answer = raw
+        if answer and str(answer).strip():
+            out.append((q, str(answer)))
+    return out
+
+
 # 질문 도구 호출과 같은 id의 결과에 답이 있는 (header와 질문 문장, 답 문자열) 목록이다.
 def answered_questions(path: str) -> list[tuple[str, str]]:
     return [(f"{q.get('header') or ''}\n{q.get('question') or ''}", a) for q, a in question_answers(read_session(path))]
@@ -206,8 +240,13 @@ def turn(entries: list[dict]) -> tuple[str, str, list[dict]]:
     said = lambda e: e["role"] == "user" and e["text"].strip() and not e["text"].lstrip().startswith(HARNESS)
     last = max((i for i, e in enumerate(entries) if said(e)), default=-1)
 
-    # 그 직전 턴의 assistant 텍스트를 모은다.
+    # 그 직전 턴의 assistant 텍스트를 결합한다.
     before = entries[:last]
     first = max((i for i, e in enumerate(before) if e["role"] == "user" and e["text"].strip()), default=-1)
     previous = "\n".join(e["text"] for e in before[first + 1:] if e["role"] == "assistant")
     return (entries[last]["text"] if last >= 0 else ""), previous, entries[last + 1:]
+
+
+# 세션 기록 전체의 사용자 메시지 목록이다. 하네스 알림과 주입된 지침은 뺀다.
+def user_messages(entries: list[dict]) -> list[str]:
+    return [e["text"] for e in entries if e["role"] == "user" and e["text"].strip() and not e["text"].lstrip().startswith(HARNESS)]

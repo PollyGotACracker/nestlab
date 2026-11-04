@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 from sub_call import refute_mode
-from sub_write import HEREDOC, REDIRECT, RETRY, SHELLS, bash_command, is_write_bash, targets
+from sub_write import HEREDOC, QUOTED, REDIRECT, RETRY, SHELLS, bash_command, is_write_bash, targets
 from sub_docs import TOKEN, doc_kind, project_root
 from sub_role import first_prompt, main_session, resolve_role
 from sub_session import agent_transcript
@@ -184,7 +184,10 @@ def command_paths(command: str) -> list[tuple[str, bool]]:
 
         # 따옴표를 벗기고 문장, 패턴, 이스케이프 문자열은 경로에서 뺀다.
         quoted = token[0] in "\"'"
+        escaped_quote = quoted and '\\"' in token  # 큰따옴표 안 이스케이프 따옴표(JSON 인자 등)는 경로가 아니다.
         token = token.strip("\"'")
+        if escaped_quote:
+            continue
         if quoted and SPLIT.search(token):  # 따옴표 안 문장 및 패턴은 경로가 아니다.
             continue
         if quoted and (is_escape_text(token) or is_regex_text(token)):
@@ -211,7 +214,13 @@ SEGMENT = re.compile(r"[;&|\n]+")
 # 명령 안에서 내용이 바뀌는 경로 토큰 집합이다. 리다이렉트 대상, rm 및 mv 등의 모든 인자, cp의 마지막 인자이다.
 def changed_tokens(command: str) -> set[str]:
     out = set()
-    command = HEREDOC.sub("", command)
+    # 따옴표 문자열은 자리표시자로 바꿔 안의 `>`와 구분자를 리다이렉트와 하위 명령으로 보지 않고, 결과에서 복원한다.
+    held: list[str] = []
+
+    def hold(m):
+        held.append(m[0])
+        return f'"\x00{len(held) - 1}\x00"'
+    command = QUOTED.sub(hold, HEREDOC.sub("", command))
     for part in SEGMENT.split(command):
         out.update(t.strip("\"'") for t in REDIRECT.findall(part))
         words = [t.strip("\"'") for t in TOKEN.findall(part)]
@@ -221,7 +230,7 @@ def changed_tokens(command: str) -> set[str]:
             out.update(args)
         elif cmd == "cp" and args:
             out.add(args[-1])
-    return out
+    return {re.sub(r"\x00(\d+)\x00", lambda m: held[int(m[1])].strip("\"'"), t) for t in out}
 
 
 # 설치된 스킬과 원본의 경계를 개별 스킬 폴더로 유지한다.

@@ -23,8 +23,9 @@ from pathlib import Path
 # 따옴표 안 문자열과 heredoc 본문은 지우고 확인한다.
 # 리다이렉트 대상이 &(2>&1)거나 null 장치(/dev/null, $null, NUL)면 쓰기로 보지 않는다.
 SHELLS = ("Bash", "PowerShell")
-RETRY = "다른 방식으로 작업하십시오."
-QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+RETRY = "권한 내 다른 방식으로 작업을 재시도하십시오. 승인으로 풀리는 차단은 직접 수행할 조작의 승인을 요청하십시오."
+APPROVAL_RETRY = "승인이 필요한 변경이면 nestlab-approval 스킬로 작업 문서와 변경 diff를 갖춘 승인 요청을 작성하십시오."
+QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", re.S)
 WRITE_BASH = re.compile(r"(^|[;&|]\s*)(rm|rmdir|mv|cp|mkdir|touch|tee|Set-Content|Out-File|New-Item|Remove-Item)\b"
                         r"|\bgit\s+(?:checkout\s+--(?=\s|$)|(?:restore|apply|reset\s+--hard)\b)|\bfind\b[^;&|]*\s-delete\b|\bxargs\s+rm\b"
@@ -146,7 +147,7 @@ GIT_WRITE = re.compile(
     r"|symbolic-ref|replace|notes|config\s+--(?:add|unset|unset-all|replace-all|rename-section|remove-section|edit)"
     r"|branch\s+(?:-[dDmMcC]|--(?:delete|move|copy|force|set-upstream-to|unset-upstream))"
     r"|remote\s+(?:add|remove|rename|set-url))(?=\s|$)")
-REASON_GIT_WRITE = "승인 전에는 git 쓰기 명령을 실행할 수 없습니다. " + RETRY
+REASON_GIT_WRITE = "승인 전에는 git 쓰기 명령을 실행할 수 없습니다. " + APPROVAL_RETRY
 
 
 # 하위 명령 하나라도 git 쓰기 명령이면 사유를 반환한다. 아니면 None이다.
@@ -247,7 +248,7 @@ def added_lines(data: dict, path: Path) -> tuple[list[str], str | None]:
         new = old.replace(tin.get("old_string", ""), tin.get("new_string", ""), -1 if tin.get("replace_all") else 1)
     else:
         # apply_patch는 path와 같은 파일 구간의 + 줄만 본다. 파일 머리줄 앞의 + 줄은 모든 path의 줄로 본다.
-        # 전문이 필요한 원문 보존 검사는 생략한다.
+        # 쓰기 후 전문은 patched_text로 계산하고, 패치 구간을 찾지 못하면 None이다.
         cwd = Path(data.get("cwd") or ".")
         plus, mine = [], None
         for s in strings(tin):
@@ -259,7 +260,7 @@ def added_lines(data: dict, path: Path) -> tuple[list[str], str | None]:
                     mine = (path == target) if head[1] else bool(mine) or path == target
                 elif line.startswith("+") and not line.startswith("+++") and mine is not False:
                     plus.append(line[1:])
-        return plus, None
+        return plus, patched_text(data, path)
 
     # 기존에 없던 줄만 골라 반환한다.
     old_lines = set(old.splitlines())
@@ -268,7 +269,7 @@ def added_lines(data: dict, path: Path) -> tuple[list[str], str | None]:
 
 # apply_patch를 path의 기존 본문에 적용한 쓰기 후 전문이다. 패치가 path를 건드리지 않거나 적용할 수 없으면 None이다.
 def patched_text(data: dict, path: Path) -> str | None:
-    # path의 파일 구간 줄만 모으고, 구간 종류(Add, Update, Delete)를 기억한다.
+    # path의 파일 구간 줄만 추출하고, 구간 종류(Add, Update, Delete)를 기억한다.
     cwd = Path(data.get("cwd") or ".")
     old = read(path)
     kind, mine, hunk = None, False, []

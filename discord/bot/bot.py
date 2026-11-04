@@ -199,7 +199,7 @@ class Runtime:
 
     # 분할 전송된 발언의 다른 조각 ID까지 포함한 메시지 ID 묶음을 돌려준다.
     def expand_message_group(self, message_ids: set[int]) -> set[int]:
-        # 메시지가 속한 묶음의 ID를 모두 모은다.
+        # 메시지가 속한 묶음의 ID를 모두 추출한다.
         expanded = set(message_ids)
         for primary, group in self.chat_message_groups.items():
             if primary in expanded or expanded & group:
@@ -346,7 +346,7 @@ class Runtime:
 
     # 채널 전체 삭제: 기록, 요약문, chat_state 파일, 이미지 캡션 캐시를 지운다. 장기기억과 persona 기억은 유지한다.
     def wipe_channel(self, channel_id: int) -> int:
-        # 채널 기록에 속한 메시지 id와 묶음 id를 모아 이미지 설명을 지운다.
+        # 채널 기록에 속한 메시지 id와 묶음 id를 추출해 이미지 설명을 지운다.
         history = self.chat_history_for(channel_id)
         message_ids = {entry[4] for entry in history if entry[4] is not None}
         for primary in list(message_ids):
@@ -418,7 +418,7 @@ class Runtime:
 
     # 삭제된 메시지와 같은 묶음의 기록을 지우고 지운 줄 수를 반환한다.
     def remove_message(self, channel_id: int, message_id: int) -> int:
-        # 삭제된 메시지가 속한 묶음의 대표 id를 모은다.
+        # 삭제된 메시지가 속한 묶음의 대표 id를 추출한다.
         history = self.chat_history_for(channel_id)
         removed_primary = {
             primary for primary, group in self.chat_message_groups.items() if message_id in group
@@ -514,7 +514,7 @@ class Runtime:
     # 화자 기준 대화 기록을 만든다. 사용자 발언은 원문이고, 화자 자신을 포함한 캐릭터 발언은 요지다.
     # 요지는 발언별로 저장하고 아직 없는 발언 묶음만 한 번 만들어 6개 봇이 공유한다. 실패하면 원문이다.
     async def render_speaker_history(self, channel_id: int, speaker: str) -> str:
-        # 다른 캐릭터의 발언만 모은다. 없으면 일반 기록 렌더링을 반환한다.
+        # 다른 캐릭터의 발언만 선별한다. 없으면 일반 기록 렌더링을 반환한다.
         names = {agent.name for agent in self.config.agents}
         history = self.chat_history_for(channel_id)
         others = [
@@ -1498,7 +1498,7 @@ class AgentBot(discord.Client):
             max_buffer_size=10 * 1024 * 1024,
         )
 
-        # 응답을 요청하고 결과와 도구 사용 기록을 모은다.
+        # 응답을 요청하고 결과와 도구 사용 기록을 누적한다.
         result = ""
         result_subtype: str | None = None
         result_turns: int | None = None

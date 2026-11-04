@@ -107,7 +107,7 @@ def add_line(runtime, seq, age_hours, speaker, content, message_id=None, channel
     runtime.chat_seq[channel_id] = max(runtime.chat_seq.get(channel_id, 0), seq)
 
 
-# 도구 등록 데코레이터를 바꿔 기억 도구 모음을 만든다.
+# 도구 등록 데코레이터를 바꿔 기억 도구 목록을 만든다.
 def build_tools(runtime, channel, agent, trigger, requester_id=None):
     # 도구 등록 데코레이터를 대신하는 가짜 함수이다.
     def decorator(name, description, schema):

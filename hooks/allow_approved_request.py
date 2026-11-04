@@ -30,7 +30,7 @@ from sub_approval import approved, executed_approved, user_message
 from sub_docs import project_root, task_id
 from sub_role import first_prompt, main_session
 from sub_session import QUESTION_TOOLS, agent_transcript
-from sub_write import RETRY, SHELLS, SUBCOMMAND, bash_command, targets
+from sub_write import APPROVAL_RETRY, SHELLS, SUBCOMMAND, bash_command, targets
 
 # 승인 여부와 무관하게 허용하는 검증 명령 목록이다.
 ALLOW_LIST = ("python -m unittest *", "python3 -m unittest *", "py -m unittest *", "python hooks/tests/test_*.py",
@@ -41,7 +41,7 @@ ALLOW_LIST = ("python -m unittest *", "python3 -m unittest *", "py -m unittest *
 COMPOUND = re.compile(r"[`<>\n]|\$\(")
 # 승인 창 없이 질문을 전달해야 하는 도구이다.
 QUESTION = QUESTION_TOOLS + ("ExitPlanMode",)
-REASON_DENY = "승인 전에는 승인이 필요한 도구 호출을 허용할 수 없습니다. " + RETRY
+REASON_DENY = "승인 전에는 승인이 필요한 도구 호출을 허용할 수 없습니다. " + APPROVAL_RETRY
 
 
 # 글롭 패턴(`*`만 와일드카드)을 전체 일치 정규식으로 바꾼다.

@@ -171,24 +171,24 @@ class RecordIncident(unittest.TestCase):
         for text in samples:
             self.assertTrue(hook.ADMIT.search(text), text)
 
-    # 감지 시 분석 세션을 띄우고, block 사유는 사건 요약 없이 재작성만 지시하는지 확인한다.
+    # 감지 시 분석 세션을 띄우고, block 사유는 사건 기록 알림 없이 위반 지침 한 줄만 지시하는지 확인한다.
     def test_block_reason_rewrite_only_and_analysis_launched(self):
         reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요."})
         self.assertIn("(놓쳤)", reason)
-        self.assertIn("직전 응답에 문제가 있어 사건 문서에 기록했습니다:", reason)
+        self.assertIn("`위반한 지침: <파일:행> \"<지침 원문>\"` 한 줄", reason)
+        self.assertNotIn("사건 문서에 기록했습니다", reason)
         self.assertNotIn("정정:", reason)
         self.assertNotIn("스킬", reason)
         path, runner = self.launch.call_args.args
-        self.assertIn(f"직전 응답에 문제가 있어 사건 문서에 기록했습니다: [{path.stem}]({path})", reason)
         self.assertEqual((path.parent, runner), (self.dir, "claude"))
 
-    # 사유의 사건 ID 링크가 cwd가 저장소 안이면 상대 경로, 밖이면 절대 경로인지 확인한다.
+    # 알림의 사건 ID 링크가 cwd가 저장소 안이면 상대 경로, 밖이면 절대 경로인지 확인한다.
     def test_reason_link_relative_or_absolute(self):
         root = Path(self.tmp.name)
-        inside = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.", "cwd": str(root / "hooks")})
+        inside = hook.detect({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.", "cwd": str(root / "hooks")}, "claude")[1]
         stem = next(self.dir.glob("*.md")).stem
         self.assertIn(f"기록했습니다: [{stem}](log/incident/{stem}.md)", inside)
-        outside = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.", "cwd": "/work/other"})
+        outside = hook.detect({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.", "cwd": "/work/other"}, "claude")[1]
         self.assertIn(f"기록했습니다: [{stem}]({self.dir / (stem + '.md')})", outside)
 
     # 분리 실행 함수가 run_workflow의 incident 단계를 표준 입출력 없이 띄우는지 확인한다.
@@ -241,10 +241,10 @@ class RecordIncident(unittest.TestCase):
         self.assertNotIn("정상 줄", reason)
         self.assertNotIn("- 놓쳤어요.", reason)
 
-    # block 사유가 본문 재작성 금지 문구를 담고 이전 문구를 담지 않으며, 감지 표현이 없으면 출력이 없는지 확인한다. (요구사항 16)
+    # block 사유가 위반 지침 한 줄 응답만 지시하고 이전 문구를 담지 않으며, 감지 표현이 없으면 출력이 없는지 확인한다.
     def test_reason_forbids_rewriting_body(self):
         reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "제 실수로 빠뜨렸습니다."})
-        self.assertIn("직전 응답의 본문은 다시 쓰지 마십시오.", reason)
+        self.assertIn("응답은 오탐이라면 오탐의 근거 한 줄, 그렇지 않으면 `위반한 지침: <파일:행> \"<지침 원문>\"` 한 줄로 씁니다.", reason)
         self.assertNotIn("판단 과정 요약", reason)
         self.assertIsNone(hook.record({"session_id": "abcdef123456", "last_assistant_message": "정상 응답입니다."}))
 
@@ -266,6 +266,9 @@ class RecordIncident(unittest.TestCase):
                 self.assertEqual(result["decision"], "block")
                 self.assertTrue(result["systemMessage"].startswith("직전 응답에 문제가 있어 사건 문서에 기록했습니다: ["))
                 self.assertIn(".md", result["systemMessage"])
+                link = hook.incident_link(next(self.dir.glob("*.md")), None)
+                self.assertIn(link, result["reason"])
+                self.assertIn(link, result["systemMessage"])
 
     # 누락됐던 세 표현이 감지되는지 확인한다.
     def test_missing_expressions_detected(self):
@@ -274,7 +277,7 @@ class RecordIncident(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertTrue(hook.admissions(hook.plain(text)), text)
 
-    # 인용과 설명 문장의 조건부 표현은 감지하지 않고, 1인칭 문맥이나 직전 사용자 지적이 있으면 감지한다. 철회는 항상 감지한다. (요구사항 6 결함 6)
+    # 인용과 설명 문장의 조건부 표현은 감지하지 않고, 1인칭 문맥이나 직전 사용자 지적이 있으면 감지한다. 철회는 항상 감지한다.
     def test_conditional_expressions_need_speaker_or_pointing(self):
         for text in ("요구사항 이름은 근거 없는 동의와 다짐 차단입니다.", "패턴 목록에 어긴, 확인 없이가 있습니다."):
             self.assertEqual(hook.admissions(hook.plain(text)), [], text)
@@ -282,7 +285,7 @@ class RecordIncident(unittest.TestCase):
         self.assertTrue(hook.admissions("근거 없는 주장을 했습니다.", "방금 답이 틀렸다고 지적했잖아"))
         self.assertTrue(hook.admissions("제가 철회합니다."))
 
-    # 문맥 없이도 같은 문장이 자기 행동을 과거형으로 인정하면 감지하고, 인용, 동작 설명, 부정 서술은 감지하지 않는다. (요구사항 6 재작업)
+    # 문맥 없이도 같은 문장이 자기 행동을 과거형으로 인정하면 감지하고, 인용, 동작 설명, 부정 서술은 감지하지 않는다.
     def test_conditional_self_past_statement(self):
         for text in ("승인 범위 밖 지침을 어긴 것입니다.", "이번 일은 규칙을 어긴 사건입니다.",
                      "원문을 확인 없이 쓴 문장입니다.", "근거 없는 봇 수정안을 냈습니다.",

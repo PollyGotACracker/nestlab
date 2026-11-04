@@ -20,12 +20,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
 from sub_call import VERDICT, refute_mode
-from sub_docs import doc, loop_count, saved_report, sibling, task_id
+from sub_docs import doc, loop_count, saved_report, sibling, strip_task_comments, task_id, template_text
 from sub_role import codex_rollout, first_prompt, parent_thread, resolve_role
 from sub_session import agent_transcript, handback_report
 
 MAX_ROUNDS = 2
 CLAIM_LINE = re.compile(r"^\s*[-*]\s*주장\s*\d+\s*[:：].+$", re.M)
+PLACEHOLDER_ROW = re.compile(r"(?m)^\|\s*<회차>[^\n]*\n?")
+PLACEHOLDER_BLOCK = re.compile(r"(?ms)^### <n>회차 반증 (?:요청|원문)[^\n]*\n+(`{3,})[^\n]*\n.*?\n\1[ \t]*\n*")
+REQUESTED = re.compile(r"^\s*[-*]?\s*항목\s*[:：]\s*(.+)$", re.M)
 
 
 # 서브에이전트 기록 경로를 반환한다. 찾지 못하면 빈 문자열이다.
@@ -94,6 +97,11 @@ def insert_blocks(text: str, blocks: str, title: str = "조사 단계 원문") -
     return head + blocks + ("\n" + tail if tail else "")
 
 
+# 반증 문서 양식의 `<회차>` 표 행과 `<n>회차` 블록을 지운다.
+def drop_placeholders(text: str) -> str:
+    return PLACEHOLDER_BLOCK.sub("", PLACEHOLDER_ROW.sub("", text))
+
+
 # `회차 기록` 절 끝에 이번 회차의 반증 요청과 반증 원문 블록을 덧붙인다.
 def add_round_blocks(text: str, request: str, message: str) -> str:
     n = loop_count(text) + 1
@@ -125,16 +133,30 @@ def add_loop_row(text: str, message: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
-# 반증 문서의 `주장 목록` 절 본문을 조사 결과의 주장 줄로 바꾼다. 반증 문서나 절이 없으면 쓰지 않는다.
+# 반증 문서의 `주장 목록` 절 본문을 조사 결과의 주장 줄로 바꾼다. 주장 줄이 있고 반증 문서가 없으면 양식으로 만든다.
 def write_claims(refute_doc: Path, message: str) -> None:
     claims = [re.sub(r"^\s*[*-]\s*", "- ", line).rstrip() for line in CLAIM_LINE.findall(message)]
-    if not claims or not refute_doc.is_file():
+    if not claims:
         return
+
+    # 반증 문서가 없으면 양식에 작업 ID를 채워 만든다.
+    if not refute_doc.is_file():
+        template = template_text("nestlab-log-refute")
+        if not template or refute_doc.parent.parent.name != "task":  # 기존 log/state 문서는 만들지 않는다.
+            return
+        refute_doc.write_text(template.replace("<작업-id>", refute_doc.parent.name) + "\n", encoding="utf-8")
     text = refute_doc.read_text(encoding="utf-8")
-    body = "\n".join(claims)  # ponytail: 재조사는 목록 전체를 바꾼다. 항목별 병합은 재조사 범위가 겹칠 때 추가한다.
+
+    # 같은 번호의 주장 줄은 바꾸고 다른 번호의 줄은 남긴다. 양식 자리표시 줄은 지운다.
+    number = lambda line: int(re.search(r"주장\s*(\d+)", line)[1])
+    found = re.search(r"(^## 주장 목록[^\n]*\n)(.*?)(?=^## |\Z)", text, re.M | re.S)
+    kept = {number(l): l.rstrip() for l in (found.group(2) if found else "").splitlines() if re.match(r"^- 주장 \d+\s*[:：]", l)}
+    merged = {**kept, **{number(c): c for c in claims}}
+    body = "\n".join(merged[k] for k in sorted(merged))
     replaced = re.sub(r"(^## 주장 목록[^\n]*\n)(.*?)(?=^## |\Z)", lambda m: f"{m.group(1)}\n{body}\n\n", text, count=1, flags=re.M | re.S)
     if replaced != text:
         refute_doc.write_text(replaced, encoding="utf-8")
+    strip_task_comments(refute_doc)
 
 
 # target 문서에 결과를 쓴다. 반증이면 target은 반증 문서이고, 조사이면 조사 문서이며 주장 목록을 반증 문서에 쓴다.
@@ -150,6 +172,9 @@ def write_result(target: Path, prompt: str, message: str, refute: bool) -> str |
         else:
             document = Document(text)
             items = research_items(document) if "조사 계획" in [t for _, _, t in document.headings] else []
+            # 재조사 요청의 `항목: 조사 <번호>` 항목만 검사한다.
+            wanted = {n for line in REQUESTED.findall(prompt) for n in re.findall(r"조사\s*(\d+)", line)}
+            items = [i for i in items if i.split(". ", 1)[0].split()[-1] in wanted] or items
             check_research_result(message, items)
     except ValueError as error:
         return str(error)
@@ -158,7 +183,7 @@ def write_result(target: Path, prompt: str, message: str, refute: bool) -> str |
     if refute:
         if message in text:  # 같은 보고로 다시 멈춘 경우는 이미 기록했다.
             return None
-        text = add_loop_row(add_round_blocks(text, prompt, message), message)
+        text = add_loop_row(add_round_blocks(drop_placeholders(text), prompt, message), message)
     else:
         # 재조사는 기존 원문을 지우지 않고 가로줄 뒤에 덧붙인다.
         old = raw_body(text, "최종 조사 원문")
@@ -171,6 +196,7 @@ def write_result(target: Path, prompt: str, message: str, refute: bool) -> str |
             replaced = insert_blocks(text, f"\n### 최종 조사 원문\n\n{fence}\n{message}\n{fence}\n")
         text = replaced
     target.write_text(text, encoding="utf-8")
+    strip_task_comments(target)
     if not refute:
         write_claims(sibling(target, "refute"), message)
     return None

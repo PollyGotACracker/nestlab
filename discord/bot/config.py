@@ -156,9 +156,9 @@ SETTINGS_SECTIONS = {
 }
 
 
-# 설정 항목들을 읽는다. 빠진 키는 모두 모아 한 번에 알린다.
+# 설정 항목들을 읽는다. 빠진 키는 전부 집계해 한 번에 알린다.
 def load_settings_sections(raw: dict[str, Any]) -> dict[str, Any]:
-    # 섹션별로 항목 값을 읽는다. 없는 항목은 기본값을 쓰거나 누락으로 모은다.
+    # 섹션별로 항목 값을 읽는다. 없는 항목은 기본값을 쓰거나 누락으로 기록한다.
     missing: list[str] = []
     values: dict[str, dict[str, Any]] = {}
     for section, cls in SETTINGS_SECTIONS.items():

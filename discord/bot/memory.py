@@ -582,7 +582,7 @@ async def sync_archive_forum(client: Any) -> None:
     seen: set[int] = set()
     errors = False
 
-    # 열린 스레드와 보관된 스레드 목록을 모은다.
+    # 열린 스레드와 보관된 스레드를 결합해 목록으로 만든다.
     threads = {thread.id: thread for thread in forum.threads}
     try:
         async for thread in forum.archived_threads(limit=None):

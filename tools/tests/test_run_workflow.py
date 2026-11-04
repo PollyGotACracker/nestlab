@@ -17,6 +17,9 @@ class Workflow(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        which = patch.object(runner.shutil, "which", return_value=None)
+        which.start()
+        self.addCleanup(which.stop)
         folder = self.root / ".claude/agents/director"
         folder.mkdir(parents=True)
         (folder / "AGENTS.md").write_text("director 지침", encoding="utf-8")
@@ -49,8 +52,12 @@ class Workflow(unittest.TestCase):
             with patch.object(runner.subprocess, "run", return_value=result) as call:
                 self.assertEqual(runner.run_incident(self.root, "log/incident/a.md", name), "분석")
             command = call.call_args.args[0]
-            self.assertTrue(command[-1].startswith("director 지침"))
-            self.assertRegex(command[-1], r"작업 종류: 사건 분석\n사건 문서: log/incident/a\.md\n"
+            request = call.call_args.kwargs["input"]
+            self.assertNotIn(request, command)
+            if name == "codex":
+                self.assertEqual(command[-1], "-")
+            self.assertTrue(request.startswith("director 지침"))
+            self.assertRegex(request, r"작업 종류: 사건 분석\n사건 문서: log/incident/a\.md\n"
                                           r"현재 시각\(KST\): \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\nnestlab-log-incident 절차")
             if name == "claude":
                 self.assertEqual(command[command.index("--settings") + 1], '{"disableAllHooks": true}')
@@ -72,6 +79,16 @@ class Workflow(unittest.TestCase):
                  patch.object(runner.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True):
                 runner.invoke(self.root, "claude", "incident", "요청")
             self.assertEqual(call.call_args.kwargs["creationflags"], expected)
+
+    # which 결과 경로가 명령 첫 요소가 되고, None이면 기존 이름을 쓰는지 확인한다.
+    def test_cli_path_from_which(self):
+        result = subprocess.CompletedProcess([], 0, json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "결과"}}))
+        for found, expected in (("C:/x/codex.cmd", "C:/x/codex.cmd"), (None, "codex")):
+            with patch.object(runner.shutil, "which", return_value=found), \
+                 patch.object(runner.subprocess, "run", return_value=result) as call:
+                runner.invoke(self.root, "codex", "incident", "요청")
+            self.assertEqual(call.call_args.args[0][0], expected)
 
     # 빈 결과와 오류 결과가 ValueError로 막히는지 확인한다.
     def test_empty_and_failed_results_block(self):

@@ -91,7 +91,7 @@ def check_file(
             for match in RULE_ID.finditer(line):
                 violations.append((rel, lineno, KIND_RULE_ID, match.group(0)))
 
-        # 부정 표현을 위반으로 모은다.
+        # 부정 표현을 위반으로 판정한다.
         for match in NEGATIVE.finditer(line):
             violations.append((rel, lineno, KIND_NEGATIVE, match.group(0)))
 
@@ -106,7 +106,7 @@ def find_targets() -> tuple[list[str], list[str]]:
     targets: list[str] = []
     missing: list[str] = []
 
-    # 패턴마다 일치하는 파일을 모으고, 없으면 missing에 넣는다.
+    # 패턴마다 일치하는 파일을 선별하고, 없으면 missing에 넣는다.
     for pattern in TARGET_PATTERNS:
         found = sorted(
             p.relative_to(ROOT).as_posix() for p in ROOT.glob(pattern) if p.is_file()

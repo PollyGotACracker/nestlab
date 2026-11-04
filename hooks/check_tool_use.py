@@ -30,10 +30,10 @@ from sub_call import is_spawn
 from sub_input import check_input
 from sub_role import main_session, resolve_role
 from sub_path import check_paths, norm
-from sub_scope import check_write, kickoff_missing, log_bash_reason, reads_skill, write_bash_free
+from sub_scope import check_write, log_bash_reason, write_bash_free
 from sub_question import check_question
 from sub_session import QUESTION_TOOLS, session_path
-from sub_write import (REASON_CD, REASON_INLINE, RETRY, SHELLS, bash_command, bash_write_reason, command_parts, description_reason,
+from sub_write import (APPROVAL_RETRY, REASON_CD, REASON_INLINE, RETRY, SHELLS, bash_command, bash_write_reason, command_parts, description_reason,
                        git_write_reason, interpreter_kind, is_write_bash, prompt_reason, targets)
 from sub_workflow import call_reason
 
@@ -62,7 +62,7 @@ def main_write_reason(command: str) -> str | None:
     return bash_write_reason(command) or (REASON_MAIN_BASH if is_write_bash(command) else None)
 
 
-REASON_SCRIPT = "승인 전에는 허용 목록 밖 python, node 스크립트를 실행할 수 없습니다. " + RETRY
+REASON_SCRIPT = "승인 전에는 허용 목록 밖 python, node 스크립트를 실행할 수 없습니다. " + APPROVAL_RETRY
 
 # 하위 명령 중 허용 목록 밖 python, node 스크립트(파일, 모듈) 실행이 있으면 사유를 반환한다. 아니면 None이다.
 def script_reason(command: str) -> str | None:
@@ -81,7 +81,6 @@ def workdir_reason(data: dict) -> str | None:
 
 
 REASON_SUB_SPAWN = "서브에이전트는 다른 에이전트를 호출할 수 없습니다. " + RETRY
-REASON_KICKOFF = "director는 nestlab-kickoff 스킬을 호출하기 전에 Skill 외 도구를 호출할 수 없습니다. " + RETRY
 REASON_ASYNC = "경과 문서를 쓴 세션에서는 request_user_input_async의 답을 기록할 수 없습니다. request_user_input을 쓰십시오."
 
 # 위반 사유를 반환한다. 통과면 None이다.
@@ -89,11 +88,6 @@ def check(data: dict, runner: str) -> str | None:
     # Codex는 기록 경로가 없으면 세션 id로 찾는다.
     if runner == "codex" and not data.get("transcript_path") and data.get("session_id"):
         data = {**data, "transcript_path": session_path(data, runner)}
-
-    # director 메인 세션은 nestlab-kickoff 호출 전에 Skill 외 도구를 쓸 수 없다. Codex는 kickoff SKILL.md를 읽는 명령만 통과한다.
-    if data.get("tool_name") != "Skill" and kickoff_missing(data, runner):
-        if not (runner == "codex" and reads_skill(data.get("tool_input"), "nestlab-kickoff")):
-            return REASON_KICKOFF
 
     # 서브에이전트 세션의 Agent 호출은 막는다.
     if not main_session(data) and is_spawn(data.get("tool_name")):

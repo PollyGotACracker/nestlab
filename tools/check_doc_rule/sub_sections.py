@@ -25,7 +25,7 @@ def read_headings(path: Path, cache: dict[Path, set[str]]) -> set[str]:
         read_in_fence = path.resolve() in schema_files
         in_fence = False
 
-        # 줄마다 제목을 모은다.
+        # 줄마다 제목을 추출한다.
         for line in path.read_text(encoding="utf-8-sig").splitlines():
             if FENCE.match(line):
                 in_fence = not in_fence

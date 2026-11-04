@@ -12,18 +12,13 @@ sys.path[:0] = [str(HOOKS), str(HOOKS / "common"), str(HOOKS / "check_tool_use")
 import check_tool_use as hook
 import sub_call
 import sub_docs
+import sub_judgment
 import sub_path
 import sub_role
 import sub_scope
 
 REAL_SKILL_CALLED = sub_scope.skill_called
 
-
-# 작업 흐름 게이트 테스트는 kickoff 게이트와 분리한다(test_check_tool_use의 KickoffGate가 다룬다).
-def setUpModule():
-    patcher = patch.object(hook, "kickoff_missing", return_value=False)
-    patcher.start()
-    unittest.addModuleCleanup(patcher.stop)
 
 
 ITEM = "조사 9. 예시 결정"
@@ -110,6 +105,16 @@ class Gates(unittest.TestCase):
             p.stop()
         self.tmp.cleanup()
 
+    # 양식 주석 안의 형식 예시만 있으면 early_items는 빈 목록이고, 미검토 `검토 1.` 항목은 이름을 반환한다.
+    def test_early_items_placeholder(self):
+        status = self.root / "status.md"
+        body = "# t\n\n## 요구사항\n\n### 검토 필요\n\n{item}\n\n## 승인\n"
+        with patch.object(sub_judgment, "review_done", return_value=("사용자 검토 완료", "폐기")):
+            status.write_text(body.format(item="<!-- 형식\n  - 검토 <번호>. <제목>\n    - 상태: <미검토>\n-->"), encoding="utf-8")
+            self.assertEqual(sub_judgment.early_items(status), [])
+            status.write_text(body.format(item="- 검토 1. 도구\n  - 상태: 미검토"), encoding="utf-8")
+            self.assertEqual(sub_judgment.early_items(status), ["검토 1. 도구"])
+
     # 대화 기록 파일을 만들고 경로를 반환하는 보조 함수이다.
     def transcript(self, *lines):
         path = self.root / "t.jsonl"
@@ -153,21 +158,25 @@ class Gates(unittest.TestCase):
         self.assertIn("중단 판정 미해결", self.write("log/state/t.md", base.replace(line, line.replace("사유", "바꿈")), self.plain()))
         self.assertIsNone(self.write("log/state/t.md", base.replace("- 범위 밖: 없음", "- 범위 밖: 변경"), self.plain()))
 
-    # 조사 문서 확인 상태는 착수 승인과 `조사 문서 확인` 질문 확정 답이 있어야 쓸 수 있다.
+    # 조사 확인 상태는 착수 승인과 기록된 검토 확정 상태로 판정한다.
     def test_research_confirm_needs_answer_and_approval(self):
         research = "# 조사 문서: t\n\n- 작업 ID: t\n- 확인 상태: {s}\n\n## 조사 계획\n"
         (self.state / "t-research.md").write_text(research.format(s="보류"), encoding="utf-8")
         new = research.format(s="확인")
-        q = "조사 문서 확인: 확정할까요?"
         # 착수 승인이 없으면 막는다.
-        self.assertIn("착수 승인", self.write("log/state/t-research.md", new, self.answered(q)))
-        # 착수 승인이 있어도 질문 답이 없으면 막는다.
+        self.assertIn("착수 승인", self.write("log/state/t-research.md", new, self.plain()))
+        # 착수 승인이 있어도 미확정 검토가 남으면 막는다.
         approved = ("# t\n\n- 작업 ID: t\n\n## 승인\n\n### 착수 승인 범위\n\n- 사용자 승인 상태: 승인\n"
                     "- 사용자 승인 시각: 2026-10-26 10:00:00\n- 연결 대상: x\n- 승인 행동: x\n- 영향 범위: x\n- 범위 밖: 없음\n")
         (self.state / "t.md").write_text(approved, encoding="utf-8")
-        self.assertIn("조사 문서 확인", self.write("log/state/t-research.md", new, self.plain()))
-        self.assertIn("조사 문서 확인", self.write("log/state/t-research.md", new, self.answered(q, answer="No preference")))
-        self.assertIsNone(self.write("log/state/t-research.md", new, self.answered(q)))
+        skill = self.skills / "nestlab-log-spec"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("<!-- 모든 목록이 검토 완료 또는 폐기일 때 승인 가능 -->\n", encoding="utf-8")
+        review = "\n## 검토 필요\n- 검토 1. 기록 방식\n  - 상태: {status}\n"
+        (self.state / "t.md").write_text(approved + review.format(status="미검토"), encoding="utf-8")
+        self.assertIn("검토 1.", self.write("log/state/t-research.md", new, self.plain()))
+        (self.state / "t.md").write_text(approved + review.format(status="검토 완료"), encoding="utf-8")
+        self.assertIsNone(self.write("log/state/t-research.md", new, self.plain()))
 
     # 중단 유형 칸은 실행 승인과 `중단 유형` 질문 확정 답이 있어야 쓸 수 있다.
     def test_stop_type_needs_answer_and_approval(self):
@@ -186,80 +195,6 @@ class Gates(unittest.TestCase):
         self.assertIn("중단 유형", self.write("log/state/t.md", new, self.plain()))
         self.assertIn("중단 유형", self.write("log/state/t.md", new, self.answered(q, answer="No preference")))
         self.assertIsNone(self.write("log/state/t.md", new, self.answered(q)))
-
-    # 같은 항목 재질문과 안 비교 없는 질문은 막고 최종 확인 한 번은 통과한다.
-    def test_question_gate(self):
-        def ask(transcript, header, question):
-            data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": transcript,
-                    "tool_input": {"questions": [{"header": header, "question": question}]}}
-            return hook.check(data, "claude")
-        q = f"{ITEM}: 어느 안으로 할까요?"
-        table = "| 안 | 장점 |\n| -- | -- |\n| A | 빠름 |"
-        # 안 비교 없는 첫 질문은 막고 비교가 있으면 통과한다.
-        self.assertIn("안 비교", ask(self.plain("계속"), "결정", q))
-        compared = self.transcript(claude_line("user", "시작"),
-                                   claude_line("assistant", [{"type": "text", "text": table}]))
-        self.assertIsNone(ask(compared, "결정", q))
-        # 이미 물은 항목은 막는다.
-        self.assertIn("이미 질문", ask(self.answered(q, text=table), "결정", q))
-        # 최종 확인은 한 번만 통과한다.
-        self.assertIsNone(ask(self.plain("계속"), "최종 확인", "모두 확정할까요?"))
-        self.assertIn("한 번만", ask(self.answered("모두 확정할까요?", header="최종 확인"), "최종 확인", "다시?"))
-
-    # 조사 원문이 빈 진행 중 작업의 `조사 <번호>.` 질문은 막고 조사 원문이 있으면 통과한다. (요구사항 7)
-    def test_question_gate_blocks_before_research(self):
-        (self.state / "t.md").write_text(STATE.format(item=ITEM, status="미검토", basis="x"), encoding="utf-8")
-        table = "| 안 | 장점 |\n| -- | -- |\n| A | 빠름 |"
-        compared = self.transcript(claude_line("user", "시작"), claude_line("assistant", [{"type": "text", "text": table}]))
-        data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": compared,
-                "tool_input": {"questions": [{"header": "결정", "question": f"{ITEM}: 어느 안으로 할까요?"}]}}
-        self.assertIn("최종 조사 원문", hook.check(data, "claude") or "")
-        (self.state / "t-research.md").write_text(RESEARCH, encoding="utf-8")
-        self.assertIsNone(hook.check(data, "claude"))
-
-    # 확정 답을 받은 질문만 이미 물은 질문으로 센다. 거부, 넘김, 문장 답 뒤 재질문과 답 없는 최종 확인 재호출은 통과한다.
-    def test_question_gate_counts_confirmed_only(self):
-        def ask(transcript, header, question):
-            data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": transcript,
-                    "tool_input": {"questions": [{"header": header, "question": question}]}}
-            return hook.check(data, "claude")
-        q = f"{ITEM}: 어느 안으로 할까요?"
-        table = "| 안 | 장점 |\n| :-- | :-- |\n| A | 빠름 |"
-        self.assertIn("이미 질문", ask(self.answered(q, answer="안 1 채택 확정", text=table), "결정", q))
-        for answer in ("", "[No preference]", "뭘 보고 검토하라는 거임"):
-            self.assertIsNone(ask(self.answered(q, answer=answer), "결정", q + "\n" + table))
-        final = "모두 확정할까요?"
-        self.assertIn("한 번만", ask(self.answered(final, answer="안 1 채택 확정", header="최종 확인"), "최종 확인", final))
-        for answer in ("", "[No preference]"):
-            self.assertIsNone(ask(self.answered(final, answer=answer, header="최종 확인"), "최종 확인", final))
-
-    # 질문 입력의 표와 선택지 설명의 heading은 안 비교로 인정하고, 형식만 있는 표나 heading은 막는다.
-    def test_question_gate_compare_in_input(self):
-        def ask(transcript, question, options=None, preview=None):
-            opt = [{"label": "a", "description": options or "", "preview": preview or ""}]
-            data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": transcript,
-                    "tool_input": {"questions": [{"header": "결정", "question": question, "options": opt}]}}
-            return hook.check(data, "claude")
-        base = f"{ITEM}: 어느 안으로 할까요?"
-        none = self.plain("계속")
-        self.assertIsNone(ask(none, base + "\n| 안 | 장점 |\n| :-- | :-- |\n| A | 빠름 |"))
-        self.assertIsNone(ask(none, base, options="### 안 A\n빠름"))
-        self.assertIn("안 비교", ask(none, base))
-        self.assertIn("안 비교", ask(none, base + "\n| 안 | 장점 |"))
-        self.assertIn("안 비교", ask(none, base + "\n### 안 A\n\n"))
-
-    # 비교 표와 질문 호출, hook 실행 attachment가 순서대로 쌓인 기록에서 `조사 <번호>. <이름>` 질문은 통과하고 비교가 없으면 막는다.
-    def test_question_after_comparison_with_attachment(self):
-        def ask(transcript):
-            data = {"tool_name": "AskUserQuestion", "cwd": str(self.root), "transcript_path": transcript,
-                    "tool_input": {"questions": [{"header": "결정", "question": f"{ITEM}: 어느 안으로 할까요?"}]}}
-            return hook.check(data, "claude")
-        table = "### 조사 9. 예시 결정\n\n| 안 | 장점 |\n| -- | -- |\n| A | 빠름 |"
-        call = claude_line("assistant", [{"type": "tool_use", "id": "q1", "name": "AskUserQuestion", "input": {}}])
-        attach = json.dumps({"type": "attachment", "attachment": {"type": "hook_success", "hookEvent": "PreToolUse"}})
-        user = claude_line("user", "시작")
-        self.assertIsNone(ask(self.transcript(user, claude_line("assistant", [{"type": "text", "text": table}]), call, attach)))
-        self.assertIn("안 비교", ask(self.transcript(user, claude_line("assistant", [{"type": "text", "text": "설명"}]), call, attach)))
 
     # 템플릿 필수 절
     def test_template_titles(self):
@@ -311,21 +246,27 @@ class Gates(unittest.TestCase):
         (self.root / "log/task/t").mkdir(parents=True)
         old = "# t\n\n## 요구사항\n\n### 문제 정의\n"
         (self.root / rel).write_text(old, encoding="utf-8")
-        self.assertIsNone(self.write(rel, old + "\n- 추가\n", self.plain()))
+        self.assertIsNone(self.write(rel, old + "\n## 작업 경과\n\n- 추가\n", self.plain()))
 
-    # 명세 문서가 없는 작업 폴더에서 경과 문서 착수 승인 쓰기는 요구사항 목록이 있으면 통과하고 없으면 막힌다.
+    # 명세 문서가 없는 작업 폴더에서 경과 문서 착수 승인 쓰기는 요구사항 목록과 무관하고, 기존 흐름 코드 블록이 없으면 막힌다.
     def test_kickoff_approval_without_spec(self):
         folder = self.root / "log/task/t"
         folder.mkdir(parents=True)
-        (folder / "research.md").write_text(
-            "# 조사\n\n- 작업 ID: t\n\n## 조사 계획\n\n- 제외 범위: 없음\n\n### 조사 1. 도구 (요구사항 1)\n\n"
-            "- 질문: 도구\n\n## 프로젝트 환경\n\nPython (출처: a.py:1)\n", encoding="utf-8")
+        flow = "\n## 기존 흐름\n\n```\nhooks/a.py:1 호출 → hooks/b.py:2\n```\n"
+        research = ("# 조사\n\n- 작업 ID: t\n\n## 조사 계획\n\n- 제외 범위: 없음\n\n### 조사 1. 도구 (문제 1)\n\n"
+                    "- 질문: 도구\n\n## 프로젝트 환경\n\nPython (출처: a.py:1)\n")
+        (folder / "research.md").write_text(research + flow, encoding="utf-8")
         old = "# t\n\n- 작업 ID: t\n- 작업 상태: 진행\n\n## 요구사항\n\n### 요구사항 목록\n\n1. 기능: 변경\n\n## 승인\n\n### 착수 승인 범위\n\n"
         fields = "- 사용자 승인 상태: {s}\n- 사용자 승인 시각: 2026-10-26 10:00:00\n- 연결 대상: x\n- 승인 행동: x\n- 영향 범위: x\n- 범위 밖: 없음\n"
         (folder / "status.md").write_text(old + fields.format(s="대기"), encoding="utf-8")
         approved = old + fields.format(s="승인")
         self.assertIsNone(self.write("log/task/t/status.md", approved, self.plain()))
-        self.assertIn("요구사항 목록", self.write("log/task/t/status.md", approved.replace("1. 기능: 변경", ""), self.plain()) or "")
+        blank = old.replace("1. 기능: 변경", "1. <요구사항 이름>: <결과>")
+        (folder / "status.md").write_text(blank + fields.format(s="대기"), encoding="utf-8")
+        self.assertIsNone(self.write("log/task/t/status.md", blank + fields.format(s="승인"), self.plain()))
+        (folder / "status.md").write_text(old + fields.format(s="대기"), encoding="utf-8")
+        (folder / "research.md").write_text(research, encoding="utf-8")
+        self.assertIn("기존 흐름", self.write("log/task/t/status.md", approved, self.plain()) or "")
 
     # 문서 쓰기 전 스킬 호출 검사
     def test_doc_write_needs_skill_call(self):

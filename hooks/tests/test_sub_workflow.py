@@ -29,10 +29,11 @@ STATE = f"""# 작업
 ## 실행 승인 범위
 {APPROVAL}
 ## 검토 필요
-- 조사 1. 도구
+- 검토 1. 도구: 안을 정한다.
   - 상태: 검토 완료
   - 사용자 검토 시각: 2026-10-24 12:00:00
-  - 대응 근거: 사용자 선택
+  - 확정: A
+  - 근거 위치: 조사 문서 > 검토 보고 > 검토 1. 도구 > 안 1. A
 ## 중단 사유
 - 실행 준비
 ## 검증 결과
@@ -93,7 +94,7 @@ PLAN = f"""# 명세
 ## 재검증 요청
 없음
 """
-REPORT = "조사 1. 도구\n후보 A 충족, 후보 B 미충족\n제안: A\n출처: a.py:1"
+REPORT = "조사 1. 도구 (문제 1)\n후보 A 충족, 후보 B 미충족\n제안: A\n출처: a.py:1"
 ROUND = "- 주장 1: 지지 | 출처: a.py:1"
 LOOP = """## 조사 및 반증 루프
 | 회차 | 반증 건수 | 정지 여부 |
@@ -107,10 +108,23 @@ RESEARCH = f"""# 조사
 ## 조사 계획
 - 제외 범위: 없음
 - 대안 검색 기록: 후보 검색 (출처: a.py:1)
-### 조사 1. 도구
+### 조사 1. 도구 (문제 1)
 - 질문: 도구
 ## 프로젝트 환경
 Python, 출처: a.py:1
+### 문제 1 조사 필요 판정
+- 방식 결정: 근거 없음
+## 기존 흐름
+```
+hooks/a.py:1 호출 → hooks/b.py:2
+```
+## 검토 보고
+### 검토 1. 도구
+| 안 | 기준 |
+| --- | --- |
+| A | 충족 |
+#### 안 1. A
+- 적용할 작업: 도구 선택
 ## 조사 단계 원문
 ### 최종 조사 원문: 조사 단계
 ```
@@ -220,10 +234,10 @@ class Gate(unittest.TestCase):
         self.assertTrue(flow.filled("`shared/skills/<이름>/template.md` 수정"))
         self.assertFalse(flow.filled("<작업 내용>"))
         self.assertTrue(flow.filled("shared/skills/<워크플로 스킬>/template.md 추가"))
-        text = PLAN.replace("작업:\n  - 구현", "작업:\n  - `shared/skills/<이름>/template.md` 수정")
+        text = PLAN.replace("기대 결과:\n  - 통과", "기대 결과:\n  - `shared/skills/<이름>/template.md`에 규칙이 기록된다")
         self.assertEqual(flow.check_plan(flow.Document(text)), ["기능"])
-        with self.assertRaisesRegex(ValueError, "`작업` 칸이 비어 있습니다"):
-            flow.check_plan(flow.Document(PLAN.replace("작업:\n  - 구현", "작업:\n  - <작업 내용>")))
+        with self.assertRaisesRegex(ValueError, "`기대 결과` 칸이 비어 있습니다"):
+            flow.check_plan(flow.Document(PLAN.replace("기대 결과:\n  - 통과", "기대 결과:\n  - <관측할 동작>")))
 
     # 실제 검증에 확인 수단 출처가 없으면 막고 있으면 통과시키는지 확인한다.
     def test_actual_check_requires_source(self):
@@ -237,7 +251,7 @@ class Gate(unittest.TestCase):
             (self.folder / f"{kind}.md").write_text(re.sub(r"^#{1,6} ", "# ", body, flags=re.M), encoding="utf-8")
         flow.validate(self.root, TASK, "complete")
 
-    # 첫 사용자 메시지가 비거나 암호문이면 rollout 첫 줄의 task_name에서 검증 요청 두 줄을 복원한다. (요구사항 13)
+    # 첫 사용자 메시지가 비거나 암호문이면 rollout 첫 줄의 task_name에서 검증 요청 두 줄을 복원한다.
     def test_first_prompt_from_task_name(self):
         import json
         import sub_role
@@ -288,6 +302,29 @@ class Gate(unittest.TestCase):
             refute = flow.Document(REFUTE.replace(ROUND, body))
             with self.assertRaisesRegex(ValueError, "반증 판정과 출처가 없습니다"):
                 flow.check_research(state, research, ["조사 1. 도구"], refute=refute)
+
+    # 다른 검토 항목 첫 줄에 같은 조사 번호가 있어도 번호와 마침표로 시작하는 항목만 대조하는지 확인한다.
+    def test_review_item_matches_number_prefix(self):
+        refute, research = flow.Document(REFUTE), flow.Document(RESEARCH)
+        other = "- 조사 문서 확인: 조사 1(안 2)로 확인할까요?\n  - 상태: 검토 완료\n"
+        both = flow.Document(STATE.replace("## 중단 사유", other + "## 중단 사유"))
+        flow.check_research(both, research, ["조사 1. 도구"], refute=refute)
+        only = flow.Document(STATE.replace("- 검토 1. 도구: 안을 정한다.\n", other.split("\n", 1)[0] + "\n"))
+        with self.assertRaisesRegex(ValueError, "없거나 중복"):
+            flow.check_research(only, research, ["조사 1. 도구"], refute=refute)
+
+    # 같은 번호 검토 항목이 우선이고, 번호가 없으면 이름이 든 항목을 대응으로 세며, 둘 다 없으면 막는지 확인한다.
+    def test_review_item_matches_number_then_name(self):
+        refute, research = flow.Document(REFUTE), flow.Document(RESEARCH)
+        first = "- 검토 1. 도구: 안을 정한다.\n"
+        extra = "- 검토 2. 도구 재검토: 안을 정한다.\n  - 상태: 검토 완료\n"
+        same = flow.Document(STATE.replace("## 중단 사유", extra + "## 중단 사유"))
+        flow.check_research(same, research, ["조사 1. 도구"], refute=refute)
+        renumbered = flow.Document(STATE.replace(first, first.replace("검토 1.", "검토 5.")))
+        flow.check_research(renumbered, research, ["조사 1. 도구"], refute=refute)
+        unrelated = flow.Document(STATE.replace(first, "- 검토 5. 설정: 안을 정한다.\n"))
+        with self.assertRaisesRegex(ValueError, "없거나 중복"):
+            flow.check_research(unrelated, research, ["조사 1. 도구"], refute=refute)
 
     # 반증 문서의 회차 표 밖 행은 회차로 세지 않는지 확인한다.
     def test_loop_count_counts_only_loop_section_rows(self):
@@ -370,7 +407,7 @@ NEW_SCOPE = """### 배정 범위
 """
 NEW_PLAN = PLAN.replace(SCOPE, NEW_SCOPE)
 NEW_STATE = STATE.replace("기능 (정적, 검증)", "기능 (요구사항 1) (정적, 검증)")
-NEW_RESEARCH = RESEARCH.replace("### 조사 1. 도구", "### 조사 1. 도구 (요구사항 1)").replace(REPORT, REPORT.replace("조사 1. 도구", "조사 1. 도구 (요구사항 1)"))
+NEW_RESEARCH = RESEARCH
 
 
 class NumberedGate(unittest.TestCase):
@@ -405,12 +442,15 @@ class NumberedGate(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "재작업 요청"):
             flow.validate(self.root, TASK, "implement")
 
-    # 조사 항목과 검증 결과 항목에도 번호 표기를 요구한다.
+    # 조사 항목에는 `(문제 <번호>)`, 검증 결과 항목에는 요구사항 번호 표기를 요구한다.
     def test_research_and_review_items_need_numbers(self):
-        self.put(research=NEW_RESEARCH.replace("### 조사 1. 도구 (요구사항 1)", "### 조사 1. 도구"))
+        self.put(research=NEW_RESEARCH.replace("### 조사 1. 도구 (문제 1)", "### 조사 1. 도구 (요구사항 1)"))
         with self.assertRaisesRegex(ValueError, "조사 계획"):
             flow.validate(self.root, TASK, "kickoff")
-        self.put(research=NEW_RESEARCH.replace("(요구사항 1)", "(요구사항 7)"))
+        self.put(research=NEW_RESEARCH.replace("### 조사 1. 도구 (문제 1)", "### 조사 1. 도구"))
+        with self.assertRaisesRegex(ValueError, "조사 계획"):
+            flow.validate(self.root, TASK, "kickoff")
+        self.put(research=NEW_RESEARCH.replace("### 조사 1. 도구 (문제 1)", "### 조사 1. 도구 (문제 7)"))
         with self.assertRaisesRegex(ValueError, "조사 계획"):
             flow.validate(self.root, TASK, "kickoff")
         self.put(research=NEW_RESEARCH, status=NEW_STATE.replace("기능 (요구사항 1) (정적", "기능 (정적"))
@@ -446,10 +486,10 @@ class SpecLessGate(unittest.TestCase):
         old = LIST_STATE.replace("사용자 승인 상태: 승인", "사용자 승인 상태: 대기", 1)
         self.assertIsNone(flow.transition_reason(self.folder / "status.md", LIST_STATE, old, ""))
 
-    # 요구사항 일부만 명세된 상태에서 착수 승인은 통과하고 실행 승인은 번호 불일치로 막는다. (요구사항 6 결함 4)
+    # 요구사항 일부만 명세된 상태에서 착수 승인은 통과하고 실행 승인은 번호 불일치로 막는다.
     def test_partial_spec_kickoff_passes_execute_blocks(self):
         state = LIST_STATE.replace("1. 기능: 변경", "1. 기능: 변경\n2. 추가: 변경")
-        self.put(status=state, research=NEW_RESEARCH.replace("(요구사항 1)", "(요구사항 2)"))
+        self.put(status=state)
         status = self.folder / "status.md"
         old_kickoff = state.replace("사용자 승인 상태: 승인", "사용자 승인 상태: 대기", 1)
         self.assertIsNone(flow.transition_reason(status, state, old_kickoff, NEW_PLAN))
@@ -457,12 +497,23 @@ class SpecLessGate(unittest.TestCase):
         old_execute = head + "사용자 승인 상태: 대기" + tail
         self.assertIn("요구사항 번호", flow.transition_reason(status, state, old_execute, NEW_PLAN) or "")
 
-    # 경과 문서 요구사항 목록이 없거나 조사 항목 번호가 목록에 없으면 막는다.
-    def test_kickoff_needs_requirement_list(self):
-        self.put(status=NEW_STATE)
-        with self.assertRaisesRegex(ValueError, "요구사항 목록"):
-            flow.validate(self.root, TASK, "kickoff")
-        self.put(status=LIST_STATE, research=NEW_RESEARCH.replace("(요구사항 1)", "(요구사항 7)"))
+    # 착수는 요구사항 목록이 자리표시여도 통과하고, 기존 흐름 코드 블록이나 프로젝트 환경이 없으면 막는다.
+    def test_kickoff_without_requirement_list(self):
+        placeholder = NEW_STATE.replace("## 착수 승인 범위", "## 요구사항\n### 요구사항 목록\n1. <요구사항 이름>: <결과>\n## 착수 승인 범위", 1)
+        self.put(status=placeholder)
+        flow.validate(self.root, TASK, "kickoff")
+        old = placeholder.replace("사용자 승인 상태: 승인", "사용자 승인 상태: 대기", 1)
+        status = self.folder / "status.md"
+        self.assertIsNone(flow.transition_reason(status, placeholder, old, ""))
+        flowless = NEW_RESEARCH.replace("## 기존 흐름\n```\nhooks/a.py:1 호출 → hooks/b.py:2\n```\n", "")
+        self.put(research=flowless)
+        self.assertIn("기존 흐름", flow.transition_reason(status, placeholder, old, "") or "")
+        self.put(research=NEW_RESEARCH.replace("Python, 출처: a.py:1", ""))
+        self.assertIn("프로젝트 환경", flow.transition_reason(status, placeholder, old, "") or "")
+
+    # 조사 항목 번호가 조사 필요 판정 번호에 없으면 막는다.
+    def test_problem_number_must_be_judged(self):
+        self.put(research=NEW_RESEARCH.replace("(문제 1)", "(문제 7)"))
         with self.assertRaisesRegex(ValueError, "조사 계획"):
             flow.validate(self.root, TASK, "kickoff")
 
@@ -489,32 +540,44 @@ class MultiItemRequest(unittest.TestCase):
         self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
         folder = root / "log/task" / TASK
         folder.mkdir(parents=True)
-        items = f"- hooks/a.py: 교체 (요구사항 1)\n  - {key}: 값 하나\n- hooks/b.py: 교체 (요구사항 1)\n  - {key}: {second}\n"
+        detail = f"  - {key}: {second}\n" if second is not None else ""
+        items = f"- hooks/a.py: 교체 (요구사항 1)\n  - {key}: 첫 동작이 바뀐다\n- hooks/b.py: 교체 (요구사항 1)\n{detail}"
         plan = NEW_PLAN.replace(f"## {title}\n없음\n", f"## {title}\n{items}")
         for kind, body in dict(status=NEW_STATE, spec=plan, research=NEW_RESEARCH, refute=REFUTE).items():
             (folder / f"{kind}.md").write_text(body, encoding="utf-8")
         flow.validate(root, TASK, stage)
 
-    # 항목마다 칸이 채워진 요청은 통과하고 한 항목이라도 비면 막는다.
+    # 재작업 기대 결과와 재검증 근거의 누락 및 자리표시자를 막는다.
     def test_multi_item_request(self):
         for stage, title, key in (("rework", "재작업 요청", "기대 결과"), ("reverify", "재검증 요청", "필요한 근거")):
-            self.check(stage, title, key, "값 둘")
-            with self.assertRaisesRegex(ValueError, f"{title}.*{key}|{key}.*{title}"):
-                self.check(stage, title, key, "")
+            self.check(stage, title, key, "둘째 동작이 바뀐다")
+            for value in ("", "<수정 후 관측할 동작>"):
+                with self.subTest(stage=stage, value=value), self.assertRaisesRegex(ValueError, f"{title}.*{key}"):
+                    self.check(stage, title, key, value)
+
+    # 첫 대상의 기대 결과가 있어도 다음 대상에서 줄 전체가 빠지면 배정을 막는다.
+    def test_rework_second_item_missing_expected_line(self):
+        with self.assertRaisesRegex(ValueError, "재작업 요청.*기대 결과"):
+            self.check("rework", "재작업 요청", "기대 결과", None)
 
     # 명세 양식 형식의 요청은 통과하고 콜론 없는 재검증 요청은 막는다.
     def test_spec_template_format(self):
-        def run(stage, title, key, item, extra=""):
+        def run(stage, title, key, item):
             root = Path(tempfile.mkdtemp())
             self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
             folder = root / "log/task" / TASK
             folder.mkdir(parents=True)
-            plan = NEW_PLAN.replace(f"## {title}\n없음\n", f"## {title}\n{item}\n  - {key}: 값\n{extra}")
+            detail = f"  - {key}: 입력에 맞는 결과가 기록된다\n" if key else ""
+            plan = NEW_PLAN.replace(f"## {title}\n없음\n", f"## {title}\n{item}\n{detail}")
             for kind, body in dict(status=NEW_STATE, spec=plan, research=NEW_RESEARCH, refute=REFUTE).items():
                 (folder / f"{kind}.md").write_text(body, encoding="utf-8")
             flow.validate(root, TASK, stage)
 
-        run("rework", "재작업 요청", "기대 결과", "- hooks/a.py: 10-20행 (요구사항 1)", "### 재작업 범위\n- hooks/a.py (요구사항 1)\n")
+        run("rework", "재작업 요청", "기대 결과", "- hooks/a.py: 10-20행 (요구사항 1)")
+        with self.assertRaisesRegex(ValueError, "재작업 요청.*기대 결과"):
+            run("rework", "재작업 요청", "", "- hooks/a.py: 10-20행 (요구사항 1)")
+        with self.assertRaisesRegex(ValueError, "재작업 요청.*대상 위치"):
+            run("rework", "재작업 요청", "기대 결과", "- 설명 목록 (요구사항 1)")
         run("reverify", "재검증 요청", "필요한 근거", "- hooks/a.py: 기능 판정 (요구사항 1)")
         with self.assertRaisesRegex(ValueError, "재검증 요청"):
             run("reverify", "재검증 요청", "필요한 근거", "- 기능 판정 (요구사항 1)")
@@ -529,7 +592,7 @@ class ReviewStatus(unittest.TestCase):
         task.mkdir(parents=True)
         for kind, body in (("status", NEW_STATE), ("spec", NEW_PLAN), ("research", NEW_RESEARCH), ("refute", REFUTE)):
             (task / f"{kind}.md").write_text(body, encoding="utf-8")
-        self.assertEqual(sub_docs.review_done(), ("검토 완료",))
+        self.assertEqual(sub_docs.review_done(), ("검토 완료", "폐기"))
         flow.validate(folder, TASK, "implement")
 
         # 실측 필요 항목은 사전이면 실행 단계를, 사후면 완료 단계를 막고 실측 완료면 통과한다.
@@ -552,11 +615,80 @@ class ReviewStatus(unittest.TestCase):
 
         # 템플릿 주석이 없는 스킬 원본은 막는다.
         (task / "status.md").write_text(NEW_STATE, encoding="utf-8")
-        skills = folder / "skills" / "nestlab-log-state"
+        skills = folder / "skills" / "nestlab-log-spec"
         skills.mkdir(parents=True)
         (skills / "SKILL.md").write_text("# 주석 없음\n", encoding="utf-8")
         with patch.object(sub_docs, "SKILLS", folder / "skills"), self.assertRaisesRegex(ValueError, "주석이 없습니다"):
             flow.validate(folder, TASK, "implement")
+
+
+class ReviewReport(unittest.TestCase):
+    """검토 보고 기록, 폐기 절, 미질문 검토를 판정하는 함수 검사이다."""
+
+    # 근거 위치가 조사 문서 검토 보고의 실제 안 블록을 가리켜야 조사 단계 검사가 통과한다.
+    def test_basis_location_must_point_to_block(self):
+        refute, research = flow.Document(REFUTE), flow.Document(RESEARCH)
+        flow.check_research(flow.Document(STATE), research, ["조사 1. 도구"], refute=refute)
+        for bad in ("안 9. Z", "안 1. B"):
+            state = flow.Document(STATE.replace("안 1. A", bad))
+            with self.assertRaisesRegex(ValueError, "근거 위치"):
+                flow.check_research(state, research, ["조사 1. 도구"], refute=refute)
+
+        # 옛 대응 근거 칸만 있는 항목은 인정하지 않는다.
+        legacy_item = STATE.replace("  - 확정: A\n  - 근거 위치: 조사 문서 > 검토 보고 > 검토 1. 도구 > 안 1. A\n", "  - 대응 근거: 사용자 선택\n")
+        with self.assertRaises(ValueError):
+            flow.check_research(flow.Document(legacy_item), research, ["조사 1. 도구"], refute=refute)
+
+    # 조사 항목 제목에 `(문제 <번호>)`를 붙여도 옛 제목으로 저장된 조사 원문을 번호로 찾는다.
+    def test_renamed_item_matches_raw_by_number(self):
+        flow.check_research_result(REPORT, ["조사 1. 도구 (문제 1)"])
+        with self.assertRaisesRegex(ValueError, "항목이 없습니다"):
+            flow.check_research_result(REPORT, ["조사 10. 도구 (문제 1)"])
+
+    # 검토 필요 대조는 `검토 <번호>.` 항목만 세므로 다른 접두 항목은 중복으로 세지 않는다.
+    def test_old_research_prefix_entry_is_ignored(self):
+        refute, research = flow.Document(REFUTE), flow.Document(RESEARCH)
+        old_entry = "- 조사 1. 도구: 옛 기록\n  - 상태: 검토 완료\n"
+        state = flow.Document(STATE.replace("## 중단 사유", old_entry + "## 중단 사유"))
+        flow.check_research(state, research, ["조사 1. 도구"], refute=refute)
+
+    # 기대 결과가 폐기인 요구사항 절은 필수 칸 검사에서 빠지고, 폐기하지 않은 절의 빈 칸은 막는다.
+    def test_dropped_requirement_skips_required_cells(self):
+        dropped = NEW_PLAN
+        extra = "### 2. 추가\n- 작업:\n- 기대 결과:\n  - 폐기\n"
+        plan = dropped.replace("## 작업 금지 목록", extra + "## 작업 금지 목록")
+        self.assertEqual(flow.check_plan(flow.Document(plan)), ["1"])
+        heading = dropped.replace("## 작업 금지 목록", "### 요구사항 2. 폐기\n\n- 기대 결과:\n  - 폐기\n\n## 작업 금지 목록")
+        self.assertEqual(flow.check_plan(flow.Document(heading)), ["1"])
+        blank = dropped.replace("## 작업 금지 목록", "### 2. 추가\n- 작업:\n- 기대 결과:\n  - 통과\n## 작업 금지 목록")
+        with self.assertRaisesRegex(ValueError, "`2. 추가`의 .* 칸이 비어 있습니다"):
+            flow.check_plan(flow.Document(blank))
+
+    # 폐기 줄 `요구사항 <번호>. 폐기`도 요구사항 목록 번호로 읽는다.
+    def test_dropped_line_is_listed_number(self):
+        state = flow.Document(LIST_STATE.replace("1. 기능: 변경", "1. 기능: 변경\n요구사항 2. 폐기"))
+        self.assertEqual(flow.state_numbers(state), {"1", "2"})
+
+    # 양식의 `<`로 시작하는 출처 자리표시자는 통과하고, 형식 밖 출처는 값을 반환한다.
+    def test_bad_source_placeholder(self):
+        self.assertIsNone(flow.bad_source("- 판단 근거: <장점과 단점> (출처: <파일:행 | URL>)"))
+        self.assertEqual(flow.bad_source("- 판단 근거: x (출처: 사용자 지시)"), "사용자 지시")
+
+    # 조사 문서 검토 보고 중 경과 문서에 검토 완료나 폐기로 없는 번호가 있으면 검토 잔여로 막는다.
+    def test_unanswered_report_blocks_review_left(self):
+        state, research = flow.Document(STATE), flow.Document(RESEARCH)
+        flow.check_review_left(state, False, research)
+        extra = RESEARCH.replace("## 조사 단계 원문", "### 검토 4. 추가\n\n## 조사 단계 원문")
+        with self.assertRaisesRegex(ValueError, "검토가 끝나지 않은"):
+            flow.check_review_left(state, False, flow.Document(extra))
+        done = STATE.replace("## 중단 사유", "- 검토 4. 폐기\n  - 상태: 폐기\n## 중단 사유")
+        flow.check_review_left(flow.Document(done), False, flow.Document(extra))
+        flow.check_review_left(flow.Document(STATE), False)
+
+    # 양식 주석 안의 형식 예시는 검토 잔여로 막지 않는다.
+    def test_placeholder_status_skips_review_left(self):
+        placeholder = STATE.replace("## 중단 사유", "<!-- 형식\n  - 검토 <번호>. <제목>\n    - 상태: <미검토>\n-->\n## 중단 사유")
+        flow.check_review_left(flow.Document(placeholder), False)
 
 
 if __name__ == "__main__":

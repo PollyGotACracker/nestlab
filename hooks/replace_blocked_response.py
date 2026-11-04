@@ -7,9 +7,9 @@
 입력: hook 입력 JSON(message_id, final, delta, cwd, transcript_path)을 stdin으로 받는다.
 반환:
 - stdout에 `{"hookSpecificOutput": {"hookEventName": "MessageDisplay", "displayContent": ...}}` JSON을 출력한다.
-- final이 아닌 batch: 같은 message_id의 delta를 OS 임시 폴더 파일에 모으고 빈 displayContent를 출력한다.
-- final batch: 모은 원문을 last_assistant_message로 check_workflow_response.check에 넣어 판정한다.
-  위반이면 교체 문구를, 통과면 모은 원문 전체를 displayContent로 출력하고 임시 파일을 지운다.
+- final이 아닌 batch: 같은 message_id의 delta를 OS 임시 폴더 파일에 누적하고 빈 displayContent를 출력한다.
+- final batch: 누적한 원문을 last_assistant_message로 check_workflow_response.check에 넣어 판정한다.
+  위반이면 교체 문구를, 통과면 누적한 원문 전체를 displayContent로 출력하고 임시 파일을 지운다.
   transcript 끝 20줄에서 원문과 같은 assistant text 항목의 stop_reason이 tool_use이면 도구 호출 앞의 중간 메시지로 보고 검사 없이 원문을 출력한다.
   stop_reason이 tool_use가 아니어도 transcript 전체에 완료 알림(`<task-id>`)이 없는 백그라운드 작업(async_launched agentId, backgroundTaskId)이 있으면 검사 없이 원문을 출력한다.
 한계:
@@ -34,7 +34,7 @@ from check_workflow_response import check
 REPLACEMENT = "(직전 응답의 내용이 미흡하여 다시 작성합니다.)"
 
 
-# message_id별 delta 모음 파일 경로를 반환한다.
+# message_id별 delta 누적 파일 경로를 반환한다.
 def batch_file(message_id: str) -> Path:
     return Path(tempfile.gettempdir()) / f"nestlab-display-{re.sub(r'[^A-Za-z0-9-]', '', message_id)}.txt"
 
@@ -84,14 +84,14 @@ def has_pending_background(path: str) -> bool:
 
 # 표시할 내용을 반환한다. 비어 있는 문자열은 이 batch를 화면에 표시하지 않는다.
 def display(data: dict) -> str:
-    # 같은 메시지의 delta를 모은다.
+    # 같은 메시지의 delta를 누적한다.
     path = batch_file(data.get("message_id") or "unknown")
     with open(path, "a", encoding="utf-8", newline="") as f:
         f.write(data.get("delta") or "")
     if not data.get("final"):
         return ""
 
-    # 마지막 batch에서 모은 원문을 응답 검사로 판정하고 임시 파일을 지운다.
+    # 마지막 batch에서 누적한 원문을 응답 검사로 판정하고 임시 파일을 지운다.
     text = path.read_text(encoding="utf-8")
     path.unlink(missing_ok=True)
     # 도구 호출 앞의 중간 메시지는 검사 없이 원문을 표시한다. 항목이 없으면 최대 3초 다시 읽는다.

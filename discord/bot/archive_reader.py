@@ -178,7 +178,7 @@ class ArchiveReader:
 
     # 고정 commit의 wiki 파일에서 검색어가 들어간 줄을 찾는다.
     async def search(self, query: str, ref: str, page: int = 1, per_page: int = 20, limit: int = 100):
-        # 검색어와 한도를 검사하고 wiki 목록을 읽어 파일마다 검색 결과를 모은다.
+        # 검색어와 한도를 검사하고 wiki 목록을 읽어 파일마다 검색 결과를 수집한다.
         if not isinstance(query, str) or not query.strip() or len(query) > 1000:
             raise ValueError("query는 1~1000자의 비어 있지 않은 문자열이어야 합니다.")
         bounded_number(per_page, "per_page", 20)

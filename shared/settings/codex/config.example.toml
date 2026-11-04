@@ -26,7 +26,7 @@ sandbox = "elevated"
 
 # hook 구성: 역할 주입(SessionStart 및 SubagentStart), 승인, 입력, 쓰기 범위, 경로 검사(PreToolUse),
 # 승인 창 자동 허용(PermissionRequest), 반증 판정 검사 및 결과 저장(SubagentStop),
-# 지침 검사(PostToolUse), 사건 감지(Stop)
+# 지침 검사(PostToolUse), 사건 감지, 응답 검사, 컨텍스트 기록 안내(Stop)
 
 [[hooks.SessionStart]]
 
@@ -84,6 +84,23 @@ commandWindows = '& "<PYTHON>" "<NESTLAB>/tools/check_doc_rule.py" --hook'
 timeout = 30
 statusMessage = "Nestlab 지침 검사"
 
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
+timeout = 10
+statusMessage = "Nestlab 작업 상태 기록"
+
+[[hooks.PostToolUse]]
+matcher = "request_user_input"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
+timeout = 10
+statusMessage = "Nestlab 질문 답 기록"
+
 [[hooks.PostToolUse]]
 matcher = ".*spawn_agent"
 
@@ -109,3 +126,10 @@ command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner code
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 응답 검사"
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/check_context_size.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_context_size.py" --runner codex'
+timeout = 10
+statusMessage = "Nestlab 컨텍스트 기록 안내"

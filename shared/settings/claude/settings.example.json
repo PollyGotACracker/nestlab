@@ -197,6 +197,23 @@
             "command": "\"<PYTHON>\" \"<NESTLAB>/tools/check_doc_rule.py\" --hook",
             "timeout": 30,
             "statusMessage": "Nestlab 지침 검사"
+          },
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_workflow_response.py\" --runner claude --record",
+            "timeout": 10,
+            "statusMessage": "Nestlab 작업 상태 기록"
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_workflow_response.py\" --runner claude --record",
+            "timeout": 10,
+            "statusMessage": "Nestlab 질문 답 기록"
           }
         ]
       },
@@ -226,6 +243,12 @@
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_workflow_response.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 응답 검사"
+          },
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_context_size.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Nestlab 컨텍스트 기록 안내"
           }
         ]
       }

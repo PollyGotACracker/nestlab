@@ -17,7 +17,7 @@ from sub_input import LEAK, session_leak
 from sub_docs import doc, section, task_id
 from sub_role import codex_rollout, first_line, first_prompt, parent_thread, resolve_role
 from sub_session import read_session, session_path, turn
-from sub_write import read
+from sub_write import APPROVAL_RETRY, read
 
 # 사용자 메시지의 마지막이 승인 명령으로 끝날 때만 승인이다.
 # 승인 명령 뒤에 오는 문자는 `.`, `!`, `~`만 허용된다.
@@ -25,6 +25,7 @@ from sub_write import read
 APPROVAL = re.compile(r"(?:^|\s)\S*승인\s*[.!~]*\s*\Z")
 APPROVED = re.compile(r"^\s*-\s*(?:사용자 )?승인 상태:\s*승인\s*$")
 IN_SCOPE = ("작업 종류: 재작업", "작업 종류: 재검증")
+RESTORED_WORK = ("작업 종류: 문서 작성", "작업 종류: 구현")
 # 착수 승인 뒤 조사와 반증은 사용자 대기 없이 이어진다(상태 문서 착수 승인 범위가 승인일 때).
 RESEARCH_SCOPE = ("작업 종류: 조사", "작업 종류: 반증")
 NEGATION = ("안", "못")
@@ -62,9 +63,22 @@ def executed_approved(task: str | None, cwd: str | None = None, title: str = "�
     return any(APPROVED.match(line) for line in body.splitlines())
 
 
+# 같은 작업의 명세 문서에 실제 대상이 적힌 대기 재작업이 있는지 확인한다.
+def rework_pending(task: str | None, cwd: str | None = None) -> bool:
+    from sub_workflow import filled, values
+    body = section(read(doc(task, "input", cwd)), "재작업 요청") if task else ""
+    for item in re.split(r"(?m)^- ", body)[1:]:
+        target = re.match(r"([^\n]+):[ \t]*(.*)", item)
+        expected = values(item, "기대 결과")
+        if target and expected and all(filled(value) and not re.search(r"<[^<>\n]+>", value)
+                                       for value in [target[1], target[2], *expected]):
+            return True
+    return False
+
+
 REASON_APPROVAL = (
     "사용자 마지막 메시지에 승인 명령이 없습니다. 작업 전 사용자 승인을 받으십시오. "
-    "사용자가 모든 사항을 검토한 상태라면 사용자에게 승인 명령을 안내하십시오. "
+    + APPROVAL_RETRY + " "
     "사용자의 검토 없이 작업을 시도한 경우 `nestlab-log-incident`, `nestlab-rule` 스킬을 호출해 그 절차대로 수행하십시오."
 )
 
@@ -77,6 +91,9 @@ def approval_reason(user: str, prompt: str, cwd: str | None = None) -> str | Non
     # 재작업과 재검증은 실행 승인, 조사와 반증은 착수 승인이 기록돼 있으면 허용한다.
     first = next((line.strip() for line in prompt.splitlines() if line.strip()), "")
     if first in IN_SCOPE and executed_approved(task_id(prompt), cwd):
+        return None
+    if (first in RESTORED_WORK and executed_approved(task_id(prompt), cwd)
+            and rework_pending(task_id(prompt), cwd)):
         return None
     if first in RESEARCH_SCOPE and executed_approved(task_id(prompt), cwd, "착수 승인 범위"):
         return None

@@ -21,12 +21,6 @@ import sub_role
 import sub_scope
 
 
-# 경계 테스트는 kickoff 게이트와 분리한다(test_check_tool_use의 KickoffGate가 다룬다).
-def setUpModule():
-    patcher = patch.object(check_tool_use, "kickoff_missing", return_value=False)
-    patcher.start()
-    unittest.addModuleCleanup(patcher.stop)
-
 
 class ProjectBoundaries(unittest.TestCase):
     # 임시 프로젝트와 다른 저장소 폴더를 준비한다.

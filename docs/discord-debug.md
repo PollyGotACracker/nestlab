@@ -1,14 +1,14 @@
 ---
 title: Nestlab Discord 봇 디버그
-description: "Discord 봇의 동작과 오류 원인을 확인하는 명령 모음이다."
+description: "Discord 봇의 동작과 오류 원인을 확인하는 명령 목록이다."
 type: document
 created: 2026-10-03
-modified: 2026-10-28
+modified: 2026-11-05
 ---
 
 # Discord 봇 디버그
 
-Discord 봇의 동작과 오류 원인을 확인하는 명령 모음이다.
+Discord 봇의 동작과 오류 원인을 확인하는 명령 목록이다.
 
 - `journalctl` 명령은 GCP VM의 systemd 서비스 `discord-bot` 기준이다.
 - 로컬에서 `python discord/bot/bot.py`로 실행하면 같은 로그가 실행한 터미널에 출력된다.

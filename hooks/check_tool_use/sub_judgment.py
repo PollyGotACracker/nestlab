@@ -1,22 +1,25 @@
-"""조사 문서 원문 보존, 조사 결과 없는 사용자 검토 기록을 차단한다.
+"""조사 문서 원문 보존, 조사 문서 확인 상태, 검토 진행 상태를 검사한다.
 
 호출자:
-- hooks/check_tool_use/sub_scope.py(check_raw, check_decision, check_item_names, check_judgment, check_stage)
-- hooks/check_workflow_response.py(open_tasks, review_items, status_of)
+- hooks/check_tool_use/sub_scope.py(check_raw, check_judgment, check_stage, early_items, unanswered)
+- hooks/check_workflow_response.py(open_tasks, review_items, status_of, unanswered)
 입력: 상태 문서와 조사 문서의 새 내용과 이전 내용, 질문 도구 호출 입력, 세션 기록 경로
 반환:
-- check_raw, check_decision, check_item_names, check_judgment은 deny 사유 문자열 또는 통과 시 None
+- check_raw, check_judgment, check_stage는 deny 사유 문자열 또는 통과 시 None
 - review_items는 {항목 이름: 본문} dict
 - open_tasks는 상태 문서 경로 목록
+- unanswered는 아직 답을 받지 않은 조사 문서 `검토 <번호>.` 보고 이름 목록
+- early_items는 명세 문서 쓰기 전에 끝나지 않은 검토 이름 목록
+한계: 검토 보고 절이 없는 조사 문서는 기록된 검토 필요 항목만 검사한다.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from sub_docs import section, sibling, titles
+from sub_docs import decision_path, review_done, section, sibling, titles
 from sub_session import answered_questions
-from sub_workflow import Document, approval
+from sub_workflow import Document, approval, unanswered_titles
 from sub_write import read
 
 RAW = ("최종 조사 원문", "최종 반증 원문")
@@ -37,11 +40,6 @@ def rounds(text: str) -> list[tuple[str, str]]:
 def raw_empty(text: str, title: str) -> bool:
     body = section(text, title).strip()
     return not body or bool(RAW_EMPTY.match(body))
-
-
-# 조사 계획에 조사 항목이 있으면 True이다.
-def research_needed(research: str) -> bool:
-    return any(t.startswith("조사 ") for t in titles(section(research, "조사 계획")))
 
 
 # 진행 중인 작업이 있고 그 작업 모두 조사 문서의 최종 조사 원문이 비어 있으면 True이다.
@@ -67,22 +65,6 @@ def check_raw(new: str | None, old: str, blank_ok: bool = False) -> str | None:
     # 회차 반증 블록이 바뀌면 막는다.
     if new is not None and rounds(new) != rounds(old):
         return REASON_ROUND
-    return None
-
-
-REASON_NO_RESEARCH = "조사 문서 최종 조사 원문이 비어 있어 조사 문서 조사를 근거로 기록할 수 없습니다. 조사가 필요합니다."
-
-# 상태 문서 쓰기에서 조사 결과 없이 조사 문서 조사를 근거로 쓰는 것을 막는다.
-def check_decision(path: Path, new: str | None, old: str) -> str | None:
-    # 이번 쓰기로 검토 필요 절에 새로 들어간 줄을 찾는다.
-    added = [l for l in section(new or "", "검토 필요").splitlines()
-        if l.strip() and l not in section(old, "검토 필요").splitlines()]
-
-    # 조사 문서 조사를 근거로 쓰는데 조사 원문이 비어 있으면 막는다.
-    if new is not None and any("조사 문서 조사" in l for l in added):
-        research = read(sibling(path, "research"))
-        if research and research_needed(research) and raw_empty(research, "최종 조사 원문"):
-            return REASON_NO_RESEARCH
     return None
 
 
@@ -115,24 +97,11 @@ def confirmed_by(transcript: str, key: str) -> bool:
     return any(key in q and confirmed(a) for q, a in answered_questions(transcript or ""))
 
 
-REASON_ITEM_NAME = "검토 완료 항목 {names}의 이름을 바꾸거나 지울 수 없습니다."
-
-# 이전 본문의 검토 완료 항목 이름이 새 본문에 그대로 있어야 한다.
-def check_item_names(new: str | None, old: str) -> str | None:
-    if new is None:
-        return None
-    kept = review_items(new)
-    lost = [name for name, body in review_items(old).items()
-            if status_of(body).startswith(DONE) and name not in kept]
-    return REASON_ITEM_NAME.format(names=", ".join(lost[:3])) if lost else None
-
-
-REASON_CONFIRM = ("조사 문서 확인 상태를 확인으로 쓸 수 없습니다. "
-                  "`조사 문서 확인`이 든 질문 도구 질문의 확정 선택지 답이 세션 기록에 없습니다.")
+REASON_CONFIRM = "조사 문서 확인 상태를 확인으로 쓰기 전에 {items}의 검토 질문 확정 답이 경과 문서에 기록돼야 합니다."
 REASON_BEFORE = "조사 문서 확인 상태를 쓰기 전에 상태 문서의 착수 승인이 기록돼야 합니다({error})."
 CHECKED = re.compile(r"^\s*(?:- )?확인 상태:\s*(\S+)", re.M)
 
-# 조사 문서 확인 상태가 새로 확인이 되면 앞 단계(착수 승인)와 질문 확정 답을 요구한다.
+# 조사 문서 확인 상태가 새로 확인이 되면 앞 단계(착수 승인)와 검토 질문 확정 답 기록을 요구한다.
 def check_judgment(path: Path, new: str | None, old: str, transcript: str) -> str | None:
     # 확인 상태가 확인으로 바뀐 쓰기만 검사한다.
     pick = lambda text: (CHECKED.search(text or "") or [None, ""])[1]
@@ -146,17 +115,17 @@ def check_judgment(path: Path, new: str | None, old: str, transcript: str) -> st
     except ValueError as error:
         return REASON_BEFORE.format(error=error)
 
-    # 조사 문서 확인 질문의 확정 답을 확인한다.
-    return None if confirmed_by(transcript, "조사 문서 확인") else REASON_CONFIRM
+    # 검토 질문 확정 답이 모두 기록됐는지 확인한다. 경과 문서가 없으면 건너뛴다.
+    try:
+        left = early_items(state) if state.is_file() else []
+    except ValueError as error:
+        return str(error)
+    return REASON_CONFIRM.format(items=", ".join(left[:3])) if left else None
 
 
 REASON_STOP_TYPE = ("중단 유형 칸을 쓸 수 없습니다. `중단 유형`이 든 질문 도구 질문의 확정 선택지 답이 세션 기록에 없습니다.")
 REASON_STOP_APPROVAL = "중단 유형 칸을 쓰기 전에 상태 문서의 실행 승인이 기록돼야 합니다({error})."
-REASON_ITEM_START = "조사 항목 {names}을 검토 완료로 쓰기 전에 상태 문서의 착수 승인이 기록돼야 합니다({error})."
-REASON_ITEM_STOP = "조사 항목 {names}을 검토 완료로 쓰기 전에 반증 문서에 조사 반증 정지 기록(`정지(`)이 있어야 합니다."
 STOP_TYPE = re.compile(r"^\s*- 중단 유형:[ \t]*(.*?)\s*$", re.M)
-STOP_ROW = re.compile(r"^\|\s*\d+\s*\|\s*\d+\s*\|\s*([^|]+?)\s*\|\s*$", re.M)
-ITEM_NO = re.compile(r"조사 \d+\.")
 
 
 # 칸 값이 자리표시가 아닌 실제 값이면 True이다.
@@ -164,7 +133,7 @@ def stop_filled(value: str) -> bool:
     return bool(value) and not value.startswith("<")
 
 
-# 상태 문서의 중단 유형 칸 변경과 조사 항목 검토 완료의 앞 단계를 검사한다. 요구사항과 제안사항 항목은 대상이 아니다.
+# 상태 문서의 중단 유형 칸 변경이 실행 승인과 질문 확정 답을 갖췄는지 검사한다.
 def check_stage(path: Path, new: str | None, old: str, transcript: str) -> str | None:
     if new is None:
         return None
@@ -178,26 +147,6 @@ def check_stage(path: Path, new: str | None, old: str, transcript: str) -> str |
             return REASON_STOP_APPROVAL.format(error=error)
         if not confirmed_by(transcript, "중단 유형"):
             return REASON_STOP_TYPE
-
-    # 새로 검토 완료가 된 조사 항목(`조사 <번호>.`)을 찾는다.
-    before = {name: status_of(body) for name, body in review_items(old).items()}
-    names = [name for name, body in review_items(new).items()
-             if ITEM_NO.match(name) and status_of(body).startswith(DONE) and not before.get(name, "").startswith(DONE)]
-    if not names:
-        return None
-
-    # 착수 승인 기록을 확인한다.
-    label = ", ".join(names[:3])
-    try:
-        approval(Document(new), "착수 승인 범위")
-    except ValueError as error:
-        return REASON_ITEM_START.format(names=label, error=error)
-
-    # 반증 문서(기존 문서는 조사 문서) 루프 표의 마지막 회차가 정지인지 확인한다.
-    loop = read(sibling(path, "refute")) or read(sibling(path, "research"))
-    rows = STOP_ROW.findall(section(loop, "조사 및 반증 루프"))
-    if not rows or not rows[-1].startswith("정지("):
-        return REASON_ITEM_STOP.format(names=label)
     return None
 
 
@@ -212,3 +161,16 @@ def open_tasks(root: Path) -> list[Path]:
         if m and m.group(1) in OPEN:
             out.append(path)
     return out
+
+
+# 조사 문서 검토 보고의 제목 중 경과 문서에 done 상태로 없는 것의 목록이다. done은 끝난 상태 값이다.
+def unanswered(status: Path, done: tuple[str, ...]) -> list[str]:
+    return unanswered_titles(read(decision_path(status)), read(decision_path(status, "research")), done)
+
+
+# 명세 문서 쓰기 전에 끝나지 않은 검토 이름 목록이다. 허용 값을 읽지 못하면 ValueError이다.
+def early_items(status: Path) -> list[str]:
+    # 검토 필요 항목과 답이 없는 검토 보고를 선별한다.
+    done = review_done()
+    out = [name for name, item in review_items(read(decision_path(status))).items() if status_of(item) not in done]
+    return out + unanswered(status, done)

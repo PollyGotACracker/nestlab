@@ -72,7 +72,7 @@ async def fetch_link_previews(message: discord.Message, links: LinksConfig) -> s
         except discord.HTTPException:
             return None
 
-    # 임베드마다 제목, 작성자, 설명을 모아 미리보기 줄을 만든다.
+    # 임베드마다 제목, 작성자, 설명을 결합해 미리보기 줄을 만든다.
     lines = []
     for embed in embeds:
         parts = []
@@ -136,7 +136,7 @@ async def save_attachments(
             return None
         return dest_path
 
-    # 이미지와 문서를 저장하고 경로를 모은다.
+    # 이미지와 문서를 저장하고 경로를 수집한다.
     image_paths = [path for path in [await save(a) for a in images] if path is not None]
     saved_documents: list[SavedDocument] = []
     for attachment in documents:
@@ -250,7 +250,7 @@ def split_message(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
     current = ""
     fence: str | None = None
 
-    # 지금까지 모은 조각을 코드 블록을 닫아 결과에 넣는다.
+    # 지금까지 누적한 조각을 코드 블록을 닫아 결과에 넣는다.
     def flush() -> None:
         # 바깥 함수의 현재 조각을 갱신 대상으로 선언하고 비었으면 끝낸다.
         nonlocal current
