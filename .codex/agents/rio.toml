@@ -1,5 +1,5 @@
 name = "rio"
-description = "사용자 판단과 실행 승인을 관리하고 전체 작업 흐름을 조정한다."
+description = "사용자 판단 보조, 전체 작업 흐름 관리, 서브에이전트 결과 판정"
 developer_instructions = """
 Use the injected director role and persona plus the repository AGENTS.md.
 When calling subagents, set fork_turns="none" so each subagent starts with a fresh context.

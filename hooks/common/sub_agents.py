@@ -1,9 +1,9 @@
-"""역할 지침 폴더에서 에이전트 이름을 찾고 폴더 설정의 기본 에이전트를 읽는 공용 함수이다.
+"""에이전트 지침 폴더에서 에이전트 이름을 찾고 폴더 설정의 기본 에이전트를 읽는 공용 함수이다.
 
 호출자:
 - hooks/load_agent.py
 - hooks/common/sub_role.py
-입력: 역할 지침 파일 경로, 저장소 경로, cwd 경로
+입력: 에이전트 지침 파일 경로, 저장소 경로, cwd 경로
 반환:
 - read_agent_name, read_folder_agent는 이름 문자열 또는 None
 - discover_agents는 {역할: 에이전트 이름} dict
@@ -15,8 +15,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sub_paths import AGENT_REL, CLAUDE_HOME_NAME
 
-# 역할 지침 frontmatter의 name 값을 읽는다. 값이 없으면 None이다.
+
+# 에이전트 지침 frontmatter의 name 값을 읽는다. 값이 없으면 None이다.
 def read_agent_name(agents_file: Path) -> str | None:
     # frontmatter 구간을 나눈다.
     text = agents_file.read_text(encoding="utf-8")
@@ -33,10 +35,10 @@ def read_agent_name(agents_file: Path) -> str | None:
     return None
 
 
-# 역할 지침 폴더마다 {역할: 에이전트 이름}을 만든다.
+# 에이전트 지침 폴더마다 {역할: 에이전트 이름}을 만든다.
 def discover_agents(root: Path) -> dict[str, str]:
     agents: dict[str, str] = {}
-    for role_dir in sorted((root / ".claude" / "agents").iterdir()):
+    for role_dir in sorted((root / AGENT_REL).iterdir()):
         agents_file = role_dir / "AGENTS.md"
         if not role_dir.is_dir() or not agents_file.is_file():
             continue
@@ -47,7 +49,7 @@ def discover_agents(root: Path) -> dict[str, str]:
 # cwd 폴더 자체의 Claude 프로젝트 설정에서 agent 값을 읽는다. 상위 폴더는 탐색하지 않고, 파일이 없거나 값이 없으면 None이다.
 def read_folder_agent(cwd: Path) -> str | None:
     # 설정 파일을 읽는다.
-    settings_file = cwd / ".claude" / "settings.json"
+    settings_file = cwd / CLAUDE_HOME_NAME / "settings.json"
     if not settings_file.is_file():
         return None
     try:

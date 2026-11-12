@@ -1,4 +1,4 @@
-"""고정 commit의 Nodebase 지식 절차와 파일을 읽는다."""
+"""고정 commit의 위키 저장소 지식 절차와 파일을 읽는다."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ SHA = re.compile(r"[0-9a-fA-F]{40}")
 MAX_FILE_BYTES = 1_000_000
 
 
-# Nodebase 지식 경계 안의 저장소 기준 POSIX 경로인지 검사한다.
+# 위키 저장소 지식 경계 안의 저장소 기준 POSIX 경로인지 검사한다.
 def archive_path(path: str) -> str:
     # 형식과 금지 문자를 확인한다.
     if not isinstance(path, str) or not path or any(c in path for c in ("\\", "%", ":")):
-        raise ValueError("path는 인코딩하지 않은 Nodebase POSIX 경로여야 합니다.")
+        raise ValueError("path는 인코딩하지 않은 위키 저장소 POSIX 경로여야 합니다.")
 
     # 저장소 기준 경계 안의 경로인지 확인한다.
     parts = path.split("/")
@@ -221,7 +221,7 @@ class ArchiveReader:
                         and not any(match["text_truncated"] for match in matches),
         }
 
-    # Nodebase 지식 경로의 commit 이력을 GitHub 기본 순서인 최신순으로 반환한다.
+    # 위키 저장소 지식 경로의 commit 이력을 GitHub 기본 순서인 최신순으로 반환한다.
     # 응답이 per_page개로 차면 다음 페이지가 있을 수 있어 next_page를 둔다.
     async def history(self, path: str, ref: str, page: int = 1, per_page: int = 20):
         # 경로, ref, 쪽 번호를 확인한다.

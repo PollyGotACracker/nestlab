@@ -9,6 +9,9 @@ import contextlib
 import io
 import json
 import shutil
+import os
+import re
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -27,6 +30,26 @@ BEGIN = "# >>> nestlab >>>"
 
 
 class SetHooksTest(unittest.TestCase):
+    def test_task_docs_command_install_and_external_execution(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.home)
+        folder = self.home / ".local" / "bin"
+        external = self.home / "project"
+        external.mkdir()
+        with mock.patch.dict(os.environ, {"PATH": str(folder) + os.pathsep + os.environ.get("PATH", "")}):
+            lines = set_hooks.install_task_docs(self.home)
+            self.assertIn("- nestlab-task-docs 커맨드 해석: 설치 위치 확인", lines)
+            command = (["cmd", "/d", "/c", "nestlab-task-docs"] if sys.platform == "win32" else ["nestlab-task-docs"])
+            output = subprocess.run(command + ["--print-template", "approval-implement"], cwd=external,
+                                    check=True, capture_output=True, text=True, encoding="utf-8")
+            self.assertIn("\n# 구현 승인 요청\n", output.stdout)
+            self.assertEqual(list(external.iterdir()), [])
+            managed = folder / "nestlab-task-docs.cmd"
+            managed.write_bytes(b"custom user command\r\n")
+            lines = set_hooks.install_task_docs(self.home)
+            self.assertEqual(managed.read_bytes(), b"custom user command\r\n")
+            self.assertIn("- nestlab-task-docs.cmd: 기존 파일 충돌, 보존", lines)
+
     # 임시 홈과 설정 원본을 준비한다.
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -171,17 +194,47 @@ class SetHooksTest(unittest.TestCase):
                 for h in group["hooks"]:
                     self.assertEqual(h["commandWindows"], "& " + h["command"], h["command"])
 
-    # 임시 폴더와 Nodebase 자리표시가 채워지고, archive_root가 없으면 Nodebase 항목이 빠지는지 확인한다.
-    def test_fills_temp_and_nodebase(self):
+    # 예제와 생성 설정 및 임시 홈 설치 결과는 같은 보안 파일 Read와 Edit 패턴을 갖는다.
+    def test_secret_read_edit_deny_patterns_match_sources_and_install(self):
+        expected = {"//**/.env", "//**/.env.*", "//**/secrets/**", "//**/*.pem", "//**/*.key",
+                    "//**/id_rsa*", "//**/id_ed25519*", "~/.claude/.credentials.json", "~/.codex/auth.json*"}
+        real = self.tmp / "real"
+        shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
+        set_hooks.install(real, self.bashrc, self.home)
+        paths = [set_hooks.SETTINGS / "claude/settings.example.json", set_hooks.SETTINGS / "claude/settings.json",
+                 real / "claude/settings.json", self.home / ".claude/settings.json"]
+        for path in paths:
+            denied = json.loads(path.read_text(encoding="utf-8"))["permissions"]["deny"]
+            with self.subTest(path=path):
+                read_patterns = {rule[5:-1] for rule in denied if rule.startswith("Read(") and rule.endswith(")")}
+                edit_patterns = {rule[5:-1] for rule in denied if rule.startswith("Edit(") and rule.endswith(")")}
+                self.assertEqual(read_patterns, expected)
+                self.assertEqual(edit_patterns, expected)
+
+    # 설치된 PreToolUse matcher는 Chrome과 Codex 화면 조작 도구를 hook 검사 대상에서 뺀다.
+    def test_screen_tools_skip_pretooluse(self):
+        real = self.tmp / "real"
+        shutil.copytree(set_hooks.SETTINGS, real, ignore=shutil.ignore_patterns("settings.json", "config.toml"))
+        set_hooks.install(real, self.bashrc, self.home)
+        codex = tomllib.loads((self.home / ".codex/config.toml").read_text(encoding="utf-8"))
+        claude = json.loads((self.home / ".claude/settings.json").read_text(encoding="utf-8"))
+        for groups, name in ((codex["hooks"]["PreToolUse"], "mcp__cua_repl.js"),
+                             (codex["hooks"]["PreToolUse"], "mcp__computer_use__type"),
+                             (claude["hooks"]["PreToolUse"], "mcp__claude-in-chrome__file_upload")):
+            with self.subTest(name=name):
+                self.assertFalse(any(re.fullmatch(group["matcher"], name) for group in groups))
+
+    # 임시 폴더와 위키 저장소 자리표시가 채워지고, archive_root가 없으면 위키 저장소 항목이 빠지는지 확인한다.
+    def test_fills_temp_and_wiki_repo(self):
         example = self.settings / "claude/settings.example.json"
-        example.write_text(json.dumps({"permissions": {"additionalDirectories": ["~/.claude", "<TEMP>", "<NODEBASE>"]}}),
+        example.write_text(json.dumps({"permissions": {"additionalDirectories": ["~/.claude", "<TEMP>", "<WIKI_REPO>"]}}),
                            encoding="utf-8")
         dirs = lambda: json.loads((self.settings / "claude/settings.json").read_text(encoding="utf-8"))[
             "permissions"]["additionalDirectories"]
         temp = Path(tempfile.gettempdir()).resolve().as_posix()
-        (self.settings / "local.json").write_text(json.dumps({"archive_root": "C:/nodebase"}), encoding="utf-8")
+        (self.settings / "local.json").write_text(json.dumps({"archive_root": "C:/wiki_repo"}), encoding="utf-8")
         self.run_install()
-        self.assertEqual(dirs(), ["~/.claude", temp, "C:/nodebase"])
+        self.assertEqual(dirs(), ["~/.claude", temp, "C:/wiki_repo"])
         for content in ("{}", ""):
             (self.settings / "local.json").write_text(content, encoding="utf-8")
             self.run_install()
@@ -198,6 +251,7 @@ class SetHooksTest(unittest.TestCase):
         self.assertTrue(claude["sandbox"]["enabled"])
         self.assertNotIn("ask", claude["permissions"])
         self.assertIn("Bash(cd *)", claude["permissions"]["deny"])
+        self.assertIn("Workflow", claude["permissions"]["allow"])
         self.assertEqual(claude["env"]["CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"], "1")
         cfg = tomllib.loads((self.home / ".codex/config.toml").read_text(encoding="utf-8"))
         self.assertEqual(cfg["sandbox_mode"], "workspace-write")
@@ -248,12 +302,15 @@ class SetHooksTest(unittest.TestCase):
         k = len(set_hooks.PREFIX_RE.findall(block))
         self.assertEqual(lines[4], f"- ~/.codex/rules/default.rules: prefix_rule {k}개 (블록 밖 1개)")
         self.assertEqual(lines[0], "설치 완료")
-        self.assertEqual(len(lines), 5)
-        self.assertIn(f"~/.codex/config.toml: nestlab hook 명령 {n}개", lines[3])
+        self.assertEqual(lines[5:7], ["- nestlab-task-docs: 설치", "- nestlab-task-docs.cmd: 설치"])
+        self.assertEqual(lines[7:], ["- nestlab-task-docs 커맨드 해석: PATH에서 설치 위치 확인 필요"])
+        for path, expected in set_hooks.launcher_files(self.home).items():
+            self.assertEqual(path.read_bytes(), expected.encode("utf-8"))
+        self.assertIn(f"~/.codex/config.toml: nestlab hook 커맨드 {n}개", lines[3])
         self.assertIn(f'sandbox_mode = "{cfg["sandbox_mode"]}"', lines[3])
         self.assertTrue(lines[4].startswith("- ~/.codex/rules/default.rules: prefix_rule "))
 
-    # hooks 항목이 없는 빈 그룹이 있어도 nestlab hook 명령만 세는지 확인한다.
+    # hooks 항목이 없는 빈 그룹이 있어도 nestlab hook 커맨드만 세는지 확인한다.
     def test_count_hooks_ignores_group_without_hooks(self):
         hooks = {"UserPromptSubmit": [{}],
                  "Stop": [{"hooks": [{"command": "py nestlab/hooks/a.py"}, {"command": "other"}]}]}

@@ -1,6 +1,6 @@
 """PreToolUse hook(SubagentHandback): researcher 보고는 조사 문서에, reviewer 반증 보고는 반증 문서에 저장하고 보고를 경로 한 줄로 바꾼다.
 
-호출자: SubagentHandback PreToolUse hook 설정(shared/settings)
+호출자: SubagentHandback PreToolUse hook 설정(설정 원본)
 반환: 
 - stdout에 `hookSpecificOutput` JSON(allow와 updatedInput, 또는 deny와 사유)을 출력한다.
 - replace()는 그 dict 또는 None을 반환한다.
@@ -20,8 +20,9 @@ from return_research_path import RESEARCH_LINE, SLOT_FINAL, SLOT_ROUND
 from save_subagent_result import write_result
 from sub_call import refute_mode
 from sub_docs import SAVED_LINE, doc, loop_count, saved_report, task_id
-from sub_role import first_prompt, resolve_role
+from sub_role import director_assignment, first_prompt, resolve_role
 from sub_session import agent_transcript
+from sub_worktree import pending_transfer
 
 
 # 출력할 JSON이다. 바꿀 것이 없으면 None이다.
@@ -30,20 +31,34 @@ def replace(data: dict) -> dict | None:
     tin = data.get("tool_input") or {}
     message = str(tin.get("message") or "").strip()
     role = resolve_role(data)
-    if data.get("tool_name") != "SubagentHandback" or not message \
+    # 전달 기록이 남은 worktree의 worker와 documenter는 반영 전 보고하지 못하게 차단한다.
+    if data.get("tool_name") == "SubagentHandback" and role in ("worker", "documenter") and data.get("agent_id"):
+        reason = pending_transfer(data.get("cwd"))
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                       "permissionDecisionReason": reason}} if reason else None
+    if data.get("tool_name") != "SubagentHandback" \
             or role not in ("researcher", "reviewer"):
         return None
 
     # 하위 요청에서 조사 문서를 찾고, 이미 저장된 보고나 대상 아닌 호출은 건너뛴다.
-    prompt = first_prompt(agent_transcript(data))
+    path = agent_transcript(data)
+    if not director_assignment(data, path):
+        return None
+    prompt = first_prompt(path)
     line = RESEARCH_LINE.search(prompt)
     refute = role == "reviewer" and refute_mode(prompt)
     if saved_report(message, data.get("cwd"), refute) or not line or (role == "reviewer" and not refute):
         return None
+    if not message:
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                       "permissionDecisionReason": "결과 보고가 비어 있습니다. 조사 또는 반증 결과를 제출하십시오."}}
     tid = task_id(prompt)
     target = doc(tid, "refute" if refute else "research", data.get("cwd")) if tid else None
-    if not target or not target.is_file():
+    if not target:
         return None
+    if not target.is_file():
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                       "permissionDecisionReason": f"결과를 저장할 문서가 없습니다: {target}"}}
 
     # 보고를 조사 문서에 저장하고, 실패하면 deny한다.
     reason = write_result(target, prompt, message, refute)
@@ -54,11 +69,13 @@ def replace(data: dict) -> dict | None:
     # 보고를 저장 위치 안내 문장으로 바꿔 허용한다.
     slot = SLOT_ROUND.format(n=loop_count(target.read_text(encoding="utf-8"))) if refute else SLOT_FINAL
     text = SAVED_LINE.format(path=line.group(0).split(": ", 1)[1].strip(), slot=slot)
+    if not saved_report(text, data.get("cwd"), refute):
+        return None
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
                                    "updatedInput": {**tin, "message": text}}}
 
 
-REASON_SAVE_ERROR = "조사 결과를 저장하는 중 {error} 오류가 났습니다. 보고를 다시 제출하십시오."
+REASON_SAVE_ERROR = "조사 결과를 저장하는 중 {error} 오류가 발생했습니다. 보고를 다시 제출하십시오."
 
 # stdin의 hook 입력으로 보고를 저장하고 allow 또는 deny JSON을 출력한다. 항상 0을 반환한다.
 def main() -> int:
@@ -75,7 +92,7 @@ def main() -> int:
     try:
         out = replace(data)
     except Exception as error:
-        # 저장 중 오류는 통과시키지 않는다. 보고가 저장되지 않으면 조사 원문 칸이 비어 다음 단계 검사가 막는다.
+        # 저장 중 오류는 통과시키지 않는다. 보고가 저장되지 않으면 조사 원문 칸이 비어 다음 단계 검사가 차단한다.
         if data.get("tool_name") != "SubagentHandback":
             return 0
         out = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",

@@ -1,13 +1,12 @@
 """hook이 쓰는 작업 문서 경로와 문서 절을 읽는다.
-경로 값은 공통 지침 `경로 목록`의 경과, 명세, 조사, 반증 문서 행과 같다.
-log/state의 기존 작업 문서는 임시로 기존 경로와 기존 절 이름으로 읽는다.
+작업 문서는 작업 폴더의 status, spec, research, refute 파일이며 양식은 작업 문서 양식 폴더에서 읽는다.
 
 호출자:
 - hooks/check_tool_use.py와 그 하위 모듈
 - hooks/check_invalid_response.py
 - hooks/check_workflow_response.py
 - hooks/save_subagent_result.py
-- hooks/common/sub_workflow.py
+- hooks/common/sub_document.py, hooks/common/sub_gate.py
 입력: 작업 ID, 작업 문서 본문, 저장소 경로
 반환:
 - record_leak는 사건 문서 경로나 세션 기록 정보가 든 첫 줄 또는 None
@@ -18,8 +17,9 @@ log/state의 기존 작업 문서는 임시로 기존 경로와 기존 절 이�
 - loop_count는 반증 회차 수
 - titles와 missing_titles는 제목 목록
 - section은 절 본문 문자열
-- review_done은 검토 필요 상태의 허용 값 튜플(스킬 원본을 읽지 못하면 ValueError)
-- measure_pending은 실측 필요 절의 미완료 항목 이름 목록
+- review_pending은 경과 문서 검토 필요 절에서 확정 답이 없는 항목 이름 목록
+- review_done_numbers는 확정 답이 있는 검토 번호 집합
+- measure_pending은 모델 호출 실측 필요 절의 미완료 항목 이름 목록
 - saved_report는 bool
 - 차단 사유 문자열은 없음
 """
@@ -29,19 +29,14 @@ import re
 import subprocess
 from pathlib import Path
 
+from sub_paths import SKILL_DIR, TASK_REL, TEMPLATE_DIR
+
 ROOT = Path(__file__).resolve().parents[2]
 # 문서 종류별 작업 폴더 안 파일 이름이다.
 FILE = {"state": "status", "input": "spec", "research": "research", "refute": "refute"}
-# 임시: log/state 기존 작업 문서의 파일 접미사이다. 기존 로그 삭제 뒤 제거한다.
-LEGACY_SUFFIX = {"state": "", "input": "-input", "research": "-research"}
-# 둘째 갈래는 임시 경로이다. 기존 로그 삭제 뒤 제거한다.
 TASK_ID = re.compile(
-    r"^(?:명세|입력|상태|조사|반증) 문서: (?:log/task/([\w.\-]+)/(?:status|spec|research|refute)\.md"
-    r"|log/state/([\w.\-]+?)(?:-input|-research)?\.md)\s*$", re.M)
-# 둘째 갈래는 임시 경로이다. 기존 로그 삭제 뒤 제거한다.
-DOC_PATH = re.compile(
-    r"^log/task/[\w.\-]+/(status|spec|research|refute)\.md$"
-    r"|^log/state/(?!\.)[\w.\-]+?(-input|-research)?\.md$")
+    rf"^input: {TASK_REL}/([\w.\-]+)/(?:status|spec|research|refute)\.md\s*$", re.M)
+DOC_PATH = re.compile(rf"^{TASK_REL}/[\w.\-]+/(status|spec|research|refute)\.md$")
 LOOP_ROW = re.compile(r"^\| *(\d+) *\|", re.M)
 HEADING = re.compile(r"^(#{1,6}) (.*)$")
 TOKEN = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'|[^\s;&|<>()=\"']+")
@@ -74,17 +69,14 @@ def project_root(cwd: str | Path | None = None) -> Path:
     return base
 
 
-# 임시: log/state 기존 문서의 기존 절 이름이다. 기존 로그 삭제 뒤 제거한다.
+# 기존 문서의 이전 절 이름이다. `구현 승인`의 이전 명칭 `실행 승인`과 임시 기존 이름 `검수`를 읽는다.
 def legacy(title: str) -> str:
-    return title.replace("검증", "검수")  # 임시 기존 이름
+    return title.replace("검증", "검수").replace("구현 승인", "실행 승인").replace("조사 승인", "착수 승인")
 
 
 # 저장소 루트, 작업 ID, 문서 종류(state, input, research, refute)로 작업 문서 경로를 반환한다.
-# 작업 폴더에 문서가 없고 log/state에 기존 문서가 있으면 기존 경로를 반환한다.
 def task_doc(root: Path, task: str, kind: str) -> Path:
-    new = root / "log" / "task" / task / f"{FILE[kind]}.md"
-    old = root / "log" / "state" / f"{task}{LEGACY_SUFFIX.get(kind, '-' + kind)}.md"  # 임시 기존 경로
-    return old if not new.exists() and old.exists() else new
+    return root / TASK_REL / task / f"{FILE[kind]}.md"
 
 
 # 작업 ID와 문서 종류로 작업 문서 경로를 반환한다.
@@ -92,22 +84,15 @@ def doc(task: str, kind: str, cwd: str | Path | None = None) -> Path:
     return task_doc(project_root(cwd), task, kind)
 
 
-# 같은 작업의 다른 종류 문서 경로이다. 기존 log/state 문서는 기존 경로를 쓴다.
+# 같은 작업의 다른 종류 문서 경로이다.
 def sibling(path: Path, kind: str) -> Path:
-    if path.parent.parent.name == "task":
-        return path.with_name(f"{FILE[kind]}.md")
-    task = re.sub(r"-(?:input|research)$", "", path.stem)  # 임시 기존 경로
-    return path.with_name(f"{task}{LEGACY_SUFFIX.get(kind, '-' + kind)}.md")
+    return path.with_name(f"{FILE[kind]}.md")
 
 
 # 저장소 기준 상대 경로가 작업 문서면 종류(state, input, research, refute)이다. 아니면 None이다.
 def doc_kind(rel: str) -> str | None:
     m = DOC_PATH.match(rel)
-    if not m:
-        return None
-    if m.group(1):
-        return next(k for k, v in FILE.items() if v == m.group(1))
-    return {"-input": "input", "-research": "research", None: "state"}[m.group(2)]  # 임시 기존 경로
+    return next(k for k, v in FILE.items() if v == m.group(1)) if m else None
 
 
 # 반증 문서(또는 기존 조사 문서) 본문에서 `조사 및 반증 루프` 절 안의 회차 행 수이다.
@@ -118,13 +103,12 @@ def loop_count(text: str) -> int:
 # 문장에 적힌 작업 문서 경로에서 작업 ID를 반환한다. 없으면 None이다.
 def task_id(text: str) -> str | None:
     m = TASK_ID.search(text or "")
-    return (m.group(1) or m.group(2)) if m else None
+    return m.group(1) if m else None
 
 
 SAVED_LINE = "조사 결과를 {path}의 `{slot}` 칸에 저장했습니다."
-# 둘째 갈래는 임시 경로이다. 기존 로그 삭제 뒤 제거한다.
 SAVED_REPORT = re.compile(
-    r"^조사 결과를 (log/task/[\w.\-]+/(?:research|refute)\.md|log/state/[\w.\-]+-research\.md)"
+    rf"^조사 결과를 ({TASK_REL}/[\w.\-]+/(?:research|refute)\.md)"
     r"의 `([^`\n]+)` 칸에 저장했습니다\.$")
 
 
@@ -139,21 +123,37 @@ def saved_report(report: str, cwd: str | Path | None = None, refute: bool = Fals
     except OSError:
         return False
 
-    # 칸의 원문 코드 블록이 비어 있지 않은지 확인한다. 절은 제목 문자열로 찾고 `#` 개수는 보지 않는다.
+    # 결과 절이면 절 본문에 자리표시자가 아닌 결과 블록이 있는지, 기존 칸이면 원문 코드 블록이 비어 있지 않은지 확인한다.
+    # 절은 제목 문자열로 찾고 `#` 개수는 보지 않는다.
     slot = m.group(2).strip()
-    block = re.search(rf"^#{{1,6}} {re.escape(slot)}[^\n]*\n+(`{{3,}})[^\n]*\n(.*?)\n\1[ \t]*$", text, re.M | re.S)
-    body = block.group(2).strip() if block else ""
-    if not body:
-        return False
+    if slot == "조사 결과" or slot.endswith("회차 반증 결과"):
+        found = re.search(rf"^(#{{1,6}}) {re.escape(slot)}[ \t]*$", text, re.M)
+        rest = text[found.end():] if found else ""
+        nxt = re.search(rf"^#{{1,{len(found[1])}}} ", rest, re.M) if found else None
+        inner = rest[:nxt.start()] if nxt else rest
+        if not (re.search(r"(?m)^### (?![^\n]*<)\S", inner) if slot == "조사 결과" else inner.strip()):
+            return False
+    else:
+        block = re.search(rf"^#{{1,6}} {re.escape(slot)}[^\n]*\n+(`{{3,}})[^\n]*\n(.*?)\n\1[ \t]*$", text, re.M | re.S)
+        body = block.group(2).strip() if block else ""
+        if not body or body == "기록 없음" or body.startswith("<"):
+            return False
 
     # 반증 보고는 마지막 회차 칸이어야 한다.
     if refute:
-        rounds = [int(n) for n in re.findall(r"^#{1,6} (\d+)회차 반증 원문", text, re.M)]
-        return bool(rounds) and slot == f"{max(rounds)}회차 반증 원문"
+        rounds = [int(n) for n in re.findall(r"^#{1,6} (\d+)회차 반증 (?:원문|결과)", text, re.M)]
+        return bool(rounds) and slot in (f"{max(rounds)}회차 반증 원문", f"{max(rounds)}회차 반증 결과")
     return True
 
 
-SKILLS = ROOT / "shared" / "skills"
+SKILLS = SKILL_DIR
+TEMPLATES = TEMPLATE_DIR
+TEMPLATE_NAMES = {"state": "log-status", "input": "log-spec", "research": "log-research", "refute": "log-refute",
+                  "nestlab-log-incident": "log-incident", "nestlab-approval": "approval-implement",
+                  "nestlab-kickoff": "approval-research"}
+# 응답 양식 이름이다. 생성기의 `--print-template` 인자와 같다.
+RESPONSE_TEMPLATES = ("question-kickoff", "question-choice", "request-choice", "request-stop", "approval-complete",
+                      "approval-research", "approval-implement", "approval-measure")
 FENCE_LINE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
@@ -193,24 +193,25 @@ def first_block(text: str) -> str:
     return "\n".join(out)
 
 
-# 스킬 본문 Template 절 첫 코드 블록의 제목 중 자리표시(`<...>`)가 없는 것이다. 없으면 빈 목록이다.
+# 독립 양식의 제목 중 자리표시가 없는 제목을 반환한다.
 def template_titles(skill: str) -> list[str]:
-    path = SKILLS / skill / "SKILL.md"
-    body = section(path.read_text(encoding="utf-8"), TEMPLATE_TITLE) if path.is_file() else ""
-    return [t for t in titles(first_block(body)) if "<" not in t]
+    return [t for t in titles(template_text(skill)) if "<" not in t]
 
 
-# 스킬 본문 Template 절 첫 코드 블록 전문이다. 스킬이 없으면 빈 문자열이다.
+# 독립 원본의 파일 전체 내용을 반환한다. 알 수 없는 양식은 오류로 보고한다.
+# 작업 문서 종류 이름(status, spec, research, refute, incident)은 `log-` 양식으로 연결한다.
 def template_text(skill: str) -> str:
-    path = SKILLS / skill / "SKILL.md"
-    return first_block(section(path.read_text(encoding="utf-8"), TEMPLATE_TITLE)) if path.is_file() else ""
+    name = TEMPLATE_NAMES.get(skill, skill)
+    if f"log-{name}" in TEMPLATE_NAMES.values():
+        name = f"log-{name}"
+    if name not in (*TEMPLATE_NAMES.values(), *RESPONSE_TEMPLATES):
+        raise ValueError(f"알 수 없는 양식: {skill}")
+    return (TEMPLATES / f"{name}.md").read_text(encoding="utf-8").rstrip("\n")
 
 
-# 스킬 본문 Template 절 첫 코드 블록 안의 title 절 본문이다. 스킬이나 절이 없으면 빈 문자열이다.
+# 독립 양식의 지정 절 본문을 반환한다.
 def template_section(skill: str, title: str) -> str:
-    path = SKILLS / skill / "SKILL.md"
-    body = section(path.read_text(encoding="utf-8"), TEMPLATE_TITLE) if path.is_file() else ""
-    return section(first_block(body), title)
+    return section(template_text(skill), title)
 
 
 # 템플릿 필수 제목 중 new에 없는 것이다. old가 있으면 old에 있던 제목만 따진다(이전 양식 문서 보존).
@@ -228,6 +229,9 @@ def missing_titles(new: str, skill: str, old: str = "") -> list[str]:
 
 # title로 시작하는 제목 절의 본문을 같은 수준 이상의 다음 제목 전까지 반환한다. 코드 블록 안의 줄은 제목이 아니다. 없으면 빈 문자열이다.
 def section(text: str, title: str) -> str:
+    # 새 승인 제목이 있으면 파일 순서와 무관하게 새 절을 기준으로 읽는다.
+    if title == "조사 승인 범위" and title in titles(text):
+        text = re.sub(r"(?m)^(#{1,6}) 착수 승인 범위\s*$", r"\1 이전 승인 범위", text)
     # 제목 줄부터 같은 수준 이상의 다음 제목 전까지 줄을 추출한다.
     out: list[str] = []
     level = None
@@ -307,9 +311,11 @@ def strip_comments(text: str) -> str:
     return text if comment else "".join(out)
 
 
-# log/task 아래 작업 문서면 코드 블록 밖 HTML 주석을 지워 파일에 다시 쓴다. 문서가 아니거나 읽지 못하면 건너뛴다.
+# 작업 폴더 아래 작업 문서나 사건 폴더 아래 사건 문서면 코드 블록 밖 HTML 주석을 지워 파일에 다시 쓴다. 문서가 아니거나 읽지 못하면 건너뛴다.
 def strip_task_comments(path: Path) -> None:
-    if path.suffix != ".md" or path.parent.parent.name != "task" or path.parent.parent.parent.name != "log":
+    task_doc_path = path.parent.parent.name == "task" and path.parent.parent.parent.name == "log"
+    incident_doc_path = path.parent.name == "incident" and path.parent.parent.name == "log"
+    if path.suffix != ".md" or not (task_doc_path or incident_doc_path):
         return
     try:
         old = path.read_bytes().decode("utf-8")
@@ -320,39 +326,70 @@ def strip_task_comments(path: Path) -> None:
         pass
 
 
-REVIEW_COMMENT = re.compile(r"<!--\s*모든 목록이\s*(.+?)\s*일 때 승인 가능\s*-->")
-
-# 명세 문서에 검토 절이 있으면 확정 기록 경로로 쓰고, 기존 형식은 원래 경로에서 읽는다.
-def decision_path(path: Path, kind: str = "state") -> Path:
-    spec = sibling(path, "input")
-    if spec.is_file() and "검토" in titles(spec.read_text(encoding="utf-8-sig")):
-        return spec
-    return sibling(path, kind)
+# 경과 문서 검토 필요 절의 확정 줄 형식이다. 확정 안 자리에는 안 라벨 또는 `폐기`가 온다.
+REVIEW_LINE = re.compile(r"^- 검토 (\d+)\. ([^:\n]+): (.+?) \(사용자 검토 시각: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)\s*$")
+LEGACY_REVIEW_DONE = re.compile(r"(?m)^\s*- 상태:\s*(?:검토 완료|폐기)\s*$")
 
 
-# 명세 양식 주석에서 검토 필요 상태의 허용 값 튜플을 읽는다.
-def review_done() -> tuple[str, ...]:
-    try:
-        text = (SKILLS / "nestlab-log-spec" / "SKILL.md").read_text(encoding="utf-8")
-    except OSError as error:
-        raise ValueError(f"nestlab-log-spec 스킬 원본을 읽지 못했습니다({error}).")
-    match = REVIEW_COMMENT.search(text)
-    if not match:
-        raise ValueError("nestlab-log-spec 템플릿에 `모든 목록이 ... 일 때 승인 가능` 주석이 없습니다.")
-    return tuple(re.split(r"\s*(?:또는|,)\s*", match[1]))
+# 경과 문서 검토 필요 절의 (항목 첫 줄, 확정 여부) 목록이다. 양식 자리표시 항목은 뺀다.
+# 기존 문서의 `- 상태: 검토 완료` 하위 줄도 확정으로 읽는다.
+def review_entries(text: str) -> list[tuple[str, bool]]:
+    body = strip_comments(section(text, "검토 필요"))
+    out = []
+    for item in re.split(r"(?m)^(?=- )", body):
+        first = item.splitlines()[0] if item.strip() else ""
+        if first.startswith("- ") and not re.search(r"<[^<>\n]+>", first):
+            out.append((first, bool(REVIEW_LINE.match(first) or LEGACY_REVIEW_DONE.search(item))))
+    return out
 
 
-# 경과 문서 실측 필요 절에서 상태가 `실측 완료`가 아닌 항목 이름 목록을 반환한다. times는 포함할 시점(사전, 사후)이며 `사후`가 아닌 시점은 사전으로 본다.
-def measure_pending(text: str, times: tuple[str, ...] = ("사전",)) -> list[str]:
+# 경과 문서 검토 필요 절에서 확정 답이 없는 항목 이름 목록이다.
+def review_pending(text: str) -> list[str]:
+    return [m[1] if (m := re.match(r"- (검토 \d+\.[^:\n]*)", line)) else line[2:42] for line, done in review_entries(text) if not done]
+
+
+# 경과 문서 검토 필요 절에서 확정 답이 있는 검토 번호 집합이다.
+def review_done_numbers(text: str) -> set[str]:
+    return {m[1] for line, done in review_entries(text) if done and (m := re.match(r"- 검토 (\d+)\.", line))}
+
+
+# 경과 문서 문제 정의 절의 {문제 번호: (확인 시각 기록 여부, 폐기 여부)}이다. 양식 자리표시 항목은 뺀다.
+# 확인 시각이 `기록 없음`이면 확인 시각이 없는 것으로 읽는다.
+def problem_entries(text: str) -> dict[int, tuple[bool, bool]]:
+    out = {}
+    for item in re.split(r"(?m)^(?=- )", strip_comments(section(text, "문제 정의"))):
+        m = re.match(r"- 문제 (\d+)\. (폐기: )?(.+)", item)
+        if not m or re.search(r"<[^<>\n]+>", item.splitlines()[0]):
+            continue
+        stamp = re.search(r"(?m)^\s+- 사용자 확인 시각:\s*(\S.*?)\s*$", item)
+        out[int(m[1])] = (bool(stamp and stamp[1] != "기록 없음" and not stamp[1].startswith("<")), bool(m[2]))
+    return out
+
+
+# 경과 문서 구현 승인 범위의 연결 대상에 적힌 요구사항 번호 집합이다. 번호가 없으면 None이다.
+def approval_targets(text: str) -> set[str] | None:
+    link = re.search(r"(?m)^\s*-\s*연결 대상:\s*(.+)$", section(text, "구현 승인 범위"))
+    numbers = {n for group in re.findall(r"요구사항\s*((?:\d+\s*[,~와과및-]?\s*)+)", link[1]) for n in re.findall(r"\d+", group)} if link else set()
+    return numbers or None
+
+
+# 경과 문서 모델 호출 실측 필요 절(기존 이름 `실측 필요`도 읽는다)에서 상태가 `모델 호출 실측 완료`(기존 `실측 완료`)가 아닌 항목 이름 목록을 반환한다. times는 포함할 시점(사전, 사후)이며 `사후`가 아닌 시점은 사전으로 본다.
+# targets가 있으면 `- 요구사항:` 칸의 번호가 targets와 겹치지 않는 항목은 승인 대상과 무관하므로 뺀다.
+def measure_pending(text: str, times: tuple[str, ...] = ("사전",), targets: set[str] | None = None) -> list[str]:
     # 항목은 0칸 들여쓴 `- ` 줄이고, 본문은 다음 항목 줄 전까지이다.
-    body = section(text, "실측 필요")
+    body = section(text, "모델 호출 실측 필요") or section(text, "실측 필요")
     starts = list(re.finditer(r"(?m)^- (.+)$", body))
     out = []
     for i, m in enumerate(starts):
+        if re.fullmatch(r"<[^<>]*>", m[1].strip()):  # 양식 자리표시 항목은 실측 항목이 아니다.
+            continue
         item = body[m.end():(starts[i + 1].start() if i + 1 < len(starts) else len(body))]
         when = re.search(r"^\s*- 시점:\s*(.+?)\s*$", item, re.M)
         state = re.search(r"^\s*- 상태:\s*(.+?)\s*$", item, re.M)
+        linked = re.search(r"^\s*- 요구사항:\s*(.+?)\s*$", item, re.M)
+        if targets and linked and re.findall(r"\d+", linked[1]) and not targets & set(re.findall(r"\d+", linked[1])):
+            continue
         kind = "사후" if when and when[1] == "사후" else "사전"
-        if kind in times and not (state and state[1] == "실측 완료"):
+        if kind in times and not (state and state[1] in ("모델 호출 실측 완료", "실측 완료")):
             out.append(m[1].strip())
     return out

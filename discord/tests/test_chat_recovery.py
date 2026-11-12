@@ -118,8 +118,8 @@ class HandoffAndEvidenceTests(unittest.TestCase):
 
     # 무작위 선택 전에 마지막 답장 화자를 대체로 쓰는지 확인한다.
     def test_last_replier_is_fallback_before_random_pick(self) -> None:
-        history = [(1, 0.0, "폴리", "a", 1), (2, 0.0, "rio", "b", 2), (3, 0.0, "jelly", "c", 3),
-                   (4, 0.0, "폴리", "d", 4), (5, 0.0, "pepper", "e", 5), (6, 0.0, "rio", "f", 6)]
+        history = [(1, 0.0, "user", "a", 1), (2, 0.0, "rio", "b", 2), (3, 0.0, "jelly", "c", 3),
+                   (4, 0.0, "user", "d", 4), (5, 0.0, "pepper", "e", 5), (6, 0.0, "rio", "f", 6)]
         runtime = SimpleNamespace(
             bot_id_to_name=Mock(return_value={}),
             config=SimpleNamespace(agents=[SimpleNamespace(name=n, korean_name=n) for n in ("rio", "jelly", "pepper")]),

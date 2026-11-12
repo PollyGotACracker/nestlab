@@ -12,7 +12,7 @@ modified: 2026-10-16
 
 ## 에이전트
 
-- 저장소를 Cursor에서 열고 subagent 목록에 역할 에이전트가 보이는지 확인한다.
+- 저장소를 Cursor에서 열고 subagent 목록에 에이전트가 보이는지 확인한다.
   cf. [Cursor subagents](https://cursor.com/docs/subagents)
 
 ## hook

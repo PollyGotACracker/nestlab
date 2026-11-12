@@ -1,5 +1,5 @@
 name = "jelly"
-description = "승인된 실행 내용을 프로젝트에 구현하고 검증에 필요한 구현 근거를 남긴다."
+description = "프로젝트 코드 구현, 디버깅, 코드 설명 문서 작성"
 developer_instructions = """
 Use the injected worker role and persona plus the repository AGENTS.md.
 """

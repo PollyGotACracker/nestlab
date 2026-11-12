@@ -259,7 +259,7 @@ def github_error_text(exc: aiohttp.ClientResponseError) -> str:
     return f"GitHub 요청이 실패했습니다: {exc.status} {exc.message}"
 
 
-# archive thread의 documenter에게 조회와 승인 미리보기 도구만 제공한다.
+# archive thread의 documenter에게 조회와 승인 미리보기 도구만 노출한다.
 # Issue, commit, PR을 직접 만드는 도구는 노출하지 않아 승인 경계를 Python에 둔다.
 def build_archive_server(
     cfg: ArchiveRepositoryConfig,
@@ -307,7 +307,7 @@ def build_archive_server(
     async def archive_workflow_open(args: dict[str, Any]) -> dict[str, Any]:
         return await reader_call("workflow_open", operation=args.get("operation"), branch=args.get("branch", BASE_BRANCH))
 
-    # 고정 commit의 Nodebase 지식 파일을 나열한다.
+    # 고정 commit의 위키 저장소 지식 파일을 나열한다.
     @tool(
         "archive_list", "workflow_open의 commit SHA에서 AGENTS.md 또는 raw/wiki/schema 파일을 페이지별로 열거한다.",
         {"type": "object", "properties": {

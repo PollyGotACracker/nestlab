@@ -1,4 +1,4 @@
-"""hook 입력에서 쓰기 대상 경로와 새로 들어가는 내용을 읽고, Bash 쓰기 명령을 판정하는 공용 함수이다.
+"""hook 입력에서 쓰기 대상 경로와 새로 들어가는 내용을 읽고, Bash 쓰기 커맨드를 판정하는 공용 함수이다.
 
 호출자:
 - hooks/check_tool_use.py
@@ -7,10 +7,10 @@
 반환:
 - bash_write_reason, prompt_reason, git_write_reason, description_reason: 차단 사유 문자열 또는 통과 시 None
 - is_write_bash: bool
-- command_parts: 하위 명령 문자열 목록
+- command_parts: 하위 커맨드 문자열 목록
 - interpreter_kind: "inline", "script" 또는 None
 - targets: 쓰기 대상 Path 목록(쓰기가 아니면 None, 대상을 모르는 쓰기는 빈 목록)
-- added_lines: (새로 들어가는 줄 목록, 쓰기 후 전문 또는 None)
+- added_lines: (새로 들어가는 줄 목록, 쓰기 후 파일 전체 내용 또는 None)
 한계: 정적 패턴 판정이라 임의 프로그램 내부의 쓰기는 판별하지 못한다. 인라인 코드의 쓰기 호출 판정은 문자열 패턴 검사라 함수 이름을 조립하는 코드는 잡지 못한다.
 """
 from __future__ import annotations
@@ -19,11 +19,11 @@ import re
 from pathlib import Path
 
 # Bash 쓰기 판정은 패턴 기반이다.
-# 우회한 저장소 밖 쓰기는 Codex 권한 프로필과 Claude Code 샌드박스가 2차로 막는다.
+# 우회한 저장소 밖 쓰기는 Codex 권한 프로필과 Claude Code 샌드박스가 2차로 차단한다.
 # 따옴표 안 문자열과 heredoc 본문은 지우고 확인한다.
 # 리다이렉트 대상이 &(2>&1)거나 null 장치(/dev/null, $null, NUL)면 쓰기로 보지 않는다.
 SHELLS = ("Bash", "PowerShell")
-RETRY = "권한 내 다른 방식으로 작업을 재시도하십시오. 승인으로 풀리는 차단은 직접 수행할 조작의 승인을 요청하십시오."
+RETRY = "사유에 맞게 호출을 고쳐 다시 실행하십시오. 승인으로 풀리는 차단은 직접 수행할 조작의 승인을 요청하십시오."
 APPROVAL_RETRY = "승인이 필요한 변경이면 nestlab-approval 스킬로 작업 문서와 변경 diff를 갖춘 승인 요청을 작성하십시오."
 QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", re.S)
@@ -33,18 +33,18 @@ WRITE_BASH = re.compile(r"(^|[;&|]\s*)(rm|rmdir|mv|cp|mkdir|touch|tee|Set-Conten
 PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 
 
-# 따옴표 안과 heredoc 본문을 지운 명령을 반환한다.
+# 따옴표 안과 heredoc 본문을 지운 커맨드를 반환한다.
 def plain(command: str) -> str:
     return QUOTED.sub('""', HEREDOC.sub("", command))
 
 
-# 따옴표 안과 heredoc 본문을 지운 명령에 쓰기 패턴이 있으면 True를 반환한다.
+# 따옴표 안과 heredoc 본문을 지운 커맨드에 쓰기 패턴이 있으면 True를 반환한다.
 def is_write_bash(command: str) -> bool:
     return bool(WRITE_BASH.search(plain(command)))
 
 
 # 전용 도구(Claude의 Edit과 Write, Codex의 apply_patch)로 대신할 수 있는 내용 쓰기이다.
-# 하위 명령 하나라도 맞으면 deny한다.
+# 하위 커맨드 하나라도 맞으면 deny한다.
 # rm, mv, cp, mkdir은 대신할 도구가 없어 이 판정이 아닌 is_write_bash가 맡는다.
 SUBCOMMAND = re.compile(r"\|\||&&|\|&|[;|&\n]")
 SHELL_C = re.compile(r"(?:^|[\s;&|(])(?:(?:ba|z)?sh\s+-[a-z]*c|(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|command))"
@@ -54,7 +54,7 @@ CONTENT_WRITE = re.compile(
 # 인터프리터 옵션이다. `-X utf8`과 `-W ignore`만 값을 따로 받는다.
 OPTIONS = r"(?:\s+(?:-[XW]\s+[\w=,.:]+|-[A-Za-z]+))*"
 INLINE_CODE = re.compile(rf"^(?:python3?|py|node|perl|ruby)(?:\.exe)?\b{OPTIONS}\s+-(?:c|e)\b"
-                         rf"|^(?:python3?|py|node)(?:\.exe)?{OPTIONS}\s+-\s*(?:<<|$)")
+                         rf"|^(?:python3?|py|node)(?:\.exe)?{OPTIONS}\s+-(?=\s|<<|$)")
 # 인라인 코드 안의 파일 쓰기, 삭제, 프로세스 실행 호출이다.
 WRITE_CALL = re.compile(
     r"\bopen\s*\(\s*[^,)]+,\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+][rbt+]*['\"]|\.open\(\s*['\"][rbt]*[wax+]"
@@ -66,21 +66,22 @@ REDIRECT = re.compile(r"(?<![<&>\d=-])\d?>{1,2}(?!&)\s*([^\s>]+)")
 NULL = re.compile(r"^(?:/dev/null|\$null|NUL)$", re.I)
 PREFIX = re.compile(r"^(?:(?:sudo|command|exec|env|time|nohup)\s+|[A-Za-z_]\w*=\S*\s+)+")
 AMPERSAND = re.compile(r"\d*>&\d*|&>")
+FD_MERGE = re.compile(r"(?<!\S)\d+>&\d+(?=\s|[;&|]|$)")
 
-REASON_INLINE = "이 명령은 파일을 쓰거나 지우는 인라인 코드를 실행합니다. " + RETRY
-REASON_REDIRECT = "이 명령은 리다이렉트로 `{target}`에 내용을 씁니다. " + RETRY
-REASON_CONTENT = "이 명령은 `{command}`로 파일 내용을 씁니다. " + RETRY
+REASON_INLINE = "이 커맨드는 파일을 쓰거나 지우는 인라인 코드를 실행합니다. " + RETRY
+REASON_REDIRECT = "이 커맨드는 리다이렉트로 `{target}`에 내용을 씁니다. 파일을 쓰는 대신 명령 출력으로 즉시 처리하십시오."
+REASON_CONTENT = "이 커맨드는 `{command}`로 파일 내용을 씁니다. " + RETRY
 
 
 # 전용 도구로 대신할 내용 쓰기면 사유를 반환한다. 읽기와 테스트, 쓰기 호출이 없는 인라인 코드는 None이다.
 def bash_write_reason(command: str) -> str | None:
-    # sh -c 안의 명령을 먼저 같은 규칙으로 검사한다.
+    # sh -c 안의 커맨드를 먼저 같은 규칙으로 검사한다.
     for inner in SHELL_C.findall(command):
         reason = bash_write_reason(inner[1:-1])
         if reason:
             return reason
 
-    # 인라인 코드의 쓰기 호출은 heredoc 본문까지 포함한 원문에서 찾고, 나머지 판정은 heredoc 본문을 뺀 명령으로 한다.
+    # 인라인 코드의 쓰기 호출은 heredoc 본문까지 포함한 원문에서 찾고, 나머지 판정은 heredoc 본문을 뺀 커맨드로 한다.
     writes = bool(WRITE_CALL.search(command))
     command = HEREDOC.sub("", command)
     quoted: list[str] = []
@@ -90,15 +91,15 @@ def bash_write_reason(command: str) -> str | None:
         quoted.append(m[0][1:-1])
         return f'"\x00{len(quoted) - 1}\x00"'
 
-    # 자리표시자로 바꾼 명령에서 산술 표현을 지우고 복원 함수를 만든다.
+    # 자리표시자로 바꾼 커맨드에서 산술 표현을 지우고 복원 함수를 만든다.
     text = ARITH.sub("", QUOTED.sub(hold, command))
     restore = lambda s: re.sub(r'"?\x00(\d+)\x00"?', lambda m: quoted[int(m[1])], s)
 
-    # 첫 줄이 쓰기 호출이 있는 인라인 코드 실행이면 막는다.
+    # 첫 줄이 쓰기 호출이 있는 인라인 코드 실행이면 차단한다.
     if writes and INLINE_CODE.search(PREFIX.sub("", text.strip().split("\n", 1)[0])):
         return REASON_INLINE
 
-    # 하위 명령마다 내용 쓰기, 인라인 코드, 리다이렉트를 검사한다.
+    # 하위 커맨드마다 내용 쓰기, 인라인 코드, 리다이렉트를 검사한다.
     for part in SUBCOMMAND.split(text):
         part = PREFIX.sub("", part.strip())
         if not part:
@@ -114,22 +115,37 @@ def bash_write_reason(command: str) -> str | None:
     return None
 
 
-# 명령과 그 안의 셸 -c 스크립트를 모두 내보낸다.
+# 커맨드와 그 안의 셸 -c 스크립트를 모두 내보낸다.
 def scripts(command: str):
     yield command
     for inner in SHELL_C.findall(command):
         yield from scripts(inner[1:-1])
 
 
-# 하위 명령 목록이다. 따옴표 안과 heredoc 본문은 지우고 `2>&1`의 &는 구분자로 보지 않는다.
-def command_parts(command: str) -> list[str]:
+# 하위 커맨드 목록이다. 따옴표 안과 heredoc 본문은 지우고 `2>&1`의 &는 구분자로 보지 않는다.
+def command_parts(command: str, preserve_quotes: bool = False) -> list[str]:
+    if preserve_quotes:
+        parts = []
+        for source in scripts(command):
+            source = HEREDOC.sub("", source)
+            masked = QUOTED.sub(lambda m: " " * len(m[0]), source)
+            # 따옴표 밖의 fd 병합만 제거하며 파일 쓰기 리다이렉트는 검사 입력에 남긴다.
+            for merge in FD_MERGE.finditer(masked):
+                source = source[:merge.start()] + " " * len(merge[0]) + source[merge.end():]
+            masked = AMPERSAND.sub(lambda m: " " * len(m[0]), masked)
+            start = 0
+            for boundary in SUBCOMMAND.finditer(masked):
+                parts.append(PREFIX.sub("", source[start:boundary.start()].strip()))
+                start = boundary.end()
+            parts.append(PREFIX.sub("", source[start:].strip()))
+        return [part for part in parts if part]
     return [PREFIX.sub("", p.strip()) for s in scripts(command) for p in SUBCOMMAND.split(AMPERSAND.sub("", plain(s)))
             if p.strip()]
 
 
 INTERPRETER = re.compile(r"^(?:python3?|py|node)(?:\.exe)?(?=\s|$)")
 
-# 하위 명령이 인터프리터 호출이면 "inline"(-c, -e, 표준 입력) 또는 "script"(파일, 모듈)를 반환한다. 아니면 None이다.
+# 하위 커맨드가 인터프리터 호출이면 "inline"(-c, -e, 표준 입력) 또는 "script"(파일, 모듈)를 반환한다. 아니면 None이다.
 def interpreter_kind(part: str) -> str | None:
     if not INTERPRETER.match(part):
         return None
@@ -140,29 +156,29 @@ def interpreter_kind(part: str) -> str | None:
     return "script"
 
 
-# 승인 전 메인 세션에서 막는 git 쓰기 하위 명령이다.
+# 승인 전 메인 세션에서 막는 git 쓰기 하위 커맨드이다.
 GIT_WRITE = re.compile(
     r"^git(?:\s+-C\s+\S+)?\s+(?:commit|add|push|rm|mv|checkout|switch|stash(?!\s+(?:list|show)\b)|tag|pull|fetch|apply|merge|am"
-    r"|init|clone|submodule|worktree|gc|reset|update-index|read-tree|checkout-index|sparse-checkout|update-ref"
+    r"|init|clone|submodule|worktree(?!\s+(?:list|--help)\b)|gc|reset|update-index|read-tree|checkout-index|sparse-checkout|update-ref"
     r"|symbolic-ref|replace|notes|config\s+--(?:add|unset|unset-all|replace-all|rename-section|remove-section|edit)"
     r"|branch\s+(?:-[dDmMcC]|--(?:delete|move|copy|force|set-upstream-to|unset-upstream))"
     r"|remote\s+(?:add|remove|rename|set-url))(?=\s|$)")
-REASON_GIT_WRITE = "승인 전에는 git 쓰기 명령을 실행할 수 없습니다. " + APPROVAL_RETRY
+REASON_GIT_WRITE = "승인 전에는 git 쓰기 커맨드를 실행할 수 없습니다. " + APPROVAL_RETRY
 
 
-# 하위 명령 하나라도 git 쓰기 명령이면 사유를 반환한다. 아니면 None이다.
+# 하위 커맨드 하나라도 git 쓰기 커맨드이면 사유를 반환한다. 아니면 None이다.
 def git_write_reason(command: str) -> str | None:
     return REASON_GIT_WRITE if any(GIT_WRITE.match(p) for p in command_parts(command)) else None
 
 
-REASON_GIT_C = "이 명령은 git -c로 설정을 바꿔 실행합니다. " + RETRY
+REASON_GIT_C = "이 커맨드는 git -c로 설정을 바꿔 실행합니다. " + RETRY
 GIT_LOWER_C = re.compile(r"\bgit\s+-c\b")
-REASON_CD = "이 명령은 cd로 작업 위치를 바꿉니다. " + RETRY
+REASON_CD = "이 커맨드는 cd로 작업 위치를 변경합니다. " + RETRY
 CD_CMD = re.compile(
     r"(?:^|[;&|(\n])\s*(?:(?:builtin|command)\s+)?(?:cd|pushd|chdir|Set-Location|sl|Push-Location)(?=[\s;&|)]|$)", re.I)
 
 
-# cd류 명령이나 git -c가 든 명령이면 사유를 반환한다. 아니면 None이다. cd를 가장 먼저 검사한다.
+# cd류 커맨드나 git -c가 든 커맨드이면 사유를 반환한다. 아니면 None이다. cd를 가장 먼저 검사한다.
 def prompt_reason(command: str) -> str | None:
     # 따옴표 안 스크립트(bash -c 등)까지 같은 규칙으로 찾는다.
     texts = [plain(s) for s in scripts(command)]
@@ -174,20 +190,20 @@ def prompt_reason(command: str) -> str | None:
 
 
 REASON_DESC_EMPTY = "Bash 설명(description)이 비었습니다. " + RETRY
-REASON_DESC_COPY = "Bash 설명(description)이 명령을 그대로 옮겼습니다. " + RETRY
+REASON_DESC_COPY = "Bash 설명(description)이 커맨드를 그대로 옮겼습니다. " + RETRY
 
-# Claude Bash 설명 칸이 비었거나 명령을 그대로 옮겼으면 사유를 반환한다.
+# Claude Bash 설명 칸이 비었거나 커맨드를 그대로 옮겼으면 사유를 반환한다.
 def description_reason(data: dict, runner: str) -> str | None:
     # Claude Bash 호출만 검사한다.
     if runner != "claude" or data.get("tool_name") != "Bash":
         return None
 
-    # 설명과 명령의 공백을 정리한다.
+    # 설명과 커맨드의 공백을 정리한다.
     tin = data.get("tool_input") or {}
     desc = re.sub(r"\s+", " ", str(tin.get("description") or "")).strip()
     command = re.sub(r"\s+", " ", bash_command(data)).strip()
 
-    # 빈 설명과 명령 복사를 막는다.
+    # 빈 설명과 커맨드 복사를 차단한다.
     if not desc:
         return REASON_DESC_EMPTY
     if desc == command or (len(command) > 12 and command in desc):
@@ -212,7 +228,7 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
-# Bash 입력의 명령을 한 문자열로 반환한다.
+# Bash 입력의 커맨드를 한 문자열로 반환한다.
 def bash_command(data: dict) -> str:
     cmd = (data.get("tool_input") or {}).get("command")
     return " ".join(cmd) if isinstance(cmd, list) else cmd or ""
@@ -234,21 +250,21 @@ def targets(data: dict) -> list[Path] | None:
     return None
 
 
-# (새로 들어가는 줄, 쓰기 후 전문 또는 None)이다.
+# (새로 들어가는 줄, 쓰기 후 파일 전체 내용 또는 None)이다.
 def added_lines(data: dict, path: Path) -> tuple[list[str], str | None]:
     # 기존 내용과 도구 입력을 읽는다.
     tin = data.get("tool_input") or {}
     old = read(path)
     name = data.get("tool_name")
 
-    # 도구별로 쓰기 후 전문을 구한다.
+    # 도구별로 쓰기 후 파일 전체 내용을 구한다.
     if name == "Write":
         new = tin.get("content", "")
     elif name == "Edit":
         new = old.replace(tin.get("old_string", ""), tin.get("new_string", ""), -1 if tin.get("replace_all") else 1)
     else:
         # apply_patch는 path와 같은 파일 구간의 + 줄만 본다. 파일 머리줄 앞의 + 줄은 모든 path의 줄로 본다.
-        # 쓰기 후 전문은 patched_text로 계산하고, 패치 구간을 찾지 못하면 None이다.
+        # 쓰기 후 파일 전체 내용은 patched_text로 계산하고, 패치 구간을 찾지 못하면 None이다.
         cwd = Path(data.get("cwd") or ".")
         plus, mine = [], None
         for s in strings(tin):
@@ -267,7 +283,7 @@ def added_lines(data: dict, path: Path) -> tuple[list[str], str | None]:
     return [l for l in new.splitlines() if l.strip() and l not in old_lines], new
 
 
-# apply_patch를 path의 기존 본문에 적용한 쓰기 후 전문이다. 패치가 path를 건드리지 않거나 적용할 수 없으면 None이다.
+# apply_patch를 path의 기존 본문에 적용한 쓰기 후 파일 전체 내용이다. 패치가 path를 건드리지 않거나 적용할 수 없으면 None이다.
 def patched_text(data: dict, path: Path) -> str | None:
     # path의 파일 구간 줄만 추출하고, 구간 종류(Add, Update, Delete)를 기억한다.
     cwd = Path(data.get("cwd") or ".")

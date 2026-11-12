@@ -120,17 +120,18 @@ class RecordIncident(unittest.TestCase):
         self.assertIn("감지 표현: 놓쳤", first.read_text(encoding="utf-8"))
         self.assertEqual(later.read_text(encoding="utf-8"), untouched)
 
-    # 두 runner에서 응답 전문이 코드 블록으로 기록되는지 확인한다.
-    def test_full_message_blocks_and_append_for_both_runners(self):
+    # 두 runner에서 사용자 메시지 앞 300자와 감지 표현이 든 응답 줄만 코드 블록으로 기록되는지 확인한다.
+    def test_trimmed_message_blocks_and_append_for_both_runners(self):
+        long_user = "\n사용자  공백\n" + "긴 요청 " * 300 + "\n````text\n요청 코드\n````\n"
         samples = (
-            ("\n사용자  공백\n" + "긴 요청 " * 300 + "\n````text\n요청 코드\n````\n", "`````",
-             "제 실수입니다.\n\n" + "긴 응답 " * 300 + "\n```text\n죄송\n  응답 코드\n```\n", "````"),
-            ("다음 요청\n  들여쓰기 보존", "```", "놓쳤어요.\n다음 응답", "```"),
+            (long_user, long_user[:hook.USER_LIMIT], "```",
+             "제 실수입니다.\n\n" + "긴 응답 " * 300 + "\n```text\n죄송\n  응답 코드\n```\n", "제 실수입니다.", "```"),
+            ("다음 요청\n  들여쓰기 보존", "다음 요청\n  들여쓰기 보존", "```", "놓쳤어요.\n다음 응답", "놓쳤어요.", "```"),
         )
         for runner in ("claude", "codex"):
             with self.subTest(runner=runner):
                 entries, before = [], ""
-                for user, user_fence, message, message_fence in samples:
+                for user, user_kept, user_fence, message, message_kept, message_fence in samples:
                     entries.extend((("user", user), ("assistant", message)))
                     path = self.transcript(entries, runner)
                     hook.record({"session_id": runner + "-blocks-full-id", "transcript_path": str(path),
@@ -139,8 +140,9 @@ class RecordIncident(unittest.TestCase):
                     text = file.read_text(encoding="utf-8")
                     self.assertTrue(text.startswith(before))
                     appended = text[len(before):]
-                    for label, body, fence in (("사용자 메시지", user, user_fence),
-                                               ("응답 발췌", message, message_fence)):
+                    self.assertNotIn("긴 응답", appended)
+                    for label, body, fence in (("사용자 메시지", user_kept, user_fence),
+                                               ("응답 발췌", message_kept, message_fence)):
                         block = f"  - {label}:\n\n    {fence}\n    " + body.replace("\n", "\n    ") + f"\n    {fence}\n"
                         self.assertIn(block, appended)
                     self.assertNotIn("감지 표현: 죄송", appended)
@@ -171,47 +173,22 @@ class RecordIncident(unittest.TestCase):
         for text in samples:
             self.assertTrue(hook.ADMIT.search(text), text)
 
-    # 감지 시 분석 세션을 띄우고, block 사유는 사건 기록 알림 없이 위반 지침 한 줄만 지시하는지 확인한다.
+    # 감지 시 분석 세션을 띄우고 표현과 사건 링크를 한 줄 경고로 표시하며 응답 수정을 요구하지 않는다.
     def test_block_reason_rewrite_only_and_analysis_launched(self):
-        reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요."})
-        self.assertIn("(놓쳤)", reason)
-        self.assertIn("`위반한 지침: <파일:행> \"<지침 원문>\"` 한 줄", reason)
-        self.assertNotIn("사건 문서에 기록했습니다", reason)
-        self.assertNotIn("정정:", reason)
-        self.assertNotIn("스킬", reason)
-        path, runner = self.launch.call_args.args
-        self.assertEqual((path.parent, runner), (self.dir, "claude"))
+        notice = hook.record({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요."})
+        self.assertIn("문제 표현(놓쳤어요)", notice)
+        self.assertEqual(len(notice.splitlines()), 1)
+        self.assertIn("사건 문서 [", notice)
+        self.assertNotIn("한 줄", notice)
+        self.assertNotIn("스킬", notice)
+        self.launch.assert_called_once()
 
-    # 알림의 사건 ID 링크가 cwd가 저장소 안이면 상대 경로, 밖이면 절대 경로인지 확인한다.
-    def test_reason_link_relative_or_absolute(self):
-        root = Path(self.tmp.name)
-        inside = hook.detect({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.", "cwd": str(root / "hooks")}, "claude")[1]
-        stem = next(self.dir.glob("*.md")).stem
-        self.assertIn(f"기록했습니다: [{stem}](log/incident/{stem}.md)", inside)
-        outside = hook.detect({"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.", "cwd": "/work/other"}, "claude")[1]
-        self.assertIn(f"기록했습니다: [{stem}]({self.dir / (stem + '.md')})", outside)
-
-    # 분리 실행 함수가 run_workflow의 incident 단계를 표준 입출력 없이 띄우는지 확인한다.
-    def test_launch_analysis_detached(self):
-        self.launch_patch.stop()
-        try:
-            with patch.object(hook.subprocess, "Popen") as popen:
-                hook.launch_analysis(self.dir / "a.md", "codex")
-            command = popen.call_args.args[0]
-            self.assertEqual(command[1:], [str(Path(self.tmp.name) / "tools" / "run_workflow.py"),
-                                           "--incident", str(self.dir / "a.md"), "--runner", "codex"])
-            kwargs = popen.call_args.kwargs
-            self.assertEqual(kwargs["stdout"], hook.subprocess.DEVNULL)
-            self.assertTrue(kwargs.get("start_new_session") or kwargs["creationflags"] & hook.BREAKAWAY)
-            with patch.object(hook.subprocess, "Popen", side_effect=OSError):
-                hook.launch_analysis(self.dir / "a.md", "codex")  # 실행 실패는 무시한다.
-        finally:
-            self.launch_patch.start()
-
-    # 감지 정규식에 캡처 그룹이 있으면 findall이 튜플을 돌려줘 기록과 차단이 빠진다.
+    # 철회 표현을 사건으로 기록하고 한 줄 경고만 반환한다.
     def test_withdraw_recorded_and_blocked(self):
         reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "이 안은 철회합니다."})
-        self.assertIn("(철회)", reason)
+        self.assertIn("문제 표현(철회합니다)", reason)
+        self.assertEqual(len(reason.splitlines()), 1)
+        self.assertNotIn("이 안은 철회합니다.", reason)
         self.assertEqual(hook.ADMIT.groups, 0)
 
     # 사건 문서 머리에 실행 위치가 기록되는지 확인한다.
@@ -229,8 +206,7 @@ class RecordIncident(unittest.TestCase):
     def test_block_limit_eight_per_user_message(self):
         data = {"session_id": "abcdef123456", "last_assistant_message": "놓쳤어요.", "stop_hook_active": True}
         for n in range(1, 10):
-            reason = hook.record(data)
-            self.assertEqual(reason is not None, n <= 8, n)
+            self.assertIsNotNone(hook.record(data), n)
         text = next(self.dir.glob("*.md")).read_text(encoding="utf-8")
         self.assertEqual(text.count("감지 표현"), 9)
         self.launch.assert_called_once()
@@ -241,14 +217,14 @@ class RecordIncident(unittest.TestCase):
         self.assertNotIn("정상 줄", reason)
         self.assertNotIn("- 놓쳤어요.", reason)
 
-    # block 사유가 위반 지침 한 줄 응답만 지시하고 이전 문구를 담지 않으며, 감지 표현이 없으면 출력이 없는지 확인한다.
+    # 경고에 한 줄 응답 지시가 없고, 감지 표현이 없으면 출력이 없는지 확인한다.
     def test_reason_forbids_rewriting_body(self):
-        reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "제 실수로 빠뜨렸습니다."})
-        self.assertIn("응답은 오탐이라면 오탐의 근거 한 줄, 그렇지 않으면 `위반한 지침: <파일:행> \"<지침 원문>\"` 한 줄로 씁니다.", reason)
-        self.assertNotIn("판단 과정 요약", reason)
+        notice = hook.record({"session_id": "abcdef123456", "last_assistant_message": "제 실수로 빠뜨렸습니다."})
+        self.assertNotIn("위반한 지침", notice)
+        self.assertNotIn("판단 과정 요약", notice)
         self.assertIsNone(hook.record({"session_id": "abcdef123456", "last_assistant_message": "정상 응답입니다."}))
 
-    # claude와 codex runner 모두 main 출력에 decision, reason, systemMessage가 있고 감지가 없으면 출력이 없는지 확인한다.
+    # claude와 codex runner 모두 main 출력에 decision 없이 systemMessage만 있고 감지가 없으면 출력이 없는지 확인한다.
     def test_main_output_has_system_message(self):
         for runner in ("claude", "codex"):
             for message, expected in (("놓쳤어요.", True), ("정상 응답입니다.", False)):
@@ -263,12 +239,21 @@ class RecordIncident(unittest.TestCase):
                     self.assertEqual(out.getvalue(), "")
                     continue
                 result = json.loads(out.getvalue())
-                self.assertEqual(result["decision"], "block")
-                self.assertTrue(result["systemMessage"].startswith("직전 응답에 문제가 있어 사건 문서에 기록했습니다: ["))
+                self.assertNotIn("decision", result)
+                self.assertNotIn("reason", result)
+                self.assertTrue(result["systemMessage"].startswith("직전 응답에서 문제 표현(놓쳤어요)을 감지해 사건 문서 ["))
+                self.assertEqual(len(result["systemMessage"].splitlines()), 1)
+                self.assertNotIn(": 놓쳤어요.", result["systemMessage"])
                 self.assertIn(".md", result["systemMessage"])
                 link = hook.incident_link(next(self.dir.glob("*.md")), None)
-                self.assertIn(link, result["reason"])
                 self.assertIn(link, result["systemMessage"])
+
+    # 감지 목록이 정규식 조각 대신 응답 어절을 보이고 같은 줄을 한 번만 쓰는지 확인한다.
+    def test_hit_list_shows_words_once_per_line(self):
+        line = "대조를 빠뜨렸습니다. 제 잘못입니다."
+        listed = hook.hit_list([(line, "빠뜨"), (line, "제 잘못"), ("**빠뜨린 대조**", "빠뜨")])
+        self.assertEqual(listed, "빠뜨렸습니다, 제 잘못입니다, 빠뜨린")
+        self.assertEqual(hook.hit_list([(line, "빠뜨"), (line, "빠뜨")]), "빠뜨렸습니다")
 
     # 누락됐던 세 표현이 감지되는지 확인한다.
     def test_missing_expressions_detected(self):
@@ -284,6 +269,14 @@ class RecordIncident(unittest.TestCase):
         self.assertTrue(hook.admissions("제가 근거 없는 주장을 했습니다."))
         self.assertTrue(hook.admissions("근거 없는 주장을 했습니다.", "방금 답이 틀렸다고 지적했잖아"))
         self.assertTrue(hook.admissions("제가 철회합니다."))
+
+    # 사용자 지적의 단어를 옮겨 쓴 조건부 표현과 hook 차단 사유를 주어로 옮긴 문장은 감지하지 않고, 1인칭 인정은 계속 감지한다.
+    def test_user_wording_and_hook_reason_quotes(self):
+        user = "확인도 없이 추가된 검사를 찾아서 제거해 주세요. 기존 답을 인정하지 않았습니다."
+        self.assertEqual(hook.admissions("- 문제 4. 사용자 확인 없이 들어간 두 검사를 제거한다.", user), [])
+        self.assertEqual(hook.admissions("이번 차단 사유는 다른 작업의 검증 결과 표기 누락입니다.", user), [])
+        self.assertTrue(hook.admissions("제가 확인 없이 수정했습니다.", user))
+        self.assertTrue(hook.admissions("검증 결과 표기 누락입니다.", user))
 
     # 문맥 없이도 같은 문장이 자기 행동을 과거형으로 인정하면 감지하고, 인용, 동작 설명, 부정 서술은 감지하지 않는다.
     def test_conditional_self_past_statement(self):
@@ -319,7 +312,7 @@ class RecordIncident(unittest.TestCase):
 
     # 지침 미준수 표현을 감지하는지 확인한다.
     def test_guideline_noncompliance_detected(self):
-        for text in ("정해진 절차를 끝까지 적용하지 않았습니다.", "착수 승인도 받지 않았습니다.",
+        for text in ("정해진 절차를 끝까지 적용하지 않았습니다.", "조사 승인도 받지 않았습니다.",
                      "스킬을 적용하지 않았습니다.", "지침을 따르지 않았습니다.", "스킬을 읽지 않았습니다.", "Skill을 읽지 않았습니다."):
             with self.subTest(text=text):
                 self.assertTrue(hook.ADMIT.search(text))
@@ -417,10 +410,10 @@ class RecordIncident(unittest.TestCase):
 
     # 입력 문서 파일을 만들고 상대 경로를 반환하는 보조 함수이다.
     def task_doc(self, task):
-        path = Path(self.tmp.name) / "log" / "state" / f"{task}-input.md"
+        path = Path(self.tmp.name) / "log" / "task" / task / "spec.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("# 입력", encoding="utf-8")
-        return f"log/state/{task}-input.md"
+        return f"log/task/{task}/spec.md"
 
     # 두 runner에서 작업 ID와 응답 위치가 기록되는지 확인한다.
     def test_task_and_response_line_for_both_runners(self):
@@ -468,7 +461,7 @@ class RecordIncident(unittest.TestCase):
     # 최신 참조가 없거나 모호하면 이전 작업을 쓰지 않는지 확인한다.
     def test_missing_or_ambiguous_latest_task_does_not_use_old_task(self):
         first, second = self.task_doc("first"), self.task_doc("second")
-        for reference in ("", "log/state/missing-input.md", f"{first}\n{second}"):
+        for reference in ("", "log/task/missing/spec.md", f"{first}\n{second}"):
             with self.subTest(reference=reference):
                 entries = [("user", reference), ("assistant", "제 실수입니다.")]
                 if reference:
@@ -526,7 +519,7 @@ class RecordIncident(unittest.TestCase):
     # 사용자 메시지와 응답 발췌에서 경로가 제거되는지 확인한다.
     def test_paths_removed_from_message_blocks_for_both_runners(self):
         samples = (
-            r"C:\Users\private\secret.md", "/home/private/secret.md", "log/state/secret-input.md",
+            r"C:\Users\private\secret.md", "/home/private/secret.md", "log/task/secret/spec.md",
             r"\\server\share\secret.md", "../secret.md", "./secret.md", "~/secret.md",
             "secret.md", r'"C:\Program Files\private\secret.md"', "'/home/private folder/secret.md'",
             "[설명](/home/private/secret.md:9)", "[잘린 설명](/C:/Users/private/sec",

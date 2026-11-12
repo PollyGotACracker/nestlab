@@ -24,7 +24,7 @@ TEXT_ATTACHMENT_EXTENSIONS = {
 
 
 # Read 도구가 이미지 첨부 폴더 밖을 읽지 못하게 막는 PreToolUse 훅 설정을 만든다.
-# 작업 디렉터리 안의 읽기는 권한 규칙 없이 승인되므로 config.json 같은 설정 파일을 훅으로 막는다.
+# 작업 디렉터리 안의 읽기는 권한 규칙 없이 승인되므로 config.json 같은 설정 파일을 훅으로 차단한다.
 def read_hooks(agent_name: str) -> dict[str, list[HookMatcher]]:
     # Read 대상이 첨부 폴더 밖이면 거부 결정을 반환한다.
     async def restrict_read(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:

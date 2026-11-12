@@ -281,7 +281,7 @@ sudo systemctl enable --now discord-bot
 sudo systemctl status discord-bot
 ```
 
-등록한 설정 파일 내용은 아래 명령으로 확인한다.
+등록한 설정 파일 내용은 아래 커맨드로 확인한다.
 
 ```bash
 sudo systemctl cat discord-bot

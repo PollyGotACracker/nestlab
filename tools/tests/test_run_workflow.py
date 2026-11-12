@@ -12,7 +12,7 @@ import run_workflow as runner
 
 
 class Workflow(unittest.TestCase):
-    # 임시 저장소와 역할 지침을 준비한다.
+    # 임시 저장소와 에이전트 지침을 준비한다.
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -41,7 +41,7 @@ class Workflow(unittest.TestCase):
             self.assertEqual(runner.invoke(self.root, "codex", "incident", "요청"), "결과")
         self.assertEqual(call.call_args.args[0][:2], ["codex", "exec"])
 
-    # 사건 분석 단계가 director 지침과 세 줄 요청을 hook을 끈 CLI로 실행하는지 확인한다.
+    # 사건 분석 단계가 director 지침과 네 줄 요청을 hook을 끈 CLI로 실행하는지 확인한다.
     def test_incident_disables_hooks_and_limits_tools(self):
         (self.root / "log/incident").mkdir(parents=True)
         (self.root / "log/incident/a.md").write_text("# a", encoding="utf-8")
@@ -57,7 +57,7 @@ class Workflow(unittest.TestCase):
             if name == "codex":
                 self.assertEqual(command[-1], "-")
             self.assertTrue(request.startswith("director 지침"))
-            self.assertRegex(request, r"작업 종류: 사건 분석\n사건 문서: log/incident/a\.md\n"
+            self.assertRegex(request, r"task: incident\ninput: log/incident/a\.md\n"
                                           r"현재 시각\(KST\): \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\nnestlab-log-incident 절차")
             if name == "claude":
                 self.assertEqual(command[command.index("--settings") + 1], '{"disableAllHooks": true}')
@@ -80,7 +80,7 @@ class Workflow(unittest.TestCase):
                 runner.invoke(self.root, "claude", "incident", "요청")
             self.assertEqual(call.call_args.kwargs["creationflags"], expected)
 
-    # which 결과 경로가 명령 첫 요소가 되고, None이면 기존 이름을 쓰는지 확인한다.
+    # which 결과 경로가 커맨드 첫 요소가 되고, None이면 기존 이름을 쓰는지 확인한다.
     def test_cli_path_from_which(self):
         result = subprocess.CompletedProcess([], 0, json.dumps(
             {"type": "item.completed", "item": {"type": "agent_message", "text": "결과"}}))

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from sub_agents import discover_agents, read_folder_agent
@@ -40,10 +41,54 @@ def to_role(name: str | None) -> str | None:
 
 
 # hook 입력, rollout, 환경 변수, 폴더 설정 순으로 역할을 찾는다.
-def resolve_role(data: dict) -> str | None:
+def resolve_role(data: dict, default_role: str | None = None) -> str | None:
     name = (data.get("agent_type") or first_line(data.get("transcript_path")).get("agent_role")
-            or os.environ.get("NESTLAB_AGENT") or read_folder_agent(Path(data.get("cwd") or os.getcwd())))
+            or os.environ.get("NESTLAB_AGENT") or read_folder_agent(Path(data.get("cwd") or os.getcwd())) or default_role)
     return to_role(name)
+
+
+# 조정 절차는 역할이 확인된 director 메인에만 적용한다.
+def director_main(data: dict) -> bool:
+    return resolve_role(data) == "director" and main_session(data)
+
+
+# 하위 실행의 부모 역할이 director로 확인된 배정만 결과 저장 대상으로 삼는다.
+def director_assignment(data: dict, child_path: str) -> bool:
+    parent = codex_rollout(parent_thread(child_path)) or data.get("transcript_path")
+    if not parent or parent == child_path:
+        return False
+    role = (data.get("parent_agent_type") or first_line(parent).get("agent_role") or agent_setting(parent)
+            or injected_agent(parent))
+    return to_role(role) == "director"
+
+
+PERSONA = re.compile(r"# Persona\\n\\n---\\ntitle: (\w+) persona")
+
+
+# Codex 메인 rollout 앞부분에 SessionStart가 주입한 성향 문서의 에이전트 이름이다. 없으면 None이다.
+def injected_agent(path: str | None) -> str | None:
+    try:
+        with open(path or "", encoding="utf-8") as f:
+            m = PERSONA.search("".join(line for _, line in zip(range(60), f)))
+    except OSError:
+        return None
+    return m.group(1).lower() if m else None
+
+
+# Claude 세션 기록 앞부분의 agent-setting 줄이 가리키는 에이전트 이름이다. 없으면 None이다.
+def agent_setting(path: str | None) -> str | None:
+    try:
+        with open(path or "", encoding="utf-8") as f:
+            for _, line in zip(range(10), f):
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict) and entry.get("type") == "agent-setting":
+                    return entry.get("agentSetting")
+    except OSError:
+        pass
+    return None
 
 
 # 대화 기록의 첫 사용자 메시지를 반환한다. 없으면 빈 문자열이다.
@@ -64,7 +109,8 @@ def codex_rollout(thread_id: str | None) -> str:
 
 # 메인 세션이면 True이다. Claude는 agent_id가 없을 때, Codex는 rollout에 부모 thread가 없을 때이다.
 def main_session(data: dict) -> bool:
-    return not data.get("agent_id") and not parent_thread(data.get("transcript_path"))
+    source = first_line(data.get("transcript_path")).get("source")
+    return not data.get("agent_id") and not (isinstance(source, dict) and bool(source.get("subagent")))
 
 
 # Codex 하위 thread rollout의 부모 thread id이다. 하위 thread가 아니면 None이다.

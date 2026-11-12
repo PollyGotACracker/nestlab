@@ -41,19 +41,28 @@ class StripComments(unittest.TestCase):
             self.assertEqual(path.read_text(encoding="utf-8"), "a\n")
 
 
+    def test_incident_doc_rewritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log" / "incident" / "20261110-abcdef12.md"
+            path.parent.mkdir(parents=True)
+            path.write_text("a <!-- b -->\n```\n<!-- c -->\n```\n", encoding="utf-8")
+            sub_docs.strip_task_comments(path)
+            self.assertEqual(path.read_text(encoding="utf-8"), "a\n```\n<!-- c -->\n```\n")
+
+
 class LockedIgnoresComments(unittest.TestCase):
     def setUp(self):
-        self.old = sub_docs.template_text("nestlab-log-state")
+        self.old = sub_docs.template_text("status")
         self.path = Path("unused.md")
 
     def test_comment_only_difference_allowed(self):
         new = sub_docs.strip_comments(self.old)
         self.assertFalse(sub_scope.state_locked({}, self.path, new, self.old))
 
-    def test_review_item_written_blocked(self):
-        old = sub_docs.template_text("nestlab-log-spec")
-        new = re.sub(r"(?m)^(#+ 검토 필요.*)$", r"\1\n\n- 직접 쓴 항목", sub_docs.strip_comments(old), count=1)
-        self.assertTrue(sub_scope.spec_locked({}, self.path, new, old))
+    def test_result_cells_written_blocked(self):
+        old = "## 요구사항 목록\n\n### 1. 예시\n\n- 목표:\n  - a\n- 결과:\n  - b\n- 기대 결과:\n  - e\n"
+        self.assertTrue(sub_scope.spec_locked({}, self.path, old.replace("  - b", "  - x"), old))
+        self.assertFalse(sub_scope.spec_locked({}, self.path, old.replace("  - a", "  - x"), old))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Discord 프롬프트가 정본 파일에서 구성되는지 확인한다."""
+"""Discord 프롬프트가 원본 파일에서 구성되는지 확인한다."""
 
 from __future__ import annotations
 

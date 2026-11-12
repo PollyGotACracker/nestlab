@@ -19,11 +19,31 @@ SOURCE = re.compile(PATH.pattern + "|" + URL.pattern + "|" + INLINE.pattern + r"
 CLAIM = re.compile(r"호출됐|호출되었|확인했|측정했|동작합니다|동작해요|동작했|통과했")
 NEGATION = re.compile(r"하지 않|않았|못 |못했|없")
 # 불가 주장: 부정형 능력 주장
-INACCESSIBLE = re.compile(r"(?:볼|읽을|열|접근할|확인할|찾을|조회할|할) 수 없|불가능")
+INACCESSIBLE = re.compile(r"(?:볼|읽을|열|접근할|확인할|찾을|조회할|할) 수 없(?!는\s+(?:문자열|입력|값|데이터))"
+                          r"|불가능(?!한\s+(?:문자열|입력|값|데이터))")
 QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’")
 
 REASON_SOURCE = ("측정이나 확인을 주장한 문장 '{sentences}'에 근거가 없습니다.\n"
-                 "근거의 출처(파일:행, 파일 경로, 링크, 명령 결과 인용)를 포함하여 다시 작성하십시오.")
+                 "근거의 출처(파일:행, 파일 경로, 링크, 커맨드 결과 인용)를 포함하여 다시 작성하십시오.")
+
+
+LIMIT_LINE = re.compile(r"^\s*[-*]\s*(한계|위험):\s*(.*?)\s*$", re.M)
+HTTP_SOURCE = re.compile(r"\(출처:\s*https?://\S+?\)\s*$")
+REASON_LIMIT = ("문제 정의 확인 질문 전 응답 본문에 `- 한계: <내용 | 없음> (출처: <URL>)`과 "
+                "`- 위험: <내용 | 없음> (출처: <URL>)` 두 줄을 작성하십시오. 내용이 있는 줄의 출처는 http 또는 https URL이어야 합니다. 문제: {found}")
+
+
+# 응답 본문의 `- 한계:`, `- 위험:` 두 줄을 검사한다. 줄이 없거나 내용이 있는 줄의 출처가 http(s) URL이 아니면 사유를 반환한다.
+# 값이 `없음`인 줄은 출처 없이 통과한다. 맞으면 None이다.
+def limit_risk_gap(body: str) -> str | None:
+    found = {m[1]: m[2] for m in LIMIT_LINE.finditer(body or "")}
+    for name in ("한계", "위험"):
+        value = found.get(name)
+        if value is None:
+            return REASON_LIMIT.format(found=f"`{name}` 줄 없음")
+        if value.split(" ")[0] != "없음" and not HTTP_SOURCE.search(value):
+            return REASON_LIMIT.format(found=f"`{name}` 줄 출처가 URL이 아님")
+    return None
 
 
 # 출처 없이 측정이나 확인을 주장한 긍정형 문장과 출처 없는 불가 주장 문장 목록을 반환한다.

@@ -1,4 +1,4 @@
-"""서브에이전트 호출 승인과 승인 명령을 판정한다.
+"""서브에이전트 호출 승인과 승인 키워드를 판정한다.
 
 호출자: hooks/check_tool_use.py
 입력: hook 입력 dict, 사용자 마지막 메시지, 하위 요청 본문
@@ -11,23 +11,25 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from sub_call import call_info
 from sub_input import LEAK, session_leak
 from sub_docs import doc, section, task_id
 from sub_role import codex_rollout, first_line, first_prompt, parent_thread, resolve_role
-from sub_session import read_session, session_path, turn
+from sub_session import read_session, session_path, turn, user_messages
+from sub_task_docs import TASK_ID, create
 from sub_write import APPROVAL_RETRY, read
 
-# 사용자 메시지의 마지막이 승인 명령으로 끝날 때만 승인이다.
-# 승인 명령 뒤에 오는 문자는 `.`, `!`, `~`만 허용된다.
-# 승인 명령은 계획 수정을 의도한 프롬프트와 구별되어야 한다.
+# 사용자 메시지의 마지막이 승인 키워드로 끝날 때만 승인이다.
+# 승인 키워드 뒤에 오는 문자는 `.`, `!`, `~`만 허용된다.
+# 승인 키워드는 계획 수정을 의도한 프롬프트와 구별되어야 한다.
 APPROVAL = re.compile(r"(?:^|\s)\S*승인\s*[.!~]*\s*\Z")
 APPROVED = re.compile(r"^\s*-\s*(?:사용자 )?승인 상태:\s*승인\s*$")
-IN_SCOPE = ("작업 종류: 재작업", "작업 종류: 재검증")
-RESTORED_WORK = ("작업 종류: 문서 작성", "작업 종류: 구현")
-# 착수 승인 뒤 조사와 반증은 사용자 대기 없이 이어진다(상태 문서 착수 승인 범위가 승인일 때).
-RESEARCH_SCOPE = ("작업 종류: 조사", "작업 종류: 반증")
+IN_SCOPE = ("task: reimplement", "task: reverify")
+RESTORED_WORK = ("task: implement",)
+# 조사 승인 뒤 조사와 반증은 사용자 대기 없이 이어진다(상태 문서 조사 승인 범위가 승인일 때).
+RESEARCH_SCOPE = ("task: research", "task: refute")
 NEGATION = ("안", "못")
 
 
@@ -46,7 +48,7 @@ def user_message(data: dict, runner: str) -> str:
     return last_user(path)[0]
 
 
-# 사용자 메시지의 비어 있지 않은 마지막 줄이 승인 명령이면 True이다. 부정어가 바로 앞에 오면 False이다.
+# 사용자 메시지의 비어 있지 않은 마지막 줄이 승인 키워드이면 True이다. 부정어가 바로 앞에 오면 False이다.
 def approved(user: str) -> bool:
     lines = [line for line in user.splitlines() if line.strip()]
     if not lines:
@@ -57,16 +59,41 @@ def approved(user: str) -> bool:
     return bool(APPROVAL.search(lines[-1]))
 
 
-# 상태 문서의 승인 절(기본은 실행 승인 범위)에 승인 상태가 승인으로 기록돼 있으면 True이다.
-def executed_approved(task: str | None, cwd: str | None = None, title: str = "실행 승인 범위") -> bool:
+# 상태 문서의 승인 절(기본은 구현 승인 범위)에 승인 상태가 승인으로 기록돼 있으면 True이다.
+def executed_approved(task: str | None, cwd: str | None = None, title: str = "구현 승인 범위") -> bool:
     body = section(read(doc(task, "state", cwd)), title) if task else ""
     return any(APPROVED.match(line) for line in body.splitlines())
 
 
-# 같은 작업의 명세 문서에 실제 대상이 적힌 대기 재작업이 있는지 확인한다.
-def rework_pending(task: str | None, cwd: str | None = None) -> bool:
-    from sub_workflow import filled, values
-    body = section(read(doc(task, "input", cwd)), "재작업 요청") if task else ""
+# 기존 단계 및 승인 판정이 인정한 현재 사용자 메시지의 기록 시각만 승인 절에 채운다.
+def approval_record_times(data: dict, path, text: str) -> str:
+    entries = read_session(data.get("transcript_path") or "")
+    messages = [entry for entry in entries if user_messages([entry])]
+    if not messages:
+        return text
+    entry = messages[-1]
+    user, stage = entry["text"], stage_of(text)
+    prefix = stage_prefix(user)
+    if stage:
+        title = {"조사": "조사 승인 범위", "구현": "구현 승인 범위"}.get(stage) if prefix == stage else None
+    else:
+        title = None
+        if approved(user):
+            # 종전 승인 판정의 승인 대상은 바로 앞 승인 보고 제목으로 구분한다.
+            shown = turn(entries)[1]
+            title = "조사 승인 범위" if "조사 승인 요청" in shown else "구현 승인 범위" if "구현 승인 요청" in shown or "작업 승인 필요" in shown else None
+    if title is None:
+        return text
+    from check_workflow_response import splice
+    stamp = entry.get("timestamp") or "기록 없음"
+    return splice(text, title, lambda body: re.sub(r"(?m)^(\s*- 사용자 승인 시각:)[^\n]*$",
+                                                  lambda m: m[1] + " " + stamp, body))
+
+
+# 같은 작업의 명세 문서에 실제 대상이 적힌 대기 재구현이 있는지 확인한다.
+def reimplement_pending(task: str | None, cwd: str | None = None) -> bool:
+    from sub_document import filled, values
+    body = section(read(doc(task, "input", cwd)), "재구현 요청") if task else ""
     for item in re.split(r"(?m)^- ", body)[1:]:
         target = re.match(r"([^\n]+):[ \t]*(.*)", item)
         expected = values(item, "기대 결과")
@@ -76,26 +103,94 @@ def rework_pending(task: str | None, cwd: str | None = None) -> bool:
     return False
 
 
+STAGES = ("착수", "조사", "구현", "완료")
+# 사용자 메시지 머리줄의 단계 키워드와 경과 문서 작업 단계 값의 대응이다.
+KEYWORDS = {"kickoff": "착수", "research": "조사", "implement": "구현", "complete": "완료"}
+HEAD = re.compile(r"^\[(kickoff|research|implement|complete)(?: (\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*))?\]$")
+STAGE_LINE = re.compile(r"(?m)^- 작업 단계:[ \t]*(.*)$")
+# log/ 밖 쓰기를 허용하는 단계와 단계별 허용 task 값이다.
+WRITE_STAGES = ("구현",)
+STAGE_CALLS = {"조사": ("task: research", "task: refute"),
+               "구현": ("task: implement", "task: verify", "task: reimplement", "task: reverify")}
+REASON_STAGE_CALL = "경과 문서의 작업 단계 [{stage}]에서는 `{kind}` 배정을 할 수 없습니다. 허용: {allowed}."
+
+
+# 사용자 메시지 첫 줄의 머리줄을 (작업 단계 값, 작업 ID)로 읽는다. 머리줄은 `[키워드]` 또는 `[키워드 작업ID]` 하나만으로 이루어진 줄이다.
+# 첫 줄이 대괄호로 시작하지 않으면 (None, None), 대괄호로 시작하지만 머리줄 형식이 아니면 ("보류", None)이다.
+def head_line(message: str) -> tuple[str | None, str | None]:
+    first = (message or "").split("\n", 1)[0].rstrip()
+    if not first.startswith("["):
+        return None, None
+    found = HEAD.match(first)
+    return (KEYWORDS[found[1]], found[2]) if found else ("보류", None)
+
+
+# 사용자 메시지 첫 줄의 단계 접두어이다. 접두어가 없으면 None, 머리줄 형식이 아니면 "보류"이다.
+def stage_prefix(message: str) -> str | None:
+    return head_line(message)[0]
+
+
+# 경과 문서의 `작업 단계` 값이다. 줄이 없거나 단계 이름이 아니면 None이다. 기존 기록의 `진행`은 `구현`으로 읽는다.
+def stage_of(text: str) -> str | None:
+    m = STAGE_LINE.search(text or "")
+    value = {"진행": "구현"}.get(m[1].strip(), m[1].strip()) if m else ""
+    return value if value in STAGES else None
+
+
+# status 경과 문서에 단계 접두어(prefix)를 기록하고 현재 단계를 반환한다. 접두어가 없거나 잘못되면 기록된 단계를 유지한다.
+# 단계가 조사이면 빠진 research, refute, spec 문서만 생성하며 기존 본문은 보존한다.
+def apply_stage(status: Path, prefix: str | None) -> str | None:
+    text = read(status)
+    if prefix in STAGES and stage_of(text) != prefix:
+        line = f"- 작업 단계: {prefix}"
+        text = (STAGE_LINE.sub(line, text, count=1) if STAGE_LINE.search(text)
+                else re.sub(r"(?m)^(- 작업 상태:.*)$", lambda m: m[1] + "\n" + line, text, count=1))
+        status.write_text(text, encoding="utf-8")
+    stage = stage_of(text)
+    if stage == "조사" and TASK_ID.fullmatch(status.parent.name):
+        title = re.search(r"(?m)^# (.+)$", text)
+        root = status.parents[3]
+        for kind in ("research", "refute", "review"):
+            create(root, status.parent.name, title[1] if title else status.parent.name, kind)
+    return stage
+
+
+# 이 세션이 쓴 경과 문서에 사용자 마지막 메시지의 단계 접두어를 기록하고 현재 단계를 반환한다.
+# 접두어가 없거나 잘못되면 기록된 단계를 유지한다. 경과 문서가 없으면 None이다.
+def sync_stage(data: dict, runner: str = "claude", user: str | None = None) -> str | None:
+    from check_workflow_response import written_status
+    prefix = stage_prefix(user_message(data, runner) if user is None else user)
+    status = written_status({k: v for k, v in data.items() if k != "tool_name"}, runner)
+    return None if status is None else apply_stage(status, prefix)
+
+
+# 요청 첫 줄의 task 값이 단계별 허용 목록 밖이면 사유를 반환한다. 허용이면 None이다.
+def stage_call_reason(stage: str, prompt: str) -> str | None:
+    kind = next((line.strip() for line in prompt.splitlines() if line.strip()), "")
+    allowed = STAGE_CALLS.get(stage, ())
+    return None if kind in allowed else REASON_STAGE_CALL.format(stage=stage, kind=kind, allowed=", ".join(allowed) or "없음")
+
+
 REASON_APPROVAL = (
-    "사용자 마지막 메시지에 승인 명령이 없습니다. 작업 전 사용자 승인을 받으십시오. "
+    "사용자 마지막 메시지에 승인 키워드가 없습니다. 작업 전 사용자 승인을 받으십시오. "
     + APPROVAL_RETRY + " "
-    "사용자의 검토 없이 작업을 시도한 경우 `nestlab-log-incident`, `nestlab-rule` 스킬을 호출해 그 절차대로 수행하십시오."
+    "사용자의 검토 없이 작업을 시도한 경우 `nestlab-log-incident` 스킬과 director 지침의 작업 문서 작성 절차를 따르십시오."
 )
 
-# 사용자 승인 명령이나 승인 범위 예외가 없으면 deny 사유를 반환한다.
+# 사용자 승인 키워드나 승인 범위 예외가 없으면 deny 사유를 반환한다.
 def approval_reason(user: str, prompt: str, cwd: str | None = None) -> str | None:
     # 사용자 승인이 이미 있으면 사유 없이 통과시킨다.
     if approved(user):
         return None
 
-    # 재작업과 재검증은 실행 승인, 조사와 반증은 착수 승인이 기록돼 있으면 허용한다.
+    # 재구현과 재검증은 구현 승인, 조사와 반증은 조사 승인이 기록돼 있으면 허용한다.
     first = next((line.strip() for line in prompt.splitlines() if line.strip()), "")
     if first in IN_SCOPE and executed_approved(task_id(prompt), cwd):
         return None
     if (first in RESTORED_WORK and executed_approved(task_id(prompt), cwd)
-            and rework_pending(task_id(prompt), cwd)):
+            and reimplement_pending(task_id(prompt), cwd)):
         return None
-    if first in RESEARCH_SCOPE and executed_approved(task_id(prompt), cwd, "착수 승인 범위"):
+    if first in RESEARCH_SCOPE and executed_approved(task_id(prompt), cwd, "조사 승인 범위"):
         return None
     return REASON_APPROVAL
 
@@ -109,6 +204,11 @@ def check_agent_call(data: dict) -> str | None:
     # 승인 여부를 판정한다.
     _, prompt = call_info(data)
     user, _ = last_user(data.get("transcript_path"))
+
+    # 경과 문서에 작업 단계가 있으면 단계별 task 값만 배정한다.
+    stage = sync_stage(data, "claude", user)
+    if stage:
+        return stage_call_reason(stage, prompt)
     return approval_reason(user, prompt, data.get("cwd"))
 
 
@@ -125,4 +225,10 @@ def check_codex_child(data: dict) -> str | None:
     if not parent or first_line(parent).get("agent_role"):
         return None  # 부모가 메인 thread가 아님
     user, _ = last_user(parent)
-    return approval_reason(user, first_prompt(path), data.get("cwd"))
+
+    # 부모 세션의 경과 문서에 작업 단계가 있으면 단계별 task 값만 허용한다.
+    prompt = first_prompt(path)
+    stage = sync_stage({"transcript_path": parent, "cwd": data.get("cwd")}, "codex", user)
+    if stage:
+        return stage_call_reason(stage, prompt)
+    return approval_reason(user, prompt, data.get("cwd"))

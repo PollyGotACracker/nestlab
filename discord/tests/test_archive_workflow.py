@@ -51,7 +51,7 @@ class WorkflowStoreTests(unittest.TestCase):
                 "commit_message": "docs: a", "source_commit_sha": "base",
             })
 
-    # 다른 사용자의 승인과 재시작 뒤 pending 변조를 막는다.
+    # 다른 사용자의 승인과 재시작 뒤 pending 변조를 차단한다.
     def test_requester_owns_pending_and_state_survives_reload(self) -> None:
         pending = self.store.stage("issue", 10, 20, {
             "issue_type": "docs", "title": "[DOCS] 제목", "body": "본문",

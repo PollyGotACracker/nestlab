@@ -292,7 +292,7 @@ class ArchiveToolTests(unittest.IsolatedAsyncioTestCase):
             return lambda handler: handler
 
         # 등록된 도구 이름과 오류 표시를 확인한다.
-        cfg = config_module.ArchiveRepositoryConfig(owner="example", repo="nodebase", token="")
+        cfg = config_module.ArchiveRepositoryConfig(owner="example", repo="wiki_repo", token="")
         with patch.object(archive_tools_module, "tool", decorator), patch.object(archive_tools_module, "create_sdk_mcp_server", side_effect=lambda **kw: kw):
             server = bot.build_archive_server(cfg, Mock(), 1, 2)
         tools = {handler.__name__: handler for handler in server["tools"]}
@@ -316,7 +316,7 @@ class ArchiveToolTests(unittest.IsolatedAsyncioTestCase):
         context.__aenter__.return_value = response
         session = Mock()
         session.get.return_value = context
-        cfg = config_module.ArchiveRepositoryConfig(owner="example", repo="nodebase", token="")
+        cfg = config_module.ArchiveRepositoryConfig(owner="example", repo="wiki_repo", token="")
         result = await bot.github_get_file(session, cfg, "wiki/a?# 한글.md", COMMIT)
         self.assertEqual(result, ("body", "blob"))
         self.assertTrue(session.get.call_args.args[0].endswith("/wiki/a%3F%23%20%ED%95%9C%EA%B8%80.md"))

@@ -6,7 +6,7 @@
 - check_paths는 deny 사유 문자열 또는 통과 시 None
 - 사유 문구의 `{token}`에 경로 토큰이 들어간다.
 한계: 
-- 대상은 Bash와 PowerShell 명령의 경로 토큰과 명령 전체 문자열의 보안 파일 패턴, Read, Grep, Glob 경로, apply_patch 대상이다.
+- 대상은 Bash와 PowerShell 커맨드의 경로 토큰과 커맨드 전체 문자열의 보안 파일 패턴, Read, Grep, Glob 경로, apply_patch 대상이다.
 - 경로를 조립해 여는 스크립트는 막지 못한다.
 """
 from __future__ import annotations
@@ -15,24 +15,27 @@ import fnmatch
 import json
 import os
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 
 from sub_call import refute_mode
-from sub_write import HEREDOC, QUOTED, REDIRECT, RETRY, SHELLS, bash_command, is_write_bash, targets
+from sub_paths import (CLAUDE_HOME_NAME, CODEX_HOME_NAME, INCIDENT_DIR, LOCAL_SETTINGS as LOCAL_SETTINGS_FILE, SKILL_DIR, TASK_REL,
+                       WIKI_SKILL as WIKI_SKILL_FILE)
+from sub_write import HEREDOC, QUOTED, REDIRECT, RETRY, SHELLS, bash_command, command_parts, is_write_bash, targets
 from sub_docs import TOKEN, doc_kind, project_root
 from sub_role import first_prompt, main_session, resolve_role
 from sub_session import agent_transcript
 
 HOME = Path.home()
-GLOBAL = (HOME / ".claude", HOME / ".codex")
-SETTINGS = HOME / ".claude" / "settings.json"
+GLOBAL = (HOME / CLAUDE_HOME_NAME, HOME / CODEX_HOME_NAME)
+SETTINGS = HOME / CLAUDE_HOME_NAME / "settings.json"
 TEMP = Path(tempfile.gettempdir())
 ROOT = Path(__file__).resolve().parents[2]
-LOCAL_SETTINGS = ROOT / "shared" / "settings" / "local.json"
-WIKI_SKILL = ROOT / "shared" / "skills" / "wiki" / "SKILL.md"
-SKILLS = ROOT / "shared" / "skills"
-INCIDENT = ROOT / "log" / "incident"
+LOCAL_SETTINGS = LOCAL_SETTINGS_FILE
+WIKI_SKILL = WIKI_SKILL_FILE
+SKILLS = SKILL_DIR
+INCIDENT = INCIDENT_DIR
 READ_RULE = re.compile(r"^Read\((.+)\)$")
 SPLIT = re.compile(r"[\s;&|<>()=]+")
 GIT_BASH = re.compile(r"^/([a-zA-Z])/")
@@ -87,9 +90,10 @@ def inside(path: str, base: Path) -> bool:
     return path == base_s or path.startswith(base_s + "/")
 
 
-# 8.3 짧은 이름과 긴 이름을 같은 경로로 보도록 realpath로 풀어 비교한다.
+# Windows 짧은 경로 이름(e.g. ADMINI~1)과 긴 이름을 같은 경로로 보도록 realpath로 풀어 비교한다.
 def in_temp(path: str) -> bool:
     return inside(norm(os.path.realpath(path), Path(".")), Path(os.path.realpath(TEMP)))
+
 
 
 # 어느 저장소 세션이든 nestlab 사건 문서 폴더는 읽기 및 쓰기를 허용한다. 링크 탈출은 realpath로 대조한다.
@@ -118,7 +122,7 @@ def is_secret(path: str, patterns: list[str]) -> bool:
     return False
 
 
-# 명령 전체 문자열(따옴표 안, 인라인 코드, heredoc 본문 포함)에서 보안 문서 파일 이름 패턴을 찾는다. 없으면 None이다.
+# 커맨드 전체 문자열(따옴표 안, 인라인 코드, heredoc 본문 포함)에서 보안 문서 파일 이름 패턴을 찾는다. 없으면 None이다.
 # 패턴의 마지막 구간을 파일 이름으로 보고, 앞에 단어 문자가 붙지 않은 곳만 맞는 것으로 본다.
 def secret_text(text: str, patterns: list[str]) -> str | None:
     for pattern in patterns:
@@ -134,12 +138,21 @@ def secret_text(text: str, patterns: list[str]) -> str | None:
     return None
 
 
+# PowerShell 단일 인용 here-string(`@'` 줄 끝 개행 뒤 본문, 줄 첫머리 `'@`)이다. 변수를 평가하는 `@"` 형식과 닫히지 않은 문자열은 해당하지 않는다.
+HERE_STRING = re.compile(r"@'[ \t]*\r?\n.*?\r?\n'@", re.S)
+
+
+# heredoc과 PowerShell 단일 인용 here-string 본문을 지운 커맨드를 반환한다.
+def without_bodies(command: str) -> str:
+    return HEREDOC.sub("", HERE_STRING.sub("", command))
+
+
 GIT_DIR = re.compile(r"(?:^|[;&|(\n])\s*git\s+-C\s+(\"[^\"]*\"|'[^']*'|\S+)")
 
 
 # git -C가 가리키는 폴더가 저장소 밖이면 그 경로 토큰을 반환한다. 없으면 None이다.
 def git_dir_outside(command: str, cwd: Path, project: Path) -> str | None:
-    for target in GIT_DIR.findall(HEREDOC.sub("", command)):
+    for target in GIT_DIR.findall(without_bodies(command)):
         target = target.strip("\"'")
         if not inside(norm(os.path.realpath(norm(target, cwd)), cwd), project):
             return target
@@ -162,18 +175,18 @@ def is_regex_text(token: str) -> bool:
 
 # (토큰, 경로 표기 여부)이다.
 def command_paths(command: str) -> list[tuple[str, bool]]:
-    # heredoc 본문을 빼고 경로 후보 목록을 시작한다.
-    command = HEREDOC.sub("", command)
+    # heredoc과 단일 인용 here-string 본문을 빼고 경로 후보 목록을 시작한다.
+    command = without_bodies(command)
     out = []
     prev_end, pattern_pending, first = 0, False, True
     for match in TOKEN.finditer(command):
-        # 구분자 뒤 첫 토큰은 명령 이름이다. 검색 명령(grep 등)의 첫 비옵션 인자(패턴, 스크립트)는 경로에서 뺀다.
+        # 구분자 뒤 첫 토큰은 커맨드 이름이다. 검색 커맨드(grep 등)의 첫 비옵션 인자(패턴, 스크립트)는 경로에서 뺀다.
         token = match.group()
         bare = token.strip("\"'")
         if re.search(r"[;&|\n(]", command[prev_end:match.start()]):
             first = True
         prev_end = match.end()
-        if first and bare in SHELL_KEYWORDS:  # 셸 예약어 다음 토큰이 명령 이름이다.
+        if first and bare in SHELL_KEYWORDS:  # 셸 예약어 다음 토큰이 커맨드 이름이다.
             pass
         elif first:
             first = False
@@ -211,16 +224,16 @@ CHANGE_ALL = {"rm", "rmdir", "mv", "mkdir", "touch", "tee", "set-content", "out-
 SEGMENT = re.compile(r"[;&|\n]+")
 
 
-# 명령 안에서 내용이 바뀌는 경로 토큰 집합이다. 리다이렉트 대상, rm 및 mv 등의 모든 인자, cp의 마지막 인자이다.
+# 커맨드 안에서 내용이 바뀌는 경로 토큰 집합이다. 리다이렉트 대상, rm 및 mv 등의 모든 인자, cp의 마지막 인자이다.
 def changed_tokens(command: str) -> set[str]:
     out = set()
-    # 따옴표 문자열은 자리표시자로 바꿔 안의 `>`와 구분자를 리다이렉트와 하위 명령으로 보지 않고, 결과에서 복원한다.
+    # 따옴표 문자열은 자리표시자로 바꿔 안의 `>`와 구분자를 리다이렉트와 하위 커맨드로 보지 않고, 결과에서 복원한다.
     held: list[str] = []
 
     def hold(m):
         held.append(m[0])
         return f'"\x00{len(held) - 1}\x00"'
-    command = QUOTED.sub(hold, HEREDOC.sub("", command))
+    command = QUOTED.sub(hold, without_bodies(command))
     for part in SEGMENT.split(command):
         out.update(t.strip("\"'") for t in REDIRECT.findall(part))
         words = [t.strip("\"'") for t in TOKEN.findall(part)]
@@ -236,31 +249,37 @@ def changed_tokens(command: str) -> set[str]:
 # 설치된 스킬과 원본의 경계를 개별 스킬 폴더로 유지한다.
 def skill_paths() -> list[tuple[Path, Path]]:
     out = []
-    for base in (SKILLS, HOME / ".agents" / "skills", HOME / ".claude" / "skills", HOME / ".codex" / "skills"):
+    bases = [SKILLS, HOME / ".agents" / "skills", HOME / CLAUDE_HOME_NAME / "skills", HOME / CODEX_HOME_NAME / "skills"]
+    for config in GLOBAL:
+        cache = config / "plugins" / "cache"
+        if cache.is_dir():
+            bases.extend(cache.glob("*/*/*/skills"))
+    for base in bases:
         if base.is_dir():
             out.append((base, base.resolve()))
             out.extend((child, child.resolve()) for child in base.iterdir() if child.is_dir())
     return out
 
 
-REASON_SECRET = "{token}은 보안 문서라 읽고 쓸 수 없습니다. " + RETRY
+REASON_SECRET = "{token}은 보안 문서이므로 읽거나 쓸 수 없습니다. " + RETRY
 REASON_SKILL_LINK = "{token}은 스킬 밖을 가리키는 링크입니다. " + RETRY
-REASON_SKILL_WRITE = "{token}은 외부 스킬이라 읽기만 할 수 있습니다. " + RETRY
-REASON_NODEBASE_LINK = "{token}은 Nodebase 밖을 가리키는 링크입니다. " + RETRY
+REASON_SKILL_WRITE = "{token}은 외부 스킬이므로 읽기만 할 수 있습니다. " + RETRY
+REASON_WIKI_LINK = "{token}은 위키 저장소 밖을 가리키는 링크입니다. " + RETRY
 REASON_OUTSIDE = "{token}은 세션 경로 밖입니다. " + RETRY
-REASON_GLOBAL_WRITE = "{token}은 ~/.claude 또는 ~/.codex 안이라 쓸 수 없습니다. " + RETRY
+REASON_GLOBAL_WRITE = "{token}은 ~/.claude 또는 ~/.codex 안이므로 쓸 수 없습니다. " + RETRY
 REASON_SUB_OUTSIDE = "{token}은 서브에이전트가 접근할 수 없는 경로입니다. " + RETRY
-REASON_SUB_DOC = "{role}은 {allowed} 작업 문서만 읽을 수 있습니다. " + RETRY
-REASON_REFUTE_BASH = "반증 reviewer는 Bash를 쓸 수 없습니다. " + RETRY
-# 서브에이전트 역할별로 읽을 수 있는 작업 문서 종류이다. 경과 문서(state)는 어느 역할도 읽지 못한다.
-DOC_ACCESS = {"researcher": {"research"}, "worker": {"input"}, "documenter": {"input"}, "reviewer": {"input"}}
+REASON_SUB_DOC = "{token}은 입력 문서가 아닙니다. 입력 문서의 작업 폴더에서는 입력 문서 {doc}만 읽을 수 있습니다. 입력 문서 경로 또는 그 작업 폴더 밖 경로를 지정하십시오. " + RETRY
+REASON_REFUTE_BASH = "반증 reviewer는 Bash를 사용할 수 없습니다. " + RETRY
+INPUT_DOC = re.compile(rf"^input: ({TASK_REL}/[\w.\-]+/[\w.\-]+\.md)\s*$", re.M)
 
 
-# 서브에이전트가 읽을 수 있는 작업 문서 종류와 반증 reviewer 여부이다. 역할을 모르면 (None, False)이다.
-def doc_access(data: dict, role: str | None) -> tuple[set[str] | None, bool]:
-    # 반증 reviewer는 첫 요청의 작업 종류로 가리고 반증 문서만 읽는다.
-    refute = role == "reviewer" and refute_mode(first_prompt(agent_transcript(data) or data.get("transcript_path")))
-    return ({"refute"} if refute else DOC_ACCESS.get(role)), refute
+# 서브에이전트의 입력 문서 경로(저장소 상대)와 반증 reviewer 여부이다. 배정 요청에 문서 줄이 없으면 (None, 반증 여부)이다.
+def doc_access(data: dict, role: str | None) -> tuple[str | None, bool]:
+    # 반증 reviewer는 첫 요청의 task 값으로 가린다.
+    prompt = first_prompt(agent_transcript(data) or data.get("transcript_path"))
+    found = INPUT_DOC.search(prompt)
+    return (found.group(1) if found else None), role == "reviewer" and refute_mode(prompt)
+
 
 # 도구 입력의 경로가 보안 문서나 세션 경로 밖이면 deny 사유를 반환한다. 통과면 None이다.
 def check_paths(data: dict, runner: str) -> str | None:
@@ -269,7 +288,7 @@ def check_paths(data: dict, runner: str) -> str | None:
     project = project_root(cwd)
     skills = skill_paths()
     patterns = secret_patterns()
-    nodebase = archive_root()
+    wiki_repo = archive_root()
     sub = not main_session(data)
     role = resolve_role(data) if sub else None
     allowed, refute = doc_access(data, role) if sub else (None, False)
@@ -281,12 +300,30 @@ def check_paths(data: dict, runner: str) -> str | None:
     if name in SHELLS:
         command = bash_command(data)
 
-        # 명령 전체 문자열에 보안 문서 패턴이 있으면 승인 여부와 관계없이 막는다.
+        # 커맨드 전체 문자열에 보안 문서 패턴이 있으면 승인 여부와 관계없이 차단한다.
         hit = secret_text(command, patterns)
         if hit:
             return REASON_SECRET.format(token=hit)
+        # director가 검증된 원본 생성기를 호출할 때만 설치 원본과 실행 파일의 외부 경로를 허용한다.
+        from allow_approved_request import task_docs_command
+        from sub_role import director_main
+        parts = command_parts(command, preserve_quotes=True)
+        if (director_main(data) and len(parts) > 1 and command.strip() not in parts
+                and any(task_docs_command(part, cwd) for part in parts)):
+            # 생성기와 이은 다른 명령도 각각 원래 경로·보안 검사를 통과해야 한다.
+            for part in parts:
+                reason = check_paths({**data, "tool_input": {**(data.get("tool_input") or {}), "command": part}}, runner)
+                if reason:
+                    return reason
+            return None
+        if director_main(data) and task_docs_command(command, cwd):
+            return None
+        from sub_worktree import transfer_command
+        if ((director_main(data) and transfer_command(command, project))
+                or (sub and role in ("worker", "documenter") and transfer_command(command, project, role))):
+            return None
 
-        # git -C가 저장소 밖을 가리키면 막는다.
+        # git -C가 저장소 밖을 가리키면 차단한다.
         outside = git_dir_outside(command, cwd, project)
         if outside:
             return REASON_OUTSIDE.format(token=outside)
@@ -304,21 +341,12 @@ def check_paths(data: dict, runner: str) -> str | None:
     else:
         return None
 
-    # 항목마다 보안 문서, 스킬, Nodebase, 저장소와 허용 폴더 순으로 판정한다.
+    # 항목마다 보안 문서, 스킬, 위키 저장소, 저장소와 허용 폴더 순으로 판정한다.
     for path, token, looks in items:
         real = norm(os.path.realpath(path), cwd)
         if is_secret(path, patterns) or is_secret(real, patterns):
             return REASON_SECRET.format(token=token)
-        # 서브에이전트는 저장소 안이고 사건 문서 폴더 밖인 경로만 허용한다.
-        if sub and looks:
-            if not inside(real, project) or inside(real, INCIDENT) or inside(real, INCIDENT.resolve()):
-                return REASON_SUB_OUTSIDE.format(token=token)
-            # 작업 문서는 역할별 허용 종류만 읽을 수 있다.
-            kind = doc_kind(os.path.relpath(real, norm(str(project), cwd)).replace("\\", "/"))
-            if allowed is not None and kind and kind not in allowed:
-                return REASON_SUB_DOC.format(token=token, role=role, allowed=" ".join(sorted(allowed)))
-            continue
-        # 짧은 루트 표기와 링크 탈출은 실제 상위 경로도 대조한다.
+        # 설치된 스킬은 역할과 관계없이 해당 스킬 폴더 안을 읽는다.
         skill = next(((base, target) for base, target in reversed(skills)
                       if inside(path, base) or inside(path, target)), None)
         if skill:
@@ -327,11 +355,31 @@ def check_paths(data: dict, runner: str) -> str | None:
             if write and not inside(real, project):
                 return REASON_SKILL_WRITE.format(token=token)
             continue
-        if nodebase and (inside(path, nodebase) or inside(real, nodebase)
-                         or any(norm(os.path.realpath(parent), cwd) == norm(str(nodebase), cwd)
+        if not write and any(real == norm(os.path.realpath(p), cwd)
+                             for p in (HOME / CODEX_HOME_NAME / "config.toml", SETTINGS)):
+            continue
+        # 서브에이전트는 저장소, 사건 문서 폴더와 OS 임시 폴더 안의 경로만 허용한다.
+        if sub and looks:
+            if in_temp(real) or in_incident(path):
+                continue
+            if not inside(real, project):
+                return REASON_SUB_OUTSIDE.format(token=token)
+            # 입력 문서가 속한 작업 폴더에서는 입력 문서만 읽을 수 있고, Read, Grep, Glob은 그 작업 폴더를 포함하는 폴더도 대상으로 삼을 수 없다.
+            if allowed is not None:
+                log = norm(str((project / allowed).parent), cwd)
+                tool = name in ("Read", "Grep", "Glob")
+                folder = tool and inside(log, Path(real))
+                # 셸 커맨드의 경로 토큰은 검색 패턴일 수 있으므로 실제 파일인 작업 폴더 아래 항목만 입력 문서와 대조한다.
+                other = inside(real, Path(log)) and real != norm(str(project / allowed), cwd) and (tool or Path(real).is_file())
+                if folder or other:
+                    return REASON_SUB_DOC.format(token=token, doc=allowed)
+            continue
+        # 짧은 루트 표기와 링크 탈출은 실제 상위 경로도 대조한다.
+        if wiki_repo and (inside(path, wiki_repo) or inside(real, wiki_repo)
+                         or any(norm(os.path.realpath(parent), cwd) == norm(str(wiki_repo), cwd)
                                 for parent in Path(path).parents)):
-            if not inside(real, nodebase):
-                return REASON_NODEBASE_LINK.format(token=token)
+            if not inside(real, wiki_repo):
+                return REASON_WIKI_LINK.format(token=token)
             continue
         if not looks or inside(real, project) or in_incident(path):
             continue
@@ -340,9 +388,64 @@ def check_paths(data: dict, runner: str) -> str | None:
             continue
         if in_temp(path):
             continue
-        if any(inside(path, g) for g in GLOBAL):  # 읽기는 허용하고 쓰기는 승인 턴에도 막는다.
+        if any(inside(path, g) for g in GLOBAL):  # 읽기는 허용하고 쓰기는 승인 턴에도 차단한다.
             if token in changed if name in SHELLS else write:
                 return REASON_GLOBAL_WRITE.format(token=token)
             continue
         return REASON_OUTSIDE.format(token=token)
     return None
+
+
+REASON_SOURCE_PATH = "출처로 쓸 수 없는 경로나 식별자가 있습니다: `{found}`. 저장소 안 추적 파일의 `파일:행`이나 URL만 쓰십시오."
+PATH_TOKEN = re.compile(r"[\w.\-~:\\/]+")
+LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
+TASK_DOC_NAME = re.compile(r"^(?:status|research|refute|spec)\.md$")
+URL_TEXT = re.compile(r"https?://\S+")
+
+
+# git이 무시하는 저장소 상대 경로 집합이다. git을 실행하지 못하면 빈 집합이다.
+def ignored_paths(root: Path, rels: list[str]) -> set[str]:
+    if not rels:
+        return set()
+    try:
+        done = subprocess.run(["git", "-C", str(root), "check-ignore", "--stdin"], input="\n".join(rels),
+                              capture_output=True, text=True, encoding="utf-8", timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return set(done.stdout.split("\n"))
+
+
+# text에 출처로 쓸 수 없는 정보가 있으면 첫 항목을 반환한다. 없으면 None이다.
+# 대상은 세션 기록, 사건 문서, hook 입력의 세션 id 전체와 앞 8자, 작업 문서 행 인용, git 무시 파일, 보안 파일, 저장소 밖 경로이며 URL은 제외한다.
+def source_leak(text: str, data: dict, root: Path) -> str | None:
+    from sub_docs import record_leak
+    leak = record_leak(text)
+    if leak:
+        return leak
+
+    # 세션 id(Codex는 thread id) 앞 8자가 있으면 찾는다.
+    sid = str(data.get("session_id") or "")
+    if len(sid) >= 8 and re.search(r"(?<![0-9A-Za-z])" + re.escape(sid[:8]), text):
+        return sid[:8]
+
+    # 경로 후보를 모아 항목별로 판정한다. 상대 경로 후보는 확장자가 있어야 파일로 본다.
+    patterns, base, inner = secret_patterns(), Path(root), []
+    for token in PATH_TOKEN.findall(URL_TEXT.sub(" ", text)):
+        token = token.rstrip(".,:")
+        line = LINE_SUFFIX.search(token)
+        ref = LINE_SUFFIX.sub("", token)
+        absolute = bool(DRIVE.match(ref)) or ref.startswith(("~", "/", "\\"))
+        bare = "/" not in ref and "\\" not in ref
+        if not ref or (bare and not (line and TASK_DOC_NAME.match(ref))):
+            continue
+        if not absolute and not bare and not re.search(r"\.\w{1,6}$", ref):
+            continue
+        path = norm(ref, base)
+        if is_secret(path, patterns) or not inside(path, base):
+            return token
+        rel_path = os.path.relpath(path, norm(str(base), base)).replace("\\", "/")
+        if line and (rel_path.startswith(TASK_REL + "/") or bare):
+            return token
+        inner.append((rel_path, token))
+    ignored = ignored_paths(base, [r for r, _ in inner])
+    return next((t for r, t in inner if r in ignored), None)

@@ -25,7 +25,7 @@ os.environ.setdefault("CLAUDE_CODE_SKIP_PROMPT_HISTORY", "1")
 HERE = Path(__file__).resolve().parent
 AGENT_ROOT = HERE.parent
 TURN_PROMPT_PATH = HERE.parent / "prompts" / "TURN.md"
-# 지침 파일 이름. 공통 지침은 저장소 루트, 역할 지침은 .claude/agents/<role>/, archive 지침은 Nodebase 저장소 루트에 있다.
+# 지침 파일 이름. 공통 지침은 저장소 루트, 역할 지침은 .claude/agents/<role>/, archive 지침은 위키 저장소 루트에 있다.
 COMMON_RULES_FILE = "AGENTS.global.md"
 ROLE_RULES_FILE = "AGENTS.md"
 ROLE_MAIN_FILE = "MAIN.md"
@@ -301,7 +301,7 @@ CONFIG_TOP_LEVEL_KEYS = frozenset({
 })
 
 
-# config.json 전체 설정을 담고, 채널/에이전트 조회 기능을 제공한다.
+# config.json 전체 설정을 담고, 채널과 에이전트를 조회하는 메서드를 둔다.
 @dataclass
 class Config:
     # 작업 프롬프트로 답하는 요청 채널과 채팅 프롬프트로 답하는 채팅 채널. 두 목록은 겹치지 않는다.
@@ -332,7 +332,7 @@ class Config:
     # config.json 파일을 읽고 검증해 Config 인스턴스를 만든다.
     @classmethod
     def load(cls, path: Path) -> "Config":
-        # 설정 파일을 읽고 알 수 없는 키를 막는다.
+        # 설정 파일을 읽고 알 수 없는 키를 차단한다.
         raw = json.loads(path.read_text(encoding="utf-8"))
         unknown = sorted(key for key in raw if key not in CONFIG_TOP_LEVEL_KEYS)
         if unknown:

@@ -3,7 +3,7 @@ title: Nestlab Discord 봇 GCP 운영
 description: "GCP VM에 설치한 Discord 봇의 업데이트와 점검 절차이다."
 type: document
 created: 2026-10-03
-modified: 2026-10-28
+modified: 2026-11-12
 ---
 
 # Discord 봇 GCP 운영
@@ -39,7 +39,7 @@ Zone:          us-west1-b
 gcloud compute scp ~/<파일명> <VM_NAME>:nestlab/<상대경로> --zone=us-west1-b --project=discord-party-parrots
 ```
 
-폴더 전체를 덮어쓸 때는 아래 명령을 쓴다.
+폴더 전체를 덮어쓸 때는 아래 커맨드를 쓴다.
 두 번째 경로는 VM에서 그 폴더를 담는 상위 폴더다.
 Cloud Shell에 올린 폴더에서 실행 데이터 파일과 설정 파일을 먼저 지운다.
 남아 있으면 VM의 운영 데이터와 설정을 로컬 내용으로 덮어쓴다.
@@ -63,16 +63,16 @@ sudo systemctl restart discord-bot
 sudo systemctl status discord-bot
 ```
 
-- `AGENTS.global.md`, 역할의 `AGENTS.md`, 자기 및 동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
-  공통 규칙과 Persona는 프롬프트에 넣고 역할 `AGENTS.md`는 캐릭터 이름을 읽는 원본으로 쓴다.
-- `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`와 자기 역할의 `MEMORY.md`도 같은 방식으로 감지한다.
+- `AGENTS.global.md`, 에이전트의 `AGENTS.md`, 자기 및 동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
+  공통 규칙과 Persona는 프롬프트에 넣고 에이전트 `AGENTS.md`는 캐릭터 이름을 읽는 원본으로 쓴다.
+- `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`와 자기 에이전트의 `MEMORY.md`도 같은 방식으로 감지한다.
 - documenter는 `discord/prompts/ARCHIVE.md`도 감지한다.
 - 에이전트 이름, 역할, 채널 등 설정 변경은 아래 설정 변경 절에 따라 재시작한다.
 - 봇 Python 코드(`.py` 파일)는 재시작해야 반영된다.
 
 ### 지식 원본 갱신
 
-1. Nodebase 원격 저장소의 대상 브랜치에 `$repo_name/AGENTS.md`와 해당 `$repo_name/schema/` 변경을 승인된 저장소 절차로 반영한다.
+1. 원격 위키 저장소의 대상 브랜치에 `$repo_name/AGENTS.md`와 해당 `$repo_name/schema/` 변경을 승인된 저장소 절차로 반영한다.
 
 `$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
 
@@ -132,7 +132,7 @@ systemd가 5초마다 재시작을 반복하므로 `status`가 잠깐 `active`�
 
 ## 로그 확인
 
-로그 확인 명령은 [discord-debug.md](discord-debug.md)를 따른다.
+로그 확인 커맨드는 [discord-debug.md](discord-debug.md)를 따른다.
 
 ## 계정과 Secret 점검
 

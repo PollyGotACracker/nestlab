@@ -16,10 +16,11 @@
     "statusMessage": "Nestlab 에이전트 상태줄 이름 표시"
   },
   "permissions": {
-    "additionalDirectories": ["~/.claude", "~/.codex", "<TEMP>", "<NODEBASE>"],
+    "additionalDirectories": ["~/.claude", "~/.codex", "<TEMP>", "<WIKI_REPO>"],
     "allow": [
       "WebSearch",
       "WebFetch",
+      "Workflow",
       "Read(~/.claude/**)",
       "Read(~/.codex/**)",
       "Edit(./**)",
@@ -111,8 +112,14 @@
       "Read(//**/id_rsa*)",
       "Read(//**/id_ed25519*)",
       "Read(~/.claude/.credentials.json)",
-      "Read(~/.codex/auth.json)",
-      "Read(~/.codex/auth.json.bak)",
+      "Read(~/.codex/auth.json*)",
+      "Edit(//**/.env)",
+      "Edit(//**/.env.*)",
+      "Edit(//**/secrets/**)",
+      "Edit(//**/*.pem)",
+      "Edit(//**/*.key)",
+      "Edit(//**/id_rsa*)",
+      "Edit(//**/id_ed25519*)",
       "Edit(~/.claude/.credentials.json)",
       "Edit(~/.codex/auth.json*)"
     ]
@@ -124,7 +131,19 @@
           {
             "type": "command",
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/load_agent.py\" --default-role buddy",
-            "statusMessage": "Nestlab 메인 에이전트 역할 및 공통 지침"
+            "statusMessage": "Nestlab 메인 에이전트 지침 및 공통 지침"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/record_stage.py\"",
+            "timeout": 10,
+            "statusMessage": "Nestlab 작업 단계 기록"
           }
         ]
       }
@@ -135,14 +154,14 @@
           {
             "type": "command",
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/load_agent.py\"",
-            "statusMessage": "Nestlab 서브 에이전트 역할 및 공통 지침"
+            "statusMessage": "Nestlab 서브 에이전트 지침 및 공통 지침"
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent|Edit|Write|NotebookEdit|Bash|PowerShell|Read|Grep|Glob|AskUserQuestion",
+        "matcher": "Agent|.*followup_task|Edit|Write|NotebookEdit|Bash|PowerShell|Read|Grep|Glob|AskUserQuestion",
         "hooks": [
           {
             "type": "command",
@@ -160,6 +179,17 @@
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_handback_report.py\"",
             "timeout": 10,
             "statusMessage": "Nestlab 조사 결과 저장"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/tools/check_doc_rule.py\" --hook",
+            "timeout": 30,
+            "statusMessage": "Nestlab 지침 검사"
           }
         ]
       }
@@ -194,12 +224,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/tools/check_doc_rule.py\" --hook",
-            "timeout": 30,
-            "statusMessage": "Nestlab 지침 검사"
-          },
-          {
-            "type": "command",
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_workflow_response.py\" --runner claude --record",
             "timeout": 10,
             "statusMessage": "Nestlab 작업 상태 기록"
@@ -218,7 +242,7 @@
         ]
       },
       {
-        "matcher": "Agent",
+        "matcher": "Agent|.*followup_task",
         "hooks": [
           {
             "type": "command",
@@ -249,6 +273,12 @@
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_context_size.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 컨텍스트 기록 안내"
+          },
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_subagent_result.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Nestlab 메인 세션 결과 원문 저장"
           }
         ]
       }

@@ -1,8 +1,8 @@
-"""명세 문서 요구사항 절의 기대 결과 칸을 읽고 쓰는 공용 모듈이다.
+"""명세 문서 요구사항 절의 결과 칸과 기대 결과 칸을 읽고 쓰는 공용 모듈이다.
 
 호출자:
 - hooks/check_workflow_response.py(질문 확정 답을 기대 결과 칸에 기록, 폐기 답을 `### 요구사항 <번호>. 폐기` 절로 기록)
-- hooks/check_tool_use/sub_scope.py(에이전트의 기대 결과 칸 직접 수정 잠금)
+- hooks/check_tool_use/sub_scope.py(에이전트의 결과 칸과 기대 결과 칸 직접 수정 잠금)
 입력: 명세 문서의 `요구사항 목록` 절 본문 또는 명세 문서 전문
 반환: 칸 값 dict 또는 칸을 바꾼 절 본문
 한계: `###` 제목이 코드 블록 안에 있으면 요구사항 절 경계로 오인한다.
@@ -13,7 +13,7 @@ import re
 
 from sub_docs import template_section
 
-SKILL = "nestlab-log-spec"
+TEMPLATE = "spec"
 BLOCK = re.compile(r"(?m)^(?=### )")
 NUMBER = re.compile(r"### (?:요구사항 )?(\d+)\. ")
 PLACEHOLDER = {"기대 결과": "  - <판정 기준>"}
@@ -72,20 +72,25 @@ def text_of(block: str, name: str) -> str:
 
 # 명세 양식의 요구사항 절 자리표시 본문이다. 양식을 읽지 못하면 최소 절을 쓴다.
 def template_block() -> str:
-    tpl = template_section(SKILL, "요구사항 목록")
+    tpl = template_section(TEMPLATE, "요구사항 목록")
     if "### " in tpl:
         return tpl[tpl.index("### "):].rstrip("\n") + "\n\n"
-    return "### <번호>. <요구사항 이름>\n\n- 기대 결과:\n  - <판정 기준>\n\n"
+    return "### <번호>. <요구사항 이름>\n\n- 결과:\n  - <목표를 달성했을 때 기대되는 결과>\n- 기대 결과:\n  - <판정 기준>\n\n"
 
 
-# 명세 전문 또는 요구사항 목록 절 본문에서 번호별 기대 결과 칸 값이다.
+# 한 절에서 hook만 쓰는 두 칸(결과, 기대 결과)의 값을 이은 문자열이다.
+def locked_text(block: str) -> str:
+    return text_of(block, "결과") + "\n--\n" + text_of(block, "기대 결과")
+
+
+# 명세 전문 또는 요구사항 목록 절 본문에서 번호별 결과 칸과 기대 결과 칸 값이다.
 def cells(body: str) -> dict[int, str]:
-    return {k: text_of(t, "기대 결과") for k, t in blocks(body) if k is not None}
+    return {k: locked_text(t) for k, t in blocks(body) if k is not None}
 
 
-# 양식 자리표시 절의 기대 결과 칸 값이다.
+# 양식 자리표시 절의 결과 칸과 기대 결과 칸 값이다.
 def blank_cells() -> str:
-    return text_of(template_block(), "기대 결과")
+    return locked_text(template_block())
 
 
 # 요구사항 목록 절 본문에 ops를 순서대로 적용한 본문을 반환한다.
@@ -109,7 +114,19 @@ def apply(body: str, ops: list[tuple], names: dict[int, str]) -> str:
         n = op[1]
         if op[0] == "req":
             i = find(n)
-            parts[i] = (parts[i][0], set_items(parts[i][1], "기대 결과", [[f"  - {op[2]}"]]))
+            # 결과 칸이 양식 자리표시 값이거나 이전 안 설명 그대로면 새 안 설명으로 채운다.
+            # 결과 칸은 hook만 쓸 수 있어 비워 두면 구현 배정이 막힌다.
+            desc = lambda s: re.sub(r"^-?\s*안 \d+\. [^:]+: ", "", s.strip())
+            old = desc(text_of(parts[i][1], "기대 결과"))
+            block = set_items(parts[i][1], "기대 결과", [[f"  - {op[2]}"]])
+            if text_of(block, "결과").removeprefix("- ") in (text_of(template_block(), "결과").removeprefix("- "), old):
+                # 안 설명은 문장 단위로 나눠 결과 칸 목록으로 쓴다.
+                sentences = [s for s in re.split(r"(?<=[.!?])\s+", desc(op[2])) if s.strip()]
+                block = set_items(block, "결과", [[f"  - {s}"] for s in sentences])
+            # 확정한 검토 질문의 문제 번호를 문제 칸에 쓴다.
+            if len(op) > 3 and op[3]:
+                block = re.sub(r"(?m)^- 문제:.*$", lambda _: f"- 문제: {op[3]}", block, count=1)
+            parts[i] = (parts[i][0], block)
         else:
             # 절을 `### 요구사항 <번호>. 폐기`와 기대 결과 `폐기`만 남긴다.
             parts[find(n)] = (n, f"### 요구사항 {n}. 폐기\n\n- 기대 결과:\n  - 폐기\n\n")

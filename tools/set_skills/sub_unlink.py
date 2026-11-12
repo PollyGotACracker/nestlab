@@ -1,4 +1,4 @@
-"""unlink 명령이다.
+"""unlink 커맨드이다.
 공용 skill 원본을 가리키는 링크만 지운다.
 """
 from __future__ import annotations

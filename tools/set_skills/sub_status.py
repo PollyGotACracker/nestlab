@@ -4,7 +4,7 @@ from __future__ import annotations
 import filecmp
 from pathlib import Path
 
-from sub_config import SOURCE
+from sub_config import SOURCE, paths
 from sub_symlink import link_target
 
 
@@ -38,7 +38,7 @@ def entry_state(entry: Path, skill: Path) -> str:
             not target.exists()
             and target.name == skill.name
             and target.parent.name == "skills"
-            and target.parent.parent.name == "shared"
+            and target.parent.parent.name == paths.SHARED_NAME
         ):
             return f"끊어진 링크 (예전 경로: {target})"
         return f"충돌 (다른 곳을 가리키는 링크: {target})"

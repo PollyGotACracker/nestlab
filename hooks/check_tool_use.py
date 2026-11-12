@@ -2,8 +2,8 @@
 """PreToolUse hook: 서브에이전트 호출과 쓰기 도구 사용을 검사한다.
 
 호출자:
-- Claude Code와 Codex의 PreToolUse hook 설정(shared/settings)
-- 호출 명령은 `python check_tool_use.py --runner <claude|codex>`
+- Claude Code와 Codex의 PreToolUse hook 설정(설정 원본)
+- 호출 커맨드는 `python check_tool_use.py --runner <claude|codex>`
 입력: hook 입력 JSON을 stdin으로 받는다.
 반환:
 - 위반이면 stdout에 `hookSpecificOutput`(`permissionDecision: deny`, `permissionDecisionReason`) JSON을 출력한다.
@@ -24,18 +24,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "check_tool_use"))
 
-from allow_approved_request import in_allow_list
-from sub_approval import approved, check_agent_call, check_codex_child, user_message
-from sub_call import is_spawn
+from allow_approved_request import in_allow_list, task_docs_command
+from sub_approval import WRITE_STAGES, approved, check_agent_call, check_codex_child, sync_stage, user_message
+from sub_call import is_followup, is_spawn
+from sub_docs import project_root
 from sub_input import check_input
-from sub_role import main_session, resolve_role
+from sub_role import director_main, main_session, resolve_role
 from sub_path import check_paths, norm
 from sub_scope import check_write, log_bash_reason, write_bash_free
 from sub_question import check_question
 from sub_session import QUESTION_TOOLS, session_path
 from sub_write import (APPROVAL_RETRY, REASON_CD, REASON_INLINE, RETRY, SHELLS, bash_command, bash_write_reason, command_parts, description_reason,
                        git_write_reason, interpreter_kind, is_write_bash, prompt_reason, targets)
-from sub_workflow import call_reason
+from sub_gate import call_reason
 
 
 # 사유를 PreToolUse deny 출력 dict로 만든다.
@@ -55,19 +56,40 @@ def check_fork(data: dict, runner: str) -> str | None:
     return None
 
 
-REASON_MAIN_BASH = "이 명령은 파일을 바꿉니다. " + RETRY
+REASON_MAIN_BASH = "이 커맨드는 파일을 변경합니다. " + RETRY
 
-# 메인 세션의 쓰기 Bash 명령이면 사유를 반환한다. 아니면 None이다.
+# 메인 세션의 쓰기 Bash 커맨드이면 사유를 반환한다. 아니면 None이다.
 def main_write_reason(command: str) -> str | None:
     return bash_write_reason(command) or (REASON_MAIN_BASH if is_write_bash(command) else None)
 
 
+REASON_EDIT_GUIDE = "작업 문서는 Edit 도구로 수정하고, 구현은 담당에게 배정하십시오."
+
+
+# director 메인 세션의 쓰기 Bash 커맨드이면 모든 단계에서 사유를 반환한다. 허용 목록과 작업 문서 생성기, 전달 도구 커맨드는 통과한다.
+def director_write_reason(command: str, cwd: str | Path | None = None) -> str | None:
+    from sub_worktree import transfer_command
+    if in_allow_list(command, cwd) or transfer_command(command, project_root(cwd)):
+        return None
+    reason = main_write_reason(command)
+    return f"{reason} {REASON_EDIT_GUIDE}" if reason else None
+
+
 REASON_SCRIPT = "승인 전에는 허용 목록 밖 python, node 스크립트를 실행할 수 없습니다. " + APPROVAL_RETRY
 
-# 하위 명령 중 허용 목록 밖 python, node 스크립트(파일, 모듈) 실행이 있으면 사유를 반환한다. 아니면 None이다.
-def script_reason(command: str) -> str | None:
-    for part in command_parts(command):
-        if interpreter_kind(part) == "script" and not in_allow_list(part):
+# 하위 커맨드 중 허용 목록 밖 python, node 스크립트(파일, 모듈) 실행이 있으면 사유를 반환한다. 아니면 None이다.
+def script_reason(command: str, cwd: str | Path | None = None) -> str | None:
+    if in_allow_list(command, cwd):
+        return None
+    for part in command_parts(command, preserve_quotes=True):
+        if re.match(r"^nestlab-task-docs(?:\.cmd)?(?=\s|$)", part):
+            if task_docs_command(part, cwd):
+                continue
+            return REASON_SCRIPT
+        # 원래 따옴표와 인자로 단독 호출과 같은 생성기 검사를 적용한다.
+        if task_docs_command(part, cwd):
+            continue
+        if interpreter_kind(part) == "script" and not in_allow_list(part, cwd):
             return REASON_SCRIPT
     return None
 
@@ -81,7 +103,7 @@ def workdir_reason(data: dict) -> str | None:
 
 
 REASON_SUB_SPAWN = "서브에이전트는 다른 에이전트를 호출할 수 없습니다. " + RETRY
-REASON_ASYNC = "경과 문서를 쓴 세션에서는 request_user_input_async의 답을 기록할 수 없습니다. request_user_input을 쓰십시오."
+REASON_ASYNC = "경과 문서를 쓴 세션에서는 request_user_input_async의 답을 기록할 수 없습니다. request_user_input을 사용하십시오."
 
 # 위반 사유를 반환한다. 통과면 None이다.
 def check(data: dict, runner: str) -> str | None:
@@ -89,25 +111,25 @@ def check(data: dict, runner: str) -> str | None:
     if runner == "codex" and not data.get("transcript_path") and data.get("session_id"):
         data = {**data, "transcript_path": session_path(data, runner)}
 
-    # 서브에이전트 세션의 Agent 호출은 막는다.
-    if not main_session(data) and is_spawn(data.get("tool_name")):
-        return REASON_SUB_SPAWN
-
     # 서브에이전트 호출은 승인, fork, 입력 형식, 단계 선행 조건 순으로 검사한다.
-    if is_spawn(data.get("tool_name")):
-        reason = check_agent_call(data) if data.get("tool_name") == "Agent" else None
+    if is_spawn(data.get("tool_name")) or is_followup(data.get("tool_name")):
+        if not director_main(data):
+            return None
+        if is_followup(data.get("tool_name")):
+            return check_agent_call(data) or check_input(data, runner) or call_reason(data)
+        reason = check_agent_call(data)
         return reason or check_fork(data, runner) or check_input(data, runner) or call_reason(data)
 
-    # 경과 문서를 쓴 세션의 비동기 질문 도구는 답을 기록할 수 없으므로 막는다.
+    # 경과 문서를 쓴 세션의 비동기 질문 도구는 답을 기록할 수 없으므로 차단된다.
     if re.match(r"^\w*request_user_input_async$", str(data.get("tool_name"))):
         from check_workflow_response import written_status
-        return REASON_ASYNC if written_status(data, runner) else None
+        return REASON_ASYNC if director_main(data) and written_status(data, runner) else None
 
     # 질문 도구는 재질문과 안 비교 유무를 검사한다.
     if data.get("tool_name") in QUESTION_TOOLS:
-        return check_question(data, runner)
+        return check_question(data, runner) if director_main(data) else None
 
-    # 셸 도구의 cd, git -c, workdir는 모든 세션과 승인 상태에서 가장 먼저 막는다.
+    # 셸 도구의 cd, git -c, workdir는 모든 세션과 승인 상태에서 가장 먼저 차단된다.
     shell = data.get("tool_name") in SHELLS
     command = bash_command(data) if shell else ""
     if shell:
@@ -121,36 +143,13 @@ def check(data: dict, runner: str) -> str | None:
     if reason:
         return reason
 
-    # 셸 도구는 쓰기 명령과 description을 검사한다. director 메인 세션은 쓰기 Bash를 모두 막고, 그 밖의 메인 세션은 bash_write_reason을 받고,
-    # 사용자 승인 명령이 있는 assistant와 실행 승인 뒤 worker, documenter는 쓰기 판정 대신 log/ 경로만 막는다.
+    # director 메인의 승인 전 쓰기와 공통 description을 검사한다.
     if shell:
-        main = main_session(data)
-        turn_approved = approved(user_message(data, runner))
-        if main and role == "director":
-            # 승인 턴의 쓰기 Bash는 보안, 외부 경로, git 비가역 작업만 막는다(앞 검사와 설정 deny 규칙이 맡는다).
-            write = None if turn_approved else main_write_reason(command)
-        elif main and role == "assistant" and turn_approved:
-            write = log_bash_reason(data)
-        elif main:
-            write = bash_write_reason(command)
-        elif write_bash_free(data, role):
-            write = log_bash_reason(data)
-        else:
-            write = bash_write_reason(command)
-
-        # 승인 턴의 메인 세션은 쓰기 호출이 있는 인라인 코드를 막지 않는다.
-        if main and turn_approved and write == REASON_INLINE:
-            write = None
-
-        # 승인 전 메인 세션은 git 쓰기 명령과 허용 목록 밖 스크립트 실행도 막는다.
-        before = git_write_reason(command) or script_reason(command) if main and not turn_approved else None
+        stage = sync_stage(data, runner) if director_main(data) else None
+        turn_approved = stage in WRITE_STAGES if stage else approved(user_message(data, runner))
+        write = director_write_reason(command, data.get("cwd")) if director_main(data) else None
+        before = git_write_reason(command) or script_reason(command, data.get("cwd")) if director_main(data) and not turn_approved else None
         reason = write or before or description_reason(data, runner)
-        if reason:
-            return reason
-
-    # Codex 하위 역할의 도구 호출은 부모 승인을 확인한다.
-    if runner == "codex" and role not in (None, "director", "assistant"):
-        reason = check_codex_child(data)
         if reason:
             return reason
 
@@ -161,7 +160,7 @@ def check(data: dict, runner: str) -> str | None:
     return check_write(data, role, paths, main_session(data), runner)
 
 
-REASON_ERROR = "쓰기 도구 검사 중 오류가 나 쓰기를 허용하지 않습니다. " + RETRY
+REASON_ERROR = "쓰기 도구 검사 중 오류가 발생하여 쓰기를 차단하였습니다. " + RETRY
 
 # 쓰기 도구이거나 쓰기로 판정된 Bash 호출이면 True를 반환한다.
 def is_write_call(data) -> bool:

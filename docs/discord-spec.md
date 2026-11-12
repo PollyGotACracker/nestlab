@@ -3,14 +3,14 @@ title: Nestlab Discord Agent 시스템 명세
 description: "에이전트별 Discord Bot의 채널 동작, 설정 항목, 자율 채팅과 오류 처리를 정의한 명세이다."
 type: document
 created: 2026-10-03
-modified: 2026-11-03
+modified: 2026-11-12
 ---
 
 # Discord Agent 시스템 명세
 
 ## 목적
 
-에이전트별 AI Agent를 Discord Bot으로 제공한다.
+에이전트별 AI Agent를 Discord Bot으로 운영한다.
 Bot은 하나의 프로세스에서 실행한다. 등록된 에이전트 채널에서 캐릭터들이 사용자와 대화하고, 역할마다 정해진 요청을 전용 도구로 처리한다.
 검증한 런타임은 Python 3.14.0, `aiohttp 3.14.3`, `claude-agent-sdk 0.2.159`, `discord.py 2.7.1`이다.
 
@@ -150,7 +150,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 텍스트 채널과 포럼 채널을 등록할 수 있다. 스레드와 포럼 게시글은 부모 채널이 등록되어 있으면 에이전트 채널로 처리하고, 요청 및 채팅 구분도 부모 채널을 따른다.
 
 `archive_forum_id`는 `request_channels`에 등록된 ForumChannel이어야 한다. `chat_channels`에는 등록할 수 없다.
-`archive_repository`와 documenter 역할 에이전트가 없으면 설정 오류로 처리한다.
+`archive_repository`와 documenter 에이전트가 없으면 설정 오류로 처리한다.
 
 등록되지 않은 채널, 허용 목록 밖의 서버와 사용자의 메시지는 처리하지 않는다. 다른 Bot과 웹훅의 메시지도 처리하지 않는다.
 
@@ -441,8 +441,8 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 사실 확인 규칙은 그대로 넣는다.
 `CHAT.md`가 없으면 Bot이 시작하지 않는다.
 
-역할 지침(`/.claude/agents/<role>/AGENTS.md`)은 프롬프트에 넣지 않는다.
-캐릭터 이름은 역할 지침 frontmatter의 `name`에서 읽는다.
+에이전트 지침(`/.claude/agents/<role>/AGENTS.md`)은 프롬프트에 넣지 않는다.
+캐릭터 이름은 에이전트 지침 frontmatter의 `name`에서 읽는다.
 
 요청 채널의 `Discord chat runtime`에는 다음 내용이 들어간다.
 
@@ -457,13 +457,13 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 리액션과 다음 화자 제어 규칙
 - 다른 캐릭터의 종 및 MBTI, 담당과 전용 도구 목록
 
-`/AGENTS.md`, 역할 지침, 자기 `SOUL.md`, 다른 캐릭터의 `SOUL.md`, `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`, 자기 `MEMORY.md`의 수정 시각이나 크기가 바뀌면 다음 발언에서 해당 역할의 시스템 프롬프트를 다시 만든다.
+`/AGENTS.md`, 에이전트 지침, 자기 `SOUL.md`, 다른 캐릭터의 `SOUL.md`, `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`, 자기 `MEMORY.md`의 수정 시각이나 크기가 바뀌면 다음 발언에서 해당 에이전트의 시스템 프롬프트를 다시 만든다.
 `MEMORY.md`가 없으면 오류 없이 없는 파일로 감시한다.
 documenter는 `discord/prompts/ARCHIVE.md`도 변경 감지 대상에 포함하며, 지식 저장소 설정이 있을 때 해당 문서를 지식 안내로 읽는다.
 
 로컬 스킬은 `shared/skills/wiki/SKILL.md`를 통해 파일 원본에 연결한다.
 Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 전용 도구로 원격의 같은 schema 경로에 연결한다.
-절차 본문은 Nodebase 원격 저장소의 `$repo_name/schema/`에만 유지한다.
+절차 본문은 원격 위키 저장소의 `$repo_name/schema/`에만 유지한다.
 
 실행 가능한 에이전트 목록은 `.claude/agents/*/AGENTS.md`의 `name`에서 읽는다. 설정의 `name`이 이 값과 다르면 시작하지 않는다.
 
@@ -542,20 +542,20 @@ Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 �
 - `archive_thread_start`
   - 입력: 제목, 내용
   - 제한:
-    - documenter에게만 제공한다.
+    - documenter에게만 노출한다.
     - 최초 사용자 메시지를 첫 글로 쓰고, 전달된 내용이 다르면 작업 자료로 덧붙인다.
     - 최초 사용자 메시지의 첨부를 같은 thread에 복사한다.
 - `archive_read`
   - 입력: 경로, 브랜치(선택)
   - 제한:
-    - archive thread에서만 제공한다.
+    - archive thread에서만 노출한다.
     - 브랜치를 생략하면 `master`에서 읽는다.
 - `archive_branch`
   - 입력: 브랜치
   - 제한: archive thread에서 브랜치 commit SHA를 조회한다.
 - `archive_workflow_open`
   - 입력: operation, branch(선택)
-  - 제한: ingest/query/lint만 받으며 기본 master를 commit SHA로 확정하고 같은 commit의 Nodebase 지침과 schema 전체 및 blob SHA를 반환한다.
+  - 제한: ingest/query/lint만 받으며 기본 master를 commit SHA로 확정하고 같은 commit의 위키 저장소 지침과 schema 전체 및 blob SHA를 반환한다.
 - `archive_list`
   - 입력: path, ref, page 및 per_page(선택)
   - 제한: AGENTS.md와 raw/wiki/schema 내부 파일을 commit SHA 기준으로 페이지당 기본 50개, 최대 100개 열거한다.
@@ -565,7 +565,7 @@ Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 �
 - `archive_history`
   - 입력: path, ref, page 및 per_page(선택)
   - 제한:
-    - Nodebase 지식 경로의 commit 이력을 ref(commit SHA 또는 브랜치) 기준 최신순으로 반환한다.
+    - 위키 저장소 지식 경로의 commit 이력을 ref(commit SHA 또는 브랜치) 기준 최신순으로 반환한다.
     - 페이지당 기본 20개, 최대 100개이다.
     - 커밋마다 sha, 날짜, 메시지 첫 줄을 반환한다.
 - `archive_issue_stage`
@@ -583,7 +583,7 @@ Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 �
 신규 조회 도구의 path는 저장소 기준 POSIX 경로이며 AGENTS.md와 raw/wiki/schema 경계 밖의 경로와 우회 표기를 거부한다.
 ref에는 40자리 commit SHA를 사용한다.
 `archive_history`의 ref는 브랜치 이름도 받는다.
-schema의 상대 경로와 `.github/` 템플릿은 Nodebase 저장소 루트 기준이다.
+schema의 상대 경로와 `.github/` 템플릿은 위키 저장소 루트 기준이다.
 검색 파일은 UTF-8 텍스트이며 파일당 1,000,000 bytes, 일치 본문은 결과당 2,000자 한도를 적용한다.
 파일 페이지의 `next_page`로 후속 범위를 확인하며 tree 잘림, 읽지 못한 파일, 결과 생략을 전체 검색으로 표현하지 않는다.
 원본 누락은 경로를 포함한 오류이며 대체 schema를 추정하지 않는다.
@@ -631,7 +631,7 @@ Stage 도구는 외부 객체를 만들지 않고 `discord/bot/archive_workflow.
 - 폴더 밖이면 거부하고 `read blocked` 경고 로그를 남긴다.
 - 상대 경로, `..` 우회, 폴더 밖을 가리키는 링크도 실제 경로 기준으로 판정한다.
 
-작업 디렉터리 안의 파일 읽기는 권한 규칙 없이 승인되므로 허용 규칙이 아니라 훅으로 막는다. 이 제한은 설정 파일의 Bot 토큰과 GitHub PAT가 채팅에 노출되지 않게 한다.
+작업 디렉터리 안의 파일 읽기는 권한 규칙 없이 승인되므로 허용 규칙이 아니라 훅으로 차단한다. 이 제한은 설정 파일의 Bot 토큰과 GitHub PAT가 채팅에 노출되지 않게 한다.
 
 ### 외부 입력
 
@@ -652,7 +652,7 @@ Stage 도구는 외부 객체를 만들지 않고 `discord/bot/archive_workflow.
 - `chat_channels`의 객체 항목에 `id`가 없거나, `per_day`가 음수이거나, `topic`이 비어 있음
 - `request_channels`의 객체 항목에 `id`가 없거나, `model`이나 `effort`가 비어 있거나, `effort`가 허용 값이 아님
 - `archive_forum_id`가 있는데 `archive_repository`가 없거나, `request_channels`에 등록되지 않았거나, `chat_channels`에도 등록됨
-- `archive_forum_id`가 있는데 documenter 역할 에이전트가 없거나, 해당 ID가 Bot이 볼 수 있는 ForumChannel이 아님
+- `archive_forum_id`가 있는데 documenter 에이전트가 없거나, 해당 ID가 Bot이 볼 수 있는 ForumChannel이 아님
 - `chat.auto_conversations_per_day`가 남아 있음
 - `chat`, `attachments`, `links`, `reminders`, `tools`에 `chat.sdk_max_turns` 외의 빠진 키가 있음.
   - 빠진 키를 모두 한 번에 나열한다.

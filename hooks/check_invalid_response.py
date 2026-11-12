@@ -1,9 +1,10 @@
 """Stop hook: 메인 에이전트 응답에서 실수 및 위반을 인정하는 표현을 찾아 사건 문서 초안에 기록한다.
 
-호출자: Stop hook 설정(shared/settings)
+호출자: Stop hook 설정(설정 원본)
 반환: 
-- 감지하면 stdout에 `{"decision": "block", "reason": REASON_INCIDENT, "systemMessage": ...}` JSON을 출력하고, 그 밖에는 출력이 없다.
-- record()는 block 사유 문자열 또는 None을 반환한다.
+- 감지하면 사건 문서에 기록하고 분석 세션을 띄운 뒤 stdout에 `{"systemMessage": ...}` JSON을 출력한다. Stop을 차단하지 않고 응답 수정도 요구하지 않는다.
+- 사건 문서 링크는 다음 사용자 메시지 때 UserPromptSubmit hook(hooks/record_stage.py)이 에이전트에 주입한다.
+- record()는 사용자 경고 문자열 또는 None을 반환한다.
 입력: hook 입력 JSON을 stdin으로 받는다(last_assistant_message, transcript_path, session_id).
 한계: 표현 목록 기반 감지라 목록 밖 표현은 놓치고, 목록 안 표현은 문맥을 오판할 수 있다.
 """
@@ -22,8 +23,9 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
 from sub_docs import project_root, task_id
-from sub_role import first_line, resolve_role
-from sub_session import _claude_entry, _codex_entry, norm, session_path, turn
+from sub_paths import INCIDENT_REL, ROOT, RUN_WORKFLOW, TASK_REL
+from sub_role import first_line, main_session, resolve_role
+from sub_session import _claude_entry, _codex_entry, norm, read_session, session_path, turn
 from save_subagent_result import fence_for
 
 # 사건 문서는 세션 저장소와 무관하게 이 hook의 원본 저장소(nestlab)에 저장한다. 테스트가 교체한다.
@@ -59,7 +61,7 @@ ADMIT_TYPES = {
 ADMIT = re.compile("|".join(ADMIT_TYPES.values()))
 INLINE_CODE = re.compile(r"`+[^`\n]*`+|\"[^\"\n]*\"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’")
 FENCE = re.compile(r"^\s*(```|~~~)")
-TASK_REF = re.compile(r"log/task/[\w.\-]+/(?:status|spec|research|refute)\.md|log/state/[\w.\-]+\.md")  # 둘째 갈래는 임시 경로이다.
+TASK_REF = re.compile(rf"{TASK_REL}/[\w.\-]+/(?:status|spec|research|refute)\.md")
 PATH = re.compile(
     r"(?<![\w:/\\])(?:/?[A-Za-z]:[\\/]|\\\\|~[\\/]|\.{1,2}[\\/]|/)[^\s`<>\"'\[\](){}*,;]+"
     r"|(?<![\w:/\\])(?:[\w.@~-]+[\\/])+[^\s`<>\"'\[\](){}*,;]+"
@@ -80,6 +82,8 @@ POINTED = re.compile(r"지적|잘못|틀렸|틀린|어겼|어기|위반|않았|�
 # 같은 문장 뒤쪽이 자기 행동을 과거형으로 인정하는 서술이면 문맥 없이도 감지한다. `못했습니다` 같은 부정은 뺀다.
 SELF_PAST = re.compile(r"(?:것|사건|문장)(?:이 원인)?입니다(?!만)|(?<!못)(?:냈|했|썼)었?습니다")
 # 도구와 코드가 주어인 문장은 코드 동작 설명이므로 자기 행동 인정으로 보지 않는다.
+# hook 차단 사유를 주어로 옮겨 적은 문장은 자기 행동 인정으로 보지 않는다.
+HOOK_SUBJECT = re.compile(r"(?:차단 사유|hook 사유|Stop 사유|hook이|훅이)")
 CODE_SUBJECT = re.compile(r"(?:도구|hook|훅|코드|함수|스크립트|모듈|정규식)(?:는|은)\s")
 
 
@@ -128,6 +132,12 @@ def scan(text: str, user: str = "", pattern: re.Pattern = ADMIT):
                 continue
             if PASSIVE.match(line, m.start()):
                 continue
+            if HOOK_SUBJECT.search(line[:m.start()]) and not SPEAKER.search(line):
+                continue
+            # 조건부 표현의 단어가 모두 사용자 메시지나 hook 사유에 있으면 그 문장을 옮겨 적은 것으로 본다.
+            if (m.group(0) in CONDITIONAL and user and not SPEAKER.search(line)
+                    and all(word in user for word in m.group(0).split())):
+                continue
             if m.group(0) in CONDITIONAL and not (
                     SPEAKER.search(line) or POINTED.search(user)
                     or (SELF_PAST.search(re.split(r"[.!?。]", line[m.end():], maxsplit=1)[0])
@@ -143,10 +153,7 @@ def admissions(text: str, user: str = "", pattern: re.Pattern = ADMIT) -> list[s
 
 # 서브에이전트의 hook 입력이면 True이다.
 def is_child(data: dict) -> bool:
-    if data.get("agent_id"):
-        return True
-    source = first_line(data.get("transcript_path")).get("source")
-    return isinstance(source, dict) and bool(source.get("subagent"))
+    return not main_session(data)
 
 
 # 현재 턴의 응답 위치와 가장 최근 명시된 작업 참조를 실제 원문에서 확인한다.
@@ -184,7 +191,7 @@ def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str
                                     json.dumps(entry["calls"], ensure_ascii=False)))
         if not refs:
             continue
-        tasks = {task_id(f"입력 문서: {ref}") for ref in refs}
+        tasks = {task_id(f"input: {ref}") for ref in refs}
         evidence = f"{lines[i]}"
         if len(tasks) == 1 and all((project_root(cwd) / ref).is_file() for ref in refs):
             return user, next(iter(tasks)) or "미확인", evidence, response_line
@@ -192,10 +199,8 @@ def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str
     return user, "미확인", "미확인", response_line
 
 
-NOTICE_INCIDENT = "직전 응답에 문제가 있어 사건 문서에 기록했습니다: {link}"
-REASON_INCIDENT = ("직전 응답에서 문제 표현({hits})을 감지했습니다. 사건 문서는 별도 분석 세션이 작업합니다.\n"
-                   "사건 문서: {link}\n"
-                   "응답은 오탐이라면 오탐의 근거 한 줄, 그렇지 않으면 `위반한 지침: <파일:행> \"<지침 원문>\"` 한 줄로 씁니다.")
+NOTICE_INCIDENT = "직전 응답에서 문제 표현({hits})을 감지해 사건 문서 {link}에 기록했습니다."
+WORD_EDGE = "*`'\"([])"  # 어절 앞뒤에서 지울 Markdown과 인용 기호이다.
 MAX_BLOCKS = 8  # Claude Code 연속 continuation 한도 기본값. Codex는 한도가 없어 이 값이 유일한 반복 한도이다.
 WINDOWS_FLAGS = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW
 BREAKAWAY = 0x01000000  # CREATE_BREAKAWAY_FROM_JOB
@@ -203,7 +208,7 @@ BREAKAWAY = 0x01000000  # CREATE_BREAKAWAY_FROM_JOB
 
 # 사건 분석 세션을 hook 종료 뒤에도 살아남는 분리 프로세스로 띄운다. 실행 실패는 무시한다.
 def launch_analysis(path: Path, runner: str) -> None:
-    command = [sys.executable, str(INCIDENT_ROOT / "tools" / "run_workflow.py"),
+    command = [sys.executable, str(INCIDENT_ROOT / RUN_WORKFLOW.relative_to(ROOT)),
                "--incident", str(path), "--runner", runner]
     quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
 
@@ -228,7 +233,7 @@ def transcript_of(data: dict, runner: str) -> str:
 # 이 세션의 사건 문서 경로를 반환한다. 파일은 만들지 않는다.
 def incident_path(data: dict, now: datetime) -> Path:
     sid = (data.get("session_id") or "unknown")[:8]
-    directory = INCIDENT_ROOT / "log" / "incident"
+    directory = INCIDENT_ROOT / INCIDENT_REL
     path = directory / f"{now:%Y%m%d}-{sid}.md"
     if not path.is_file():
         pattern = f"{now:%Y%m%d}-[0-9][0-9][0-9][0-9]-{sid}.md"
@@ -249,11 +254,20 @@ def incident_link(path: Path, cwd: str | Path | None) -> str:
     return f"[{path.stem}]({target})"
 
 
+USER_LIMIT = 300
+
+
+# 응답에서 감지 표현이 든 줄만 반환한다. 해당 줄이 없으면 응답 전체이다.
+def hit_lines(message: str, hits: list[str]) -> str:
+    lines = [line for line in message.splitlines() if any(hit in line for hit in hits)]
+    return "\n".join(lines) or message
+
+
 # 사건 문서에 기록된 감지 항목 중 같은 사용자 메시지의 수를 반환한다. 문서가 없으면 0이다.
 def hit_count(path: Path, user: str) -> int:
     if not path.is_file():
         return 0
-    request = without_paths(user)
+    request = without_paths(user)[:USER_LIMIT]
     fence = fence_for(request)
     block = f"  - 사용자 메시지:\n\n    {fence}\n    " + request.replace("\n", "\n    ") + f"\n    {fence}\n"
     return path.read_text(encoding="utf-8").count(block)
@@ -286,8 +300,8 @@ def record_hits(data: dict, runner: str, hits: list[str]) -> Path:
             f"## 감지 기록\n\n", encoding="utf-8")
 
     # 사용자 메시지와 응답 발췌를 경로 제거 뒤 코드 블록으로 감지 항목을 만든다.
-    excerpt = without_paths(message)
-    request = without_paths(user)
+    excerpt = hit_lines(without_paths(message), hits)
+    request = without_paths(user)[:USER_LIMIT]
     request_fence, excerpt_fence = fence_for(request), fence_for(excerpt)
     entry = (f"- {now:%Y-%m-%d %H:%M:%S}\n"
              f"  - 감지 표현: {', '.join(hits)}\n"
@@ -320,7 +334,7 @@ def record_hits(data: dict, runner: str, hits: list[str]) -> Path:
     return path
 
 
-# 감지하면 기록하고 (재작성 지시 사유, 사용자 경고)를 반환한다. 감지가 없으면 None이고, block 한도를 넘으면 사유가 None이다.
+# 감지하면 기록하고 (None, 사용자 경고)를 반환한다. 감지가 없으면 None이다. 응답을 막거나 다시 쓰게 하지 않는다.
 def detect(data: dict, runner: str = "claude") -> tuple[str | None, str] | None:
     # 대화 기록 경로를 정하고 서브에이전트 응답은 건너뛴다.
     data = {**data, "transcript_path": transcript_of(data, runner)}
@@ -332,24 +346,36 @@ def detect(data: dict, runner: str = "claude") -> tuple[str | None, str] | None:
     text = plain(message)
     if not ADMIT.search(text):
         return None
+    # 사용자 메시지와 이번 턴의 hook 사유를 인용 대조 대상으로 쓴다.
     user = context(data["transcript_path"], message, data.get("cwd"))[0]
-    hits = admissions(text, user)
+    feedback = [e["text"] for e in turn(read_session(data["transcript_path"]))[2] if e["role"] == "user"]
+    quoted = "\n".join([user, *feedback])
+    hits = admissions(text, quoted)
     if not hits:
         return None
 
     # 기록하고 분석 세션을 띄운 뒤, block 한도 안이면 재작성 지시를 반환한다.
     path = record_hits(data, runner, hits)
     link = incident_link(path, data.get("cwd"))
-    notice = NOTICE_INCIDENT.format(link=link)
-    if hit_count(path, user) > MAX_BLOCKS:
-        return None, notice
-    return REASON_INCIDENT.format(hits=", ".join(hits), link=link), notice
+    words = hit_list(scan(text, quoted))
+    return None, NOTICE_INCIDENT.format(link=link, hits=words)
 
 
-# 감지하면 기록하고 재작성 지시 사유를 반환한다. block 한도를 넘으면 기록만 하고 None이다.
+# 감지 표현의 실제 어절을 중복 없이 쉼표로 연결한다.
+def hit_list(found) -> str:
+    words = []
+    for line, hit in found:
+        m = re.search(rf"\S*{re.escape(hit)}[^\s.,!?]*", line)
+        word = m[0].strip(WORD_EDGE) if m else hit
+        if word not in words:
+            words.append(word)
+    return ", ".join(words)
+
+
+# 감지하면 기록하고 사용자 경고 문자열을 반환한다. 감지가 없으면 None이다.
 def record(data: dict, runner: str = "claude") -> str | None:
     result = detect(data, runner)
-    return result[0] if result else None
+    return result[1] if result else None
 
 
 # stdin의 hook 입력으로 사건을 기록하고 감지하면 block JSON을 출력한다. 항상 0을 반환한다.
@@ -362,13 +388,13 @@ def main() -> int:
     parser.add_argument("--runner", choices=("claude", "codex"), required=True)
     args = parser.parse_args()
 
-    # 기록 오류는 통과시키고, 감지하면 block으로 출력한다.
+    # 기록 오류는 통과시키고, 감지하면 사용자 경고만 출력한다.
     try:
-        reason, notice = detect(json.load(sys.stdin), args.runner) or (None, "")
+        _, notice = detect(json.load(sys.stdin), args.runner) or (None, "")
     except Exception:
         return 0
-    if reason:
-        json.dump({"decision": "block", "reason": reason, "systemMessage": notice}, sys.stdout, ensure_ascii=False)
+    if notice:
+        json.dump({"systemMessage": notice}, sys.stdout, ensure_ascii=False)
     return 0
 
 

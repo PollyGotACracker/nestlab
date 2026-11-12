@@ -3,7 +3,7 @@
 
 사용법: 저장소 루트나 다른 위치에서 실행한다.
     python tools/check_doc_rule.py
-    python tools/check_doc_rule.py --hook   (PostToolUse hook: stdin hook 입력의 변경 파일만 검사)
+    python tools/check_doc_rule.py --hook   (PreToolUse hook: stdin hook 입력의 쓰기 뒤 파일 내용만 검사)
 
 검사1: 백틱 안의 저장소 경로가 있는지 확인한다.
        `<...>` 자리표시자가 있는 경로는 건너뛴다.
@@ -14,10 +14,6 @@
        SCHEMA_PATTERN 파일은 예시 코드 블록이 절 이름을 정의하므로 코드 블록 안에서도 읽는다.
 검사3: discord/prompts 파일에서 ASCII 단어 경계의 Rule ID 패턴 [AHT]\\d{3}을 찾는다.
 검사4: 부정형 표현(않는다|하지 마|금지)을 찾는다.
-검사5: 첫 구간이 DIRECT_PATH_ROOTS에 속한 백틱 경로를 찾는다.
-       공백으로 나눈 토큰마다 검사하므로 명령 안의 경로도 포함한다.
-       PATH_LIST_FILES 파일의 PATH_LIST_SECTION 안에서만 허용한다.
-       SKILL.md에서는 첫 구간이 해당 스킬의 폴더이면 허용한다.
 검사6: 다른 지침 파일 참조를 찾는다.
        같은 줄에 .md 경로를 적고 그 파일의 절을 부르는 참조와 CROSS_REF 표현이 대상이다.
        같은 파일 절과 양식 파일 절 참조는 허용한다.
@@ -51,40 +47,42 @@ from sub_config import ROOT
 HOOKS = Path(__file__).resolve().parent.parent / "hooks" / "common"
 
 
-# PostToolUse hook 입력의 변경 파일 중 검사 대상만 검사한다.
-# 위반이 있으면 {"decision": "block", "reason": ...}을 출력한다. 오류는 통과한다.
+# PreToolUse hook 입력(Edit, Write, apply_patch)의 쓰기 뒤 파일 내용 중 검사 대상만 검사한다.
+# 쓰기 전 내용에 없던 위반이 있으면 deny JSON을 출력하고, 쓰기 뒤 내용을 계산하지 못하면 판정을 건너뛴다. 오류는 통과한다.
 def hook_main() -> int:
     # 표준 입출력을 UTF-8로 맞춘다.
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-    # 변경 파일 중 저장소 안의 검사 대상만 골라 검사한다.
+    # 쓰기 대상 중 저장소 안의 검사 대상만 골라 쓰기 뒤 내용을 검사한다.
     try:
         sys.path.insert(0, str(HOOKS))
-        from sub_write import targets as write_targets
+        from sub_write import added_lines, targets as write_targets
         data = json.load(sys.stdin)
         paths = write_targets(data) or []
         wanted, _ = find_targets()
-        rels = []
+        names = build_name_index()
+        found = []
         for path in paths:
             try:
-                rels.append(path.resolve().relative_to(ROOT.resolve()).as_posix())
+                rel = path.resolve().relative_to(ROOT.resolve()).as_posix()
             except ValueError:
                 continue
-        rels = [r for r in rels if r in wanted]
-        if not rels:
-            return 0
-        names = build_name_index()
-        found = [v for r in rels for v in check_file(r, names, {})]
+            new = added_lines(data, path)[1] if rel in wanted else None
+            if new is None:
+                continue
+            before = {(kind, detail) for _, _, kind, detail in check_file(rel, names, {})} if path.is_file() else set()
+            found += [v for v in check_file(rel, names, {}, new) if (v[2], v[3]) not in before]
     except Exception:
         return 0
 
-    # 위반이 있으면 block JSON으로 알린다.
+    # 위반이 있으면 deny JSON으로 알린다.
     if found:
         lines = [f"{r}:{n}: [{k}] {d}" for r, n, k, d in found[:20]]
-        reason = "\n".join(["지침 검사 위반을 고치십시오.", *lines])
-        json.dump({"decision": "block", "reason": reason}, sys.stdout, ensure_ascii=False)
+        reason = "\n".join(["지침 검사 위반을 고쳐 다시 쓰십시오.", *lines])
+        json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                          "permissionDecisionReason": reason}}, sys.stdout, ensure_ascii=False)
     return 0
 
 

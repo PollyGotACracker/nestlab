@@ -1,5 +1,5 @@
 name = "buddy"
-description = "단순 작업과 기본 질문과 파일 작업을 처리한다."
+description = "워크플로가 적용되지 않는 프로젝트 작업, 기타 단순 작업 수행"
 developer_instructions = """
 Use the injected assistant role and persona plus the repository AGENTS.md.
 """

@@ -2,7 +2,7 @@
 """bashrc 블록 설치, 설정 원본 자리표시 채우기, 전역 설정 병합을 한다.
 
 호출자: 사용자(`python tools/set_hooks.py install`)
-입력: 명령줄 인자 install 하나
+입력: 커맨드라인 인자 install 하나
 반환: 설치 결과 줄을 stdout에 출력하고, 실패하면 stderr에 사유를 쓰고 종료 코드 1을 반환한다.
 한계: 설치한 설정이 Claude Code와 Codex에서 실제로 동작하는지는 설치 후 세션에서 확인해야 한다.
 """
@@ -20,8 +20,11 @@ for stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(encoding="utf-8")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
+from sub_repo_paths import paths
+
 ROOT = Path(__file__).resolve().parents[1]
-SETTINGS = ROOT / "shared" / "settings"
+SETTINGS = paths.SETTINGS_DIR
 BASHRC = Path.home() / ".bashrc"
 # 예제 파일에서 만들 실제 설정 파일이다.
 FILLED = [("claude/settings.example.json", "claude/settings.json"),
@@ -29,6 +32,25 @@ FILLED = [("claude/settings.example.json", "claude/settings.json"),
 BEGIN, END = "# >>> nestlab >>>", "# <<< nestlab <<<"
 PREFIX_RE = re.compile(r"^prefix_rule[(]", re.M)
 BLOCK_RE = re.compile(re.escape(BEGIN) + ".*?" + re.escape(END), re.S)
+sys.path.insert(0, str(ROOT / "hooks" / "common"))
+from sub_task_docs import MARKER, launcher_files, trusted_launcher
+
+
+# 관리 표시가 있는 실행 파일만 갱신하고 알 수 없는 기존 파일은 보존한다.
+def install_task_docs(home: Path) -> list[str]:
+    lines = []
+    for path, body in launcher_files(home).items():
+        if path.is_symlink() or (path.exists() and (not path.is_file() or MARKER not in path.read_text(encoding="utf-8", errors="replace"))):
+            lines.append(f"- {path.name}: 기존 파일 충돌, 보존")
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body.encode("utf-8"))
+        if sys.platform != "win32":
+            path.chmod(path.stat().st_mode | 0o111)
+        lines.append(f"- {path.name}: 설치")
+    usable = trusted_launcher("nestlab-task-docs", home)
+    lines.append("- nestlab-task-docs 커맨드 해석: " + ("설치 위치 확인" if usable else "PATH에서 설치 위치 확인 필요"))
+    return lines
 
 
 # local.json의 archive_root 값을 반환한다. 파일이 없거나 값이 비었으면 None이다.
@@ -40,15 +62,15 @@ def archive_root(settings: Path) -> str | None:
     return Path(value).as_posix() if isinstance(value, str) and value.strip() else None
 
 
-# 예제 텍스트의 자리표시를 실제 경로로 바꾼다. archive_root가 없으면 `<NODEBASE>` 항목을 뺀다.
+# 예제 텍스트의 자리표시를 실제 경로로 바꾼다. archive_root가 없으면 `<WIKI_REPO>` 항목을 뺀다.
 def fill(text: str, settings: Path = SETTINGS) -> str:
     # JSON 문자열 안에 들어가도록 경로를 이스케이프한다.
     esc = lambda value: json.dumps(value, ensure_ascii=False)[1:-1]
-    nodebase = archive_root(settings)
-    if nodebase:
-        text = text.replace("<NODEBASE>", esc(nodebase))
+    wiki_repo = archive_root(settings)
+    if wiki_repo:
+        text = text.replace("<WIKI_REPO>", esc(wiki_repo))
     else:
-        text = re.sub(r',\s*"<NODEBASE>"', "", text)
+        text = re.sub(r',\s*"<WIKI_REPO>"', "", text)
     temp = Path(tempfile.gettempdir()).resolve().as_posix()
     return text.replace("<NESTLAB>", ROOT.as_posix()).replace("<PYTHON>", Path(sys.executable).as_posix()).replace(
         "<TEMP>", esc(temp))
@@ -151,7 +173,7 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
-# hook 설정에서 nestlab hook 명령 개수를 센다.
+# hook 설정에서 nestlab hook 커맨드 개수를 센다.
 def count_hooks(hooks: dict) -> int:
     return sum("nestlab/hooks/" in h.get("command", "")
                for groups in hooks.values() if isinstance(groups, list) for g in groups for h in g.get("hooks", []))
@@ -167,7 +189,7 @@ def report(bashrc: Path, claude: Path, config: Path, rules: Path, home: Path) ->
     lines = ["설치 완료",
              f"- {name(bashrc)}: nestlab 블록" if BLOCK_RE.search(read(bashrc)) else f"- {name(bashrc)}: nestlab 블록 없음"]
     if claude.parent.is_dir():
-        lines.append(f"- {name(claude)}: nestlab hook 명령 {count_hooks(json.loads(read(claude)).get('hooks', {}))}개")
+        lines.append(f"- {name(claude)}: nestlab hook 커맨드 {count_hooks(json.loads(read(claude)).get('hooks', {}))}개")
     else:
         lines.append(f"- {name(claude.parent)}: 건너뜀 (설정 폴더 없음)")
 
@@ -178,7 +200,7 @@ def report(bashrc: Path, claude: Path, config: Path, rules: Path, home: Path) ->
         m = BLOCK_RE.search(text)
         inside = len(PREFIX_RE.findall(m.group())) if m else 0
         outside = len(PREFIX_RE.findall(text)) - inside
-        lines += [f"- {name(config)}: nestlab hook 명령 {count_hooks(cfg.get('hooks', {}))}개, "
+        lines += [f"- {name(config)}: nestlab hook 커맨드 {count_hooks(cfg.get('hooks', {}))}개, "
                   f"sandbox_mode = {json.dumps(cfg.get('sandbox_mode'))}, approval_policy = {json.dumps(cfg.get('approval_policy'))}",
                   f"- {name(rules)}: prefix_rule {inside}개" + (f" (블록 밖 {outside}개)" if outside else "")]
     else:
@@ -196,7 +218,7 @@ def install(settings: Path = SETTINGS, bashrc: Path = BASHRC, home: Path | None 
         write(settings / dst, fill(read(settings / src), settings))
 
     # 이전 설치 항목을 빼고 Claude 전역 설정에 병합한다.
-    claude = home / ".claude" / "settings.json"
+    claude = home / paths.CLAUDE_HOME_NAME / "settings.json"
     if claude.parent.is_dir():
         data = json.loads(read(claude) or "{}")
         prune_json(data, old)
@@ -215,7 +237,7 @@ def install(settings: Path = SETTINGS, bashrc: Path = BASHRC, home: Path | None 
     if codex.is_dir():
         write(codex / "config.toml", merge_config(read(codex / "config.toml"), read(settings / "codex/config.toml")))
         write(rules, put_block(read(rules), wrap(read(settings / "codex/rules/default.rules"))))
-    return report(bashrc, claude, codex / "config.toml", rules, home)
+    return report(bashrc, claude, codex / "config.toml", rules, home) + install_task_docs(home)
 
 
 # 인자를 확인해 설치하고 결과를 출력한다. 실패하면 사유를 stderr에 쓰고 1을 반환한다.

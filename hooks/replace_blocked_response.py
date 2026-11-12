@@ -2,8 +2,8 @@
 """MessageDisplay hook: 응답 검사(check_workflow_response.check)에 걸릴 응답을 화면에서 교체 문구로 바꾼다.
 
 호출자:
-- Claude Code의 MessageDisplay hook 설정(shared/settings/claude)
-- 호출 명령은 `python replace_blocked_response.py`
+- Claude Code의 MessageDisplay hook 설정 원본(Claude 설정)
+- 호출 커맨드는 `python replace_blocked_response.py`
 입력: hook 입력 JSON(message_id, final, delta, cwd, transcript_path)을 stdin으로 받는다.
 반환:
 - stdout에 `{"hookSpecificOutput": {"hookEventName": "MessageDisplay", "displayContent": ...}}` JSON을 출력한다.
@@ -29,7 +29,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from check_workflow_response import check
+from check_workflow_response import APPROVAL_BLOCK, approval_original_gap, body_of, check, completed_response, requests_approval, workflow_reason
+from sub_role import director_main
 
 REPLACEMENT = "(직전 응답의 내용이 미흡하여 다시 작성합니다.)"
 
@@ -84,6 +85,8 @@ def has_pending_background(path: str) -> bool:
 
 # 표시할 내용을 반환한다. 비어 있는 문자열은 이 batch를 화면에 표시하지 않는다.
 def display(data: dict) -> str:
+    if not director_main(data):
+        return data.get("delta") or ""
     # 같은 메시지의 delta를 누적한다.
     path = batch_file(data.get("message_id") or "unknown")
     with open(path, "a", encoding="utf-8", newline="") as f:
@@ -94,6 +97,16 @@ def display(data: dict) -> str:
     # 마지막 batch에서 누적한 원문을 응답 검사로 판정하고 임시 파일을 지운다.
     text = path.read_text(encoding="utf-8")
     path.unlink(missing_ok=True)
+    if approval_original_gap(data, "claude", text):
+        return REPLACEMENT
+    # 승인 입력을 요구하는 서식은 도구 호출 앞이나 백그라운드 실행 중에도 표시 전에 검사한다.
+    complete = completed_response(data, "claude", text)
+    body = body_of(complete)
+    if APPROVAL_BLOCK.search(body) or requests_approval(text):
+        if workflow_reason(data, complete, body, "claude")[0]:
+            return REPLACEMENT
+    if complete != text and check({**data, "last_assistant_message": text}, "claude", record=False):
+        return REPLACEMENT
     # 도구 호출 앞의 중간 메시지는 검사 없이 원문을 표시한다. 항목이 없으면 최대 3초 다시 읽는다.
     if data.get("transcript_path"):
         for _ in range(15):

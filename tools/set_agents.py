@@ -2,7 +2,7 @@
 """프로젝트의 에이전트 원본 폴더를 사용자 전역 경로에 연결한다.
 
 호출자: 사용자(`python tools/set_agents.py check|link|unlink`)
-입력: 명령줄 인자 하나(check, link, unlink)
+입력: 커맨드라인 인자 하나(check, link, unlink)
 반환: 연결 상태를 줄 단위로 stdout에 출력하고, 문제가 있으면 종료 코드 1을 반환한다.
 한계: 링크 생성은 OS 권한에 따라 실패할 수 있고, 실패하면 결과 줄에 오류를 출력한다.
 """
@@ -18,12 +18,13 @@ for stream in (sys.stdin, sys.stdout, sys.stderr):
 
 # 공용 모듈 폴더를 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
+from sub_repo_paths import paths
 from sub_symlink import link_target, make_link, remove_link
 
 ROOT = Path(__file__).resolve().parent.parent
 LINKS = [
-    ("Claude Code", ROOT / ".claude" / "agents", Path.home() / ".claude" / "agents"),
-    ("Codex", ROOT / ".codex" / "agents", Path.home() / ".codex" / "agents"),
+    ("Claude Code", paths.AGENT_DIR, Path.home() / paths.CLAUDE_HOME_NAME / "agents"),
+    ("Codex", ROOT / paths.CODEX_HOME_NAME / "agents", Path.home() / paths.CODEX_HOME_NAME / "agents"),
 ]
 
 
@@ -98,7 +99,7 @@ def unlink(source: Path, destination: Path) -> int:
     return 0
 
 
-# 명령줄 인자를 확인해 run을 실행하고 종료 코드를 반환한다.
+# 커맨드라인 인자를 확인해 run을 실행하고 종료 코드를 반환한다.
 def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] not in {"check", "link", "unlink"}:
         print("사용법: python tools/set_agents.py check|link|unlink", file=sys.stderr)

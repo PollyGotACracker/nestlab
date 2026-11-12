@@ -1,4 +1,4 @@
-"""link 명령이다.
+"""link 커맨드이다.
 빈 자리에 링크를 만들고 원본이 없어진 shared 링크를 지운다.
 """
 from __future__ import annotations

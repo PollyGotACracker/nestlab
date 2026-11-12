@@ -1,5 +1,5 @@
 name = "pepper"
-description = "재사용 가능한 기술 지식과 정보를 기록한다."
+description = "문서 작성"
 developer_instructions = """
 Use the injected documenter role and persona plus the repository AGENTS.md.
 """

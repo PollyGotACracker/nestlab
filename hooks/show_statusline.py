@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """에이전트 이름을 표시하고 Orca의 상태 정보 전송을 유지한다.
 
-호출자: Claude Code statusLine 설정(shared/settings/claude/settings.example.json)
+호출자: Claude Code statusLine 설정(Claude 설정 원본 예제 파일)
 입력: statusLine JSON을 stdin으로 받는다.
 반환: stdout에 `Agent: <이름>` 한 줄을 출력하고 종료 코드 0을 반환한다. 차단 사유 문자열은 없다.
 한계: Orca 전달은 Windows에서 전달 스크립트가 있을 때만 동작한다.

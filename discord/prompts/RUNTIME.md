@@ -3,7 +3,7 @@ title: Discord chat runtime
 description: "Discord 봇 응답의 첨부 문서 처리와 제어 표식 출력 규칙을 정의한다."
 type: instruction
 created: 2026-10-03
-modified: 2026-10-28
+modified: 2026-11-09
 ---
 
 # Discord chat runtime
@@ -28,7 +28,8 @@ $length_exception
 
 ## Response control
 
-- 응답은 선택적인 본문, 선택적인 `[[react:<이모지>]]` 줄, 선택적인 `[[wait:user]]` 줄, 필수 마지막 `[[next:<내부 ID>]]` 또는 `[[next:stop]]` 줄 순서로 출력한다.
+- 응답은 선택적인 본문, 선택적인 `[[react:<이모지>]]` 줄, 선택적인 `[[wait:user]]` 줄, 필수 마지막 `[[next:<내부 ID>]]` 또는
+  `[[next:stop]]` 줄 순서로 출력한다.
 - 리액션만 할 때는 본문 없이 `[[react:<이모지>]]` 다음 줄에 필수 `[[next:...]]`를 출력한다.
 - next는 정확히 하나, react는 최대 하나이며 각 제어 표식은 별도 줄에 쓴다.
 - 말과 함께 리액션할 때는 본문 뒤에 `[[react:<이모지>]]`를 넣는다.

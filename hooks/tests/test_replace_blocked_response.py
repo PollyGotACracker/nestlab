@@ -28,7 +28,7 @@ class Stream(io.StringIO):
 
 # batch 입력을 보내고 hook이 출력한 displayContent를 반환하는 보조 함수이다.
 def send(message_id, delta, final, transcript=None):
-    data = {"message_id": message_id, "index": 0, "final": final, "delta": delta, "cwd": PLAIN}
+    data = {"message_id": message_id, "index": 0, "final": final, "delta": delta, "cwd": PLAIN, "agent_type": "director"}
     if transcript:
         data["transcript_path"] = transcript
     out = Stream()
@@ -50,6 +50,24 @@ def transcript(text, *stop_reasons):
 
 
 class Display(unittest.TestCase):
+    # 승인 서식은 도구 호출 앞의 메시지와 백그라운드 실행 중에도 표시 전에 차단한다.
+    def test_approval_checked_before_midturn_and_background(self):
+        message = "# 승인 요청\n\n승인으로 답해 주십시오."
+        with unittest.mock.patch.object(hook, "has_pending_background", return_value=True):
+            self.assertEqual(send("approval-mid", message, True, transcript(message, "tool_use")), hook.REPLACEMENT)
+            self.assertEqual(send("approval-bg", message, True, transcript(message, "end_turn")), hook.REPLACEMENT)
+
+    def test_specialist_deltas_skip_batch_and_wait(self):
+        for role in ("assistant", "worker", "documenter", "researcher", "reviewer", "unknown"):
+            for final in (False, True):
+                data = {"agent_type": role, "message_id": "specialist", "delta": "원문", "final": final,
+                        "transcript_path": "missing.jsonl"}
+                with unittest.mock.patch.object(hook, "batch_file") as batch, \
+                        unittest.mock.patch.object(hook.time, "sleep") as sleep:
+                    self.assertEqual(hook.display(data), "원문")
+                    batch.assert_not_called()
+                    sleep.assert_not_called()
+
     # 위반 응답은 마지막 batch에서 교체 문구로 표시되고 앞 batch는 비어 있는지 확인한다.
     def test_violation_replaced(self):
         # 질문 문장으로 끝나는 응답은 위반이다.

@@ -29,19 +29,19 @@ for stream in (sys.stdin, sys.stdout, sys.stderr):
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "hooks"), str(ROOT / "hooks/common")]
-from sub_workflow import require
+from sub_document import require
 
 ROLES = {"incident": "director"}
-KINDS = {"incident": "사건 분석"}
+KINDS = {"incident": "incident"}
 
 
 ERR_CLAUDE = "Claude 실행이 실패했습니다."
 ERR_CODEX = "Codex 실행이 실패했습니다."
 ERR_EMPTY_MESSAGE = "최종 메시지가 비어 있습니다."
 
-# 단계 역할의 지침과 요청을 외부 CLI에 넘겨 실행하고 최종 메시지를 반환한다.
+# 단계 에이전트의 지침과 요청을 외부 CLI에 넘겨 실행하고 최종 메시지를 반환한다.
 def invoke(root: Path, runner: str, stage: str, prompt: str) -> str:
-    # 역할 지침과 요청을 합치고 역할별 허용 도구를 정한다.
+    # 에이전트 지침과 요청을 합치고 에이전트별 허용 도구를 정한다.
     role = ROLES[stage]
     instructions = (root / ".claude/agents" / role / "AGENTS.md").read_text(encoding="utf-8-sig")
     request = instructions + "\n\n" + prompt
@@ -54,7 +54,7 @@ def invoke(root: Path, runner: str, stage: str, prompt: str) -> str:
     if incident:
         allowed = ["Skill", "Read", "Grep", "Glob", "Write", "Edit", "WebSearch", "WebFetch"]
 
-    # runner에 맞는 CLI 명령을 만들어 실행한다.
+    # runner에 맞는 CLI 커맨드를 만들어 실행한다.
     # Windows에서 PATH에 .cmd만 있어도 실행되도록 CLI를 which로 찾은 경로로 실행한다.
     command = ([shutil.which("claude") or "claude", "-p", "--permission-mode", "dontAsk", "--allowedTools", ",".join(allowed),
                 "--output-format", "json"]
@@ -90,9 +90,9 @@ def run_incident(root: Path, incident: str, runner: str) -> str:
     path = Path(incident)
     require((path if path.is_absolute() else root / path).is_file(), ERR_NO_INCIDENT.format(path=incident))
 
-    # 작업 종류, 사건 문서, 절차를 담은 요청으로 director 세션을 실행한다.
+    # task 값, 사건 문서, 절차를 담은 요청으로 director 세션을 실행한다.
     now = datetime.now(timezone(timedelta(hours=9)))
-    prompt = (f"작업 종류: {KINDS['incident']}\n사건 문서: {incident}\n현재 시각(KST): {now:%Y-%m-%d %H:%M:%S}\n"
+    prompt = (f"task: {KINDS['incident']}\ninput: {incident}\n현재 시각(KST): {now:%Y-%m-%d %H:%M:%S}\n"
               "nestlab-log-incident 절차")
     return invoke(root, runner, "incident", prompt)
 

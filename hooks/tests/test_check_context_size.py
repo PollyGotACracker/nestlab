@@ -8,19 +8,21 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import isolate_incidents  # noqa: F401 사건 문서를 저장소에 쓰지 않는다.
 import check_context_size as hook
 
 
 class CheckContextSize(unittest.TestCase):
     # 두 runner의 세션 기록과 상태가 다른 경과 문서 셋을 임시 폴더에 만들고 판정과 문서 경로를 반환한다.
-    def check_session(self, runner, tokens=210_000, current=False, mixed=False, **extra):
+    def check_session(self, runner, tokens=210_000, current=False, mixed=False, stages=None, **extra):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             statuses = {}
             for name, state in (("a", "진행"), ("b", "미개시"), ("done", "완료")):
                 status = root / f"log/task/{name}/status.md"
                 status.parent.mkdir(parents=True)
-                status.write_text(f"- 작업 상태: {state}\n## 작업 경과\n", encoding="utf-8")
+                stage = (stages or {}).get(name, "착수")
+                status.write_text(f"- 작업 상태: {state}\n- 작업 단계: {stage}\n## 작업 경과\n", encoding="utf-8")
                 statuses[name] = f"log/task/{name}/"
             if runner == "claude":
                 user = {"type": "user", "message": {"content": "작업 요청"}}
@@ -54,20 +56,21 @@ class CheckContextSize(unittest.TestCase):
             transcript = root / "session.jsonl"
             transcript.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
             with (patch.object(hook, "session_path", return_value=str(transcript)),
-                  patch("check_workflow_response.project_root", return_value=root)):
-                reason = hook.check({"cwd": str(root), "transcript_path": str(transcript), **extra}, runner)
+                  patch.object(hook, "project_root", return_value=root)):
+                reason = hook.check({"cwd": str(root), "agent_type": "director", "transcript_path": str(transcript), **extra}, runner)
             return reason, statuses
 
     # 기준 이상이면 진행 중 작업 폴더 상대 경로 전부, 단계별 기록 위치, compact 안내로 막고 완료 작업은 뺀다.
-    # 이번 턴에 경과 문서를 써도 막는다.
+    # 이번 턴에 경과 문서를 써도 차단한다.
     def test_blocks_with_open_statuses(self):
         for runner in ("claude", "codex"):
             for current in (False, True):
                 with self.subTest(runner=runner, current=current):
                     reason, status = self.check_session(runner, current=current)
                     lines = reason.split("\n")
-                    self.assertTrue(lines[0].startswith("컨텍스트가 200,000 토큰 이상입니다. 대화에만 있는 작업 정보를 진행 중인 작업 폴더의 문서에 기록하십시오."))
-                    self.assertEqual(lines[1:5], [f"- 작업 폴더: {status['a']}", "  - 조사 결과: research.md",
+                    self.assertTrue(lines[0].startswith("컨텍스트가 200,000 토큰 이상입니다."))
+                    self.assertEqual(lines[1], "현재 작업 폴더가 없는 경우 관련 지침 또는 스킬에 따라 작업 폴더를 생성하십시오.")
+                    self.assertEqual(lines[2:6], [f"- 작업 폴더: {status['a']}", "  - 조사 결과: research.md",
                                                   "  - 계획 변경: spec.md", "  - 사용자 지시와 다음 작업: status.md의 작업 경과 절"])
                     self.assertIn(f"- 작업 폴더: {status['b']}", lines)
                     self.assertNotIn(status["done"], reason)
@@ -90,6 +93,13 @@ class CheckContextSize(unittest.TestCase):
                 self.assertIsNone(self.check_session(runner, tokens=150_000)[0])
         self.assertIsNone(self.check_session("claude", agent_id="child")[0])
         self.assertIsNone(self.check_session("codex", child=True)[0])
+
+    # 마지막으로 쓴 진행 중 작업이 구현 단계이면 통과하고, 앞서 쓴 작업만 구현 단계이면 차단한다.
+    def test_implement_stage_passes(self):
+        for runner in ("claude", "codex"):
+            with self.subTest(runner=runner):
+                self.assertIsNone(self.check_session(runner, stages={"b": "구현"})[0])
+                self.assertIsNotNone(self.check_session(runner, stages={"a": "구현"})[0])
 
 
 if __name__ == "__main__":

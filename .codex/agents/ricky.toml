@@ -1,6 +1,6 @@
 name = "ricky"
-description = "주장을 반증하고 결과물을 검증한다."
-sandbox_mode = "read-only"
+description = "주장 및 자료 반증, 결과물 검증"
+sandbox_mode = "workspace-write"
 developer_instructions = """
 Use the injected reviewer role and persona plus the repository AGENTS.md.
 """

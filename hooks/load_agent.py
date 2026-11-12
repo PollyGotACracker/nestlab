@@ -2,7 +2,7 @@
 """에이전트 지침 및 성향 원본 Markdown을 Claude Code나 Codex hook context에 넣는다.
 지침 원본은 이 스크립트가 있는 hooks 폴더의 상위 폴더에서 읽는다.
 
-호출자: SessionStart, SubagentStart hook 설정(shared/settings)
+호출자: SessionStart, SubagentStart hook 설정(설정 원본)
 반환:
 - stdout에 `hookSpecificOutput`(`additionalContext`) JSON을 출력한다.
 - 에이전트가 정해지지 않으면 출력이 없다.
@@ -19,7 +19,9 @@ from pathlib import Path
 # 공용 모듈 폴더를 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
+from sub_paths import AGENT_REL
 from sub_agents import discover_agents, read_folder_agent
+from sub_role import main_session, resolve_role
 
 sys.stdin.reconfigure(encoding="utf-8")
 sys.stdout.reconfigure(encoding="utf-8")
@@ -42,7 +44,7 @@ def find_bundle_root() -> Path:
     root = Path(__file__).resolve().parent.parent
     if not (root / "AGENTS.md").is_file():
         raise FileNotFoundError(ERR_CORE_MISSING.format(root=root))
-    if not (root / ".claude" / "agents").is_dir():
+    if not (root / AGENT_REL).is_dir():
         raise FileNotFoundError(ERR_AGENTS_MISSING.format(root=root))
     return root
 
@@ -50,18 +52,7 @@ def find_bundle_root() -> Path:
 # hook 입력과 실행 환경에서 에이전트 이름이나 역할을 정한다.
 # 정해지지 않으면 None이다.
 def resolve_agent(payload: dict, event: str, default_role: str | None) -> str | None:
-    # SubagentStart는 입력의 agent_type만 쓴다.
-    if event == "SubagentStart":
-        return payload.get("agent_type") or None
-
-    # SessionStart는 환경 변수, 입력, 폴더 설정, 기본 역할 순으로 정한다.
-    cwd = Path(payload.get("cwd") or os.getcwd())
-    return (
-        os.environ.get("NESTLAB_AGENT")
-        or payload.get("agent_type")
-        or read_folder_agent(cwd)
-        or default_role
-    )
+    return resolve_role(payload, default_role)
 
 
 ERR_ROLE_DOCS = "{role_dir}에 에이전트 문서가 없습니다."
@@ -93,8 +84,8 @@ def main() -> int:
     if role not in role_to_name:
         return 0
 
-    # 역할 지침, 성향, 공통 지침 원본이 있는지 확인한다.
-    role_dir = root / ".claude" / "agents" / role
+    # 에이전트 지침, 성향, 공통 지침 원본이 있는지 확인한다.
+    role_dir = root / AGENT_REL / role
     role_file = role_dir / "AGENTS.md"
     soul_file = role_dir / "SOUL.md"
     if not role_file.is_file() or not soul_file.is_file():
@@ -105,17 +96,17 @@ def main() -> int:
     if not core_file.is_file():
         raise FileNotFoundError(ERR_COMMON_DOC.format(core_file=core_file))
 
-    # 공통 지침(옵션), 모드별 작업 지침, 성향 문서를 합쳐 hook 출력으로 쓴다.
+    # 성향 문서, 공통 지침(옵션), 모드별 작업 지침 순으로 합쳐 hook 출력으로 쓴다.
+    # 성향 문서를 맨 앞에 두어 출력이 길어 잘려도 이름 선언이 남게 한다.
     # SubagentStart는 SUB.md만, SessionStart는 MAIN.md만 넣는다. 해당 파일이 없으면 넣지 않는다.
-    sections: list[str] = []
-    if args.include_role:
+    sections = ["# Persona\n\n" + soul_file.read_text(encoding="utf-8").strip()]
+    mode_file = role_dir / ("SUB.md" if event == "SubagentStart" or not main_session(payload) else "MAIN.md")
+    if args.include_role or not mode_file.is_file():
         sections.append("# Role\n\n" + strip_frontmatter(role_file.read_text(encoding="utf-8")))
-    mode_file = role_dir / ("SUB.md" if event == "SubagentStart" else "MAIN.md")
     if mode_file.is_file():
         sections.append("# Task\n\n" + mode_file.read_text(encoding="utf-8").strip())
-    sections.append("# Persona\n\n" + soul_file.read_text(encoding="utf-8").strip())
 
-    # 역할 지침을 hook 출력으로 내보낸다.
+    # 에이전트 지침을 hook 출력으로 내보낸다.
     json.dump({
         "hookSpecificOutput": {
             "hookEventName": event,

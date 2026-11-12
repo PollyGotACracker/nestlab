@@ -1,6 +1,6 @@
 ---
 title: Nestlab Discord 봇 디버그
-description: "Discord 봇의 동작과 오류 원인을 확인하는 명령 목록이다."
+description: "Discord 봇의 동작과 오류 원인을 확인하는 커맨드 목록이다."
 type: document
 created: 2026-10-03
 modified: 2026-11-05
@@ -8,9 +8,9 @@ modified: 2026-11-05
 
 # Discord 봇 디버그
 
-Discord 봇의 동작과 오류 원인을 확인하는 명령 목록이다.
+Discord 봇의 동작과 오류 원인을 확인하는 커맨드 목록이다.
 
-- `journalctl` 명령은 GCP VM의 systemd 서비스 `discord-bot` 기준이다.
+- `journalctl` 커맨드는 GCP VM의 systemd 서비스 `discord-bot` 기준이다.
 - 로컬에서 `python discord/bot/bot.py`로 실행하면 같은 로그가 실행한 터미널에 출력된다.
 - `journalctl` 시각은 VM의 시간대 설정을 따른다.
   KST 시각을 UTC로 대조하려면 9시간을 빼고 `journalctl --utc`로 출력한다.
@@ -136,14 +136,14 @@ journalctl -u discord-bot --since "-3 days" | grep -iE "error|exception|attachme
 
 - 실행 위치: VM SSH
 
-위 명령의 서비스 이름 `discord-bot`이 맞지 않을 때 실제 이름을 찾는다.
+위 커맨드의 서비스 이름 `discord-bot`이 맞지 않을 때 실제 이름을 찾는다.
 
 ```bash
 systemctl list-units --type=service | grep -i discord
 ```
 
 - `<이름>.service` 형식의 값이 서비스 이름이다.
-- 위 명령의 `-u` 값을 이 이름으로 바꾼다.
+- 위 커맨드의 `-u` 값을 이 이름으로 바꾼다.
 
 ## 설정 JSON 문법
 
@@ -161,7 +161,7 @@ python -c "import json; json.load(open('discord/config.json', encoding='utf-8'))
 
 ## 로그 키워드
 
-위 명령 출력에 나오는 주요 키워드의 의미다.
+위 커맨드 출력에 나오는 주요 키워드의 의미다.
 
 | 키워드                                       | 의미                                              |
 | -------------------------------------------- | ------------------------------------------------- |

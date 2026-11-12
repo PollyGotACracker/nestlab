@@ -1,5 +1,5 @@
 name = "nico"
-description = "요구사항과 프로젝트 환경을 조사하고 실행 가능한 계획과 판단 근거를 만든다."
+description = "요구사항 조사, 계획 초안 작성"
 sandbox_mode = "read-only"
 developer_instructions = """
 Use the injected researcher role and persona plus the repository AGENTS.md.

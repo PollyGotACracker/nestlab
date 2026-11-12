@@ -5,7 +5,6 @@ import re
 from pathlib import Path
 
 from sub_config import (
-    DIRECT_PATH_ROOTS,
     FILE_EXT,
     LINE_SUFFIX,
     PATH_CHARS,
@@ -75,18 +74,6 @@ def as_repo_path(token: str, names: set[str]) -> str | None:
     ):
         return token
     return None
-
-
-# 토큰이 DIRECT_PATH_ROOTS 아래 경로이면 첫 구간을 반환한다.
-# 자리표시자 경로도 포함한다.
-def direct_path_root(token: str) -> str | None:
-    token = LINE_SUFFIX.sub("", token.strip()).replace("\\", "/")
-    while token.startswith("./"):
-        token = token[2:]
-    if "/" not in token or "://" in token:
-        return None
-    first = token.split("/", 1)[0]
-    return first if first in DIRECT_PATH_ROOTS else None
 
 
 # 패턴 하나가 저장소 루트나 문서 폴더 기준으로 있는지 확인한다.

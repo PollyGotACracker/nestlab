@@ -3,7 +3,7 @@
 ![party_parrots](/assets/party_parrots_pixel_small.png)
 
 에이전트 기반 개발 환경 및 운영 자산 관리 저장소  
-Obsidian Archive: [Nodebase 저장소](https://github.com/PollyGotACracker/nodebase)
+Obsidian 기반 지식저장소: [Nodebase](https://github.com/PollyGotACracker/nodebase)
 
 - 에이전트 팀의 규칙 및 페르소나 파일
 - Discord 봇 설정 및 스크립트 파일
@@ -12,12 +12,12 @@ Obsidian Archive: [Nodebase 저장소](https://github.com/PollyGotACracker/nodeb
 
 ## Agent
 
-| 에이전트   | 이름         | 역할                                                       |
-| ---------- | ------------ | ---------------------------------------------------------- |
-| assistant  | buddy(버디)  | 기본 작업: 독립적인 웹 서치, 파일 변경 등                  |
+| 에이전트   | 이름         | 역할                                                          |
+| ---------- | ------------ | ------------------------------------------------------------- |
+| assistant  | buddy(버디)  | 기본 작업: 독립적인 웹 서치, 파일 변경 등                     |
 | director   | rio(리오)    | 프로젝트 작업: 저장소 사전 조사, 판단 및 승인 조율, 전체 흐름 |
-| researcher | nico(니코)   | 프로젝트 작업: 외부 조사, 비교, 계획 초안                  |
-| worker     | jelly(젤리)  | 프로젝트 작업: 구현                                        |
+| researcher | nico(니코)   | 프로젝트 작업: 외부 조사, 비교, 계획 초안                     |
+| worker     | jelly(젤리)  | 프로젝트 작업: 구현                                           |
 | reviewer   | ricky(리키)  | 프로젝트 작업: 자료 및 주장 반증, 구현 및 문서 검증           |
 | documenter | pepper(페퍼) | 프로젝트 작업: 기록, 지침 및 문서 작성, Archive 작업          |
 
@@ -76,7 +76,8 @@ Discord 채널의 웹훅 봇 목록
 
 - [전역 설정 설치](docs/setup.md#전역-설정-설치)
 - [에이전트 연결](docs/setup.md#에이전트-연결)
-- [스킬 연결](docs/setup.md#skill-연결)
+- [스킬 연결](docs/setup.md#스킬-연결)
+- [작업 단계 지정](docs/workflow.md)
 
 ## 환경별 연결
 
@@ -91,8 +92,10 @@ Discord 채널의 웹훅 봇 목록
 - OpenClaw: [docs/openclaw.md](docs/openclaw.md)
 - Hermes: [docs/hermes.md](docs/hermes.md)
 
-### 추가 사용 스킬 목록
+### 추가 사용 CLI/MCP/Skill 목록
 
+- [GitHub CLI(gh)](https://github.com/cli/cli)
+- Claude/Codex Browser MCP
 - [Anthropics/skills](https://github.com/anthropics/skills)
 - [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)
 - [inkeep/open-knowledge-skills](https://github.com/inkeep/open-knowledge-skills)
@@ -119,11 +122,12 @@ Discord 채널의 웹훅 봇 목록
 ├── docs/                          # 환경별 연결 문서
 ├── hooks/                         # 훅 스크립트
 ├── log/                           # 작업 관련 로그
-│   ├── state/                     # 상태 로그
+│   ├── task/<작업-id>/            # 경과, 조사, 명세와 반증 문서
 │   └── incident/                  # 사건 로그
 ├── shared/
 │   ├── settings/                  # 공통 설정(권한 등)
-│   └── skills/<skill>/SKILL.md    # 공통 skill
+│   ├── skills/<skill>/SKILL.md    # 공통 skill
+│   └── templates/workflow/       # 작업 문서와 질문, 보고, 승인 요청 양식 원본
 ├── tools/                         # 직접 실행 스크립트
 ├── AGENTS.global.md               # 전역 지침
 ├── AGENTS.md                      # 저장소 지침

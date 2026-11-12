@@ -5,14 +5,18 @@ HOME은 실행 환경의 사용자 폴더이다.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-SOURCE = (Path(__file__).resolve().parents[2] / "shared" / "skills").resolve()
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+from sub_repo_paths import paths
+
+SOURCE = paths.SKILL_DIR.resolve()
 HOME = Path.home()
 
 # 링크를 만드는 폴더. (표시 이름, skill 폴더, 사용하는 도구, 설치 판정용 도구 설정 폴더)
 LINK_DIRS = [
-    ("Claude Code", HOME / ".claude" / "skills", "Claude Code", [HOME / ".claude"]),
+    ("Claude Code", HOME / paths.CLAUDE_HOME_NAME / "skills", "Claude Code", [HOME / paths.CLAUDE_HOME_NAME]),
     (".agents", HOME / ".agents" / "skills", "Codex, Cursor, OpenClaw",
      [HOME / ".codex", HOME / ".cursor", HOME / ".openclaw", HOME / ".hermes"]),
 ]

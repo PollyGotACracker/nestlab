@@ -1,6 +1,6 @@
 # Codex 전역 설정 `~/.codex/config.toml`에 반영하는 nestlab 항목이다.
 # `<NESTLAB>`은 이 저장소 경로, `<PYTHON>`은 Python 실행 파일 경로로 바꾼다.
-# 명령 허용 및 금지 규칙은 `rules/default.rules`에 있다.
+# 커맨드 허용 및 금지 규칙은 `rules/default.rules`에 있다.
 # 이 파일의 권한 항목
 #   금지: 보안 문서 읽기 및 쓰기, 세션 경로 밖 접근, ~/.claude 및 ~/.codex 쓰기 (hooks/check_tool_use.py)
 # 보안 문서 목록은 `~/.claude/settings.json`의 `permissions.deny` `Read(...)` 항목을 hook이 읽는다.
@@ -20,13 +20,17 @@ hooks = true
 default_mode_request_user_input = true
 prefer_mxc = true
 
-# MXC를 지원하면 MXC로, 아니면 elevated 샌드박스로 명령을 실행한다.
+# MXC를 지원하면 MXC로, 아니면 elevated 샌드박스로 커맨드를 실행한다.
 [windows]
 sandbox = "elevated"
 
-# hook 구성: 역할 주입(SessionStart 및 SubagentStart), 승인, 입력, 쓰기 범위, 경로 검사(PreToolUse),
+# sandbox에서 Python tempfile이 쓰는 임시 폴더를 쓰기 허용 경로에 추가한다. `<TEMP>`는 설치 도구가 임시 폴더 경로로 바꾼다.
+[sandbox_workspace_write]
+writable_roots = ["<TEMP>"]
+
+# hook 구성: 에이전트 지침 주입(SessionStart 및 SubagentStart), 승인, 입력, 쓰기 범위, 경로 검사(PreToolUse),
 # 승인 창 자동 허용(PermissionRequest), 반증 판정 검사 및 결과 저장(SubagentStop),
-# 지침 검사(PostToolUse), 사건 감지, 응답 검사, 컨텍스트 기록 안내(Stop)
+# 사건 감지, 응답 검사, 컨텍스트 기록 안내(Stop)
 
 [[hooks.SessionStart]]
 
@@ -35,7 +39,15 @@ type = "command"
 command = '"<PYTHON>" "<NESTLAB>/hooks/load_agent.py" --include-role --default-role buddy'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/load_agent.py" --include-role --default-role buddy'
 additionalContextLimit = 10000
-statusMessage = "Nestlab 메인 에이전트 역할 및 공통 지침"
+statusMessage = "Nestlab 메인 에이전트 지침 및 공통 지침"
+
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/record_stage.py"'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/record_stage.py"'
+statusMessage = "Nestlab 작업 단계 기록"
 
 [[hooks.SubagentStart]]
 
@@ -44,10 +56,10 @@ type = "command"
 command = '"<PYTHON>" "<NESTLAB>/hooks/load_agent.py" --include-role'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/load_agent.py" --include-role'
 additionalContextLimit = 10000
-statusMessage = "Nestlab 서브 에이전트 역할 및 공통 지침"
+statusMessage = "Nestlab 서브 에이전트 지침 및 공통 지침"
 
 [[hooks.PreToolUse]]
-matcher = "apply_patch|Bash|.*spawn_agent|request_user_input"
+matcher = "apply_patch|Bash|.*spawn_agent|.*followup_task|request_user_input"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
@@ -55,6 +67,16 @@ command = '"<PYTHON>" "<NESTLAB>/hooks/check_tool_use.py" --runner codex'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_tool_use.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 승인, 입력, 쓰기 범위 검사"
+
+[[hooks.PreToolUse]]
+matcher = "apply_patch"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/tools/check_doc_rule.py" --hook'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/tools/check_doc_rule.py" --hook'
+timeout = 30
+statusMessage = "Nestlab 지침 검사"
 
 [[hooks.PermissionRequest]]
 
@@ -79,13 +101,6 @@ matcher = "apply_patch"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/tools/check_doc_rule.py" --hook'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/tools/check_doc_rule.py" --hook'
-timeout = 30
-statusMessage = "Nestlab 지침 검사"
-
-[[hooks.PostToolUse.hooks]]
-type = "command"
 command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
 timeout = 10
@@ -102,7 +117,7 @@ timeout = 10
 statusMessage = "Nestlab 질문 답 기록"
 
 [[hooks.PostToolUse]]
-matcher = ".*spawn_agent"
+matcher = ".*spawn_agent|.*followup_task"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
@@ -133,3 +148,10 @@ command = '"<PYTHON>" "<NESTLAB>/hooks/check_context_size.py" --runner codex'
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_context_size.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 컨텍스트 기록 안내"
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/save_subagent_result.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/save_subagent_result.py" --runner codex'
+timeout = 10
+statusMessage = "Nestlab 메인 세션 결과 원문 저장"

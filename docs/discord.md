@@ -3,7 +3,7 @@ title: Nestlab Discord Bot 설치
 description: "Discord Bot의 준비 항목, 설정 파일 작성, 실행 방법을 설명한다."
 type: document
 created: 2026-10-03
-modified: 2026-11-03
+modified: 2026-11-12
 ---
 
 # Discord Bot 설치
@@ -252,7 +252,7 @@ cp discord/config.example.json discord/config.json
 
 ## 지식 저장소 연결
 
-`archive_repository`와 `archive_forum_id`를 설정하면 documenter 역할(pepper)이 전용 archive forum에서 GitHub 저장소 작업을 처리한다.
+`archive_repository`와 `archive_forum_id`를 설정하면 documenter 에이전트(pepper)가 전용 archive forum에서 GitHub 저장소 작업을 처리한다.
 
 ```json
 {
@@ -267,7 +267,7 @@ cp discord/config.example.json discord/config.json
 ```
 
 `archive_forum_id`는 `request_channels`에도 등록한 ForumChannel이어야 한다.
-`chat_channels`에는 등록할 수 없다. 이 값을 쓰려면 `archive_repository`와 documenter 역할 에이전트가 모두 있어야 한다.
+`chat_channels`에는 등록할 수 없다. 이 값을 쓰려면 `archive_repository`와 documenter 에이전트가 모두 있어야 한다.
 Bot이 시작할 때 해당 ID가 접근 가능한 ForumChannel인지 확인한다.
 
 `archive_repository`를 설정하지 않으면 지식 저장소 도구와 관련 안내가 모두 빠진다.
@@ -291,7 +291,7 @@ Bot이 시작할 때 해당 ID가 접근 가능한 ForumChannel인지 확인한�
 
 사용자는 “이 자료를 위키에 정리해줘”, “위키에서 찾아줘”, “위키 점검해줘”처럼 요청하며 schema 경로를 지정할 필요가 없다.
 
-Discord에서 사용하려면 설정된 Nodebase 원격 저장소의 대상 브랜치에 `$repo_name/AGENTS.md`와 해당 `$repo_name/schema/` 파일이 있어야 한다.
+Discord에서 사용하려면 설정된 원격 위키 저장소의 대상 브랜치에 `$repo_name/AGENTS.md`와 해당 `$repo_name/schema/` 파일이 있어야 한다.
 `$repo_name`은 `archive_repository`에 설정한 원격 저장소를 뜻한다.
 로컬 schema를 수정하거나 VM에 파일을 복사하는 것만으로 원격 원본이 갱신되지는 않는다.
 원격 반영은 별도의 승인된 저장소 변경 절차로 수행한다.
@@ -508,7 +508,7 @@ python -c "import sqlite3;c=sqlite3.connect('file:<프로젝트 경로>/discord/
 (3, 'persona_event', 'buddy', 0, 18)
 ```
 
-기억 ID 하나의 내용은 같은 명령에서 조회문만 바꾼다.
+기억 ID 하나의 내용은 같은 커맨드에서 조회문만 바꾼다.
 
 ```bash
 python -c "import sqlite3;c=sqlite3.connect('file:<프로젝트 경로>/discord/bot/memory.sqlite3?mode=ro',uri=True);[print(r[0]) for r in c.execute('SELECT content FROM memories WHERE id=<기억 ID>')]"
@@ -554,7 +554,7 @@ python -c "import sqlite3;c=sqlite3.connect('file:<프로젝트 경로>/discord/
 discord/config.json
 ```
 
-다음 명령으로 추적 여부를 확인할 수 있다.
+다음 커맨드로 추적 여부를 확인할 수 있다.
 
 ```bash
 git status --short discord/config.json
@@ -690,7 +690,7 @@ Bot 하나라도 접속에 실패하면 모든 Bot이 함께 종료된다.
 ### `chat.failure_notice` 안내가 표시됨
 
 채팅 처리 중 오류가 난 것이다.
-원인 확인 명령은 [채팅 오류 원인](discord-debug.md#채팅-오류-원인)을 따른다.
+원인 확인 커맨드는 [채팅 오류 원인](discord-debug.md#채팅-오류-원인)을 따른다.
 
 ### 대화가 도중에 끝남
 
@@ -712,7 +712,7 @@ Bot 하나라도 접속에 실패하면 모든 Bot이 함께 종료된다.
 - 키를 큰따옴표로 감쌌는가
 - ID와 token을 요구된 문자열 형식으로 입력했는가
 
-JSON 문법 확인 명령은 [설정 JSON 문법](discord-debug.md#설정-json-문법)을 따른다.
+JSON 문법 확인 커맨드는 [설정 JSON 문법](discord-debug.md#설정-json-문법)을 따른다.
 
 ### Git Bash 가상환경 오류
 
@@ -724,7 +724,7 @@ Windows Git Bash에서는 macOS/Linux 경로를 사용하지 않는다.
 source .venv/bin/activate
 ```
 
-Windows Git Bash에서는 다음 명령을 사용한다.
+Windows Git Bash에서는 다음 커맨드를 사용한다.
 
 ```bash
 source .venv/Scripts/activate

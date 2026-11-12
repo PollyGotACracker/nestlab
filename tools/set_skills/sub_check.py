@@ -1,4 +1,4 @@
-"""check 명령이다.
+"""check 커맨드이다.
 skill별 연결 상태, 중복, Hermes 설정을 출력하고 파일을 바꾸지 않는다.
 """
 from __future__ import annotations

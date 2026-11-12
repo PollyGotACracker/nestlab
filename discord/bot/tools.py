@@ -125,7 +125,7 @@ def build_director_server(
         if len(content) > DISCORD_LIMIT:
             return tool_text(f"첫 글은 {DISCORD_LIMIT}자 이하여야 합니다.")
         if isinstance(channel, discord.Thread):
-            return tool_text("스레드 안에서는 스레드를 만들 수 없습니다.")
+            return tool_text("스레드 안에서는 스레드를 생성할 수 없습니다.")
         raw_id = args.get("message_id")
         message_id = parse_message_id(raw_id) if raw_id not in (None, "") else None
         if raw_id not in (None, "") and message_id is None:

@@ -1,28 +1,24 @@
-"""검사 대상 파일을 찾고 파일 하나를 검사1~5로 검사한다."""
+"""검사 대상 파일을 찾고 경로, 절 참조와 문구를 검사한다."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from sub_config import (
     FENCE,
-    HEADING,
     INLINE_CODE,
     KIND_CROSS,
-    KIND_DIRECT,
     KIND_NEGATIVE,
     KIND_PATH,
     KIND_RULE_ID,
     KIND_SECTION,
     NEGATIVE,
-    PATH_LIST_FILES,
-    PATH_LIST_SECTION,
     ROOT,
     RULE_ID,
     RULE_ID_SCOPE,
     SECTION_REF,
     TARGET_PATTERNS,
 )
-from sub_paths import as_repo_path, direct_path_root, path_exists
+from sub_paths import as_repo_path, path_exists
 from sub_sections import read_headings, section_targets
 
 
@@ -31,45 +27,23 @@ def check_file(
     rel: str,
     names: set[str],
     heading_cache: dict[Path, set[str]],
+    text: str | None = None,
 ) -> list[tuple[str, int, str, str]]:
-    # 파일 종류별 검사 조건을 정한다.
+    # 파일 종류별 검사 조건을 정한다. text가 있으면 파일 대신 그 내용을 검사한다.
     path = ROOT / rel
     violations: list[tuple[str, int, str, str]] = []
     in_fence = False
     check_rule_id = rel.startswith(RULE_ID_SCOPE)
-    is_path_list_file = rel in PATH_LIST_FILES
-    is_skill = path.name == "SKILL.md"
-    # 열려 있는 경로 목록 제목의 수준. 절 밖이면 None이다.
-    path_list_level: int | None = None
-
-    # 줄마다 코드 블록 밖에서 경로, 직접 경로, 절 참조를 검사한다.
-    for lineno, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+    # 줄마다 코드 블록 밖에서 경로와 절 참조를 검사한다.
+    for lineno, line in enumerate((path.read_text(encoding="utf-8-sig") if text is None else text).splitlines(), 1):
         if FENCE.match(line):
             in_fence = not in_fence
         elif not in_fence:
-            heading = HEADING.match(line) if is_path_list_file else None
-            if heading:
-                level = len(heading.group(1))
-                if heading.group(2).strip() == PATH_LIST_SECTION:
-                    path_list_level = level
-                elif path_list_level is not None and level <= path_list_level:
-                    path_list_level = None
-
             # 코드 표기 경로가 실제로 있는지 확인한다.
             for match in INLINE_CODE.finditer(line):
                 candidate = as_repo_path(match.group(1), names)
                 if candidate and not path_exists(candidate, path.parent, names):
                     violations.append((rel, lineno, KIND_PATH, match.group(1)))
-
-                # 명령은 어느 토큰에든 경로가 있을 수 있다.
-                for token in match.group(1).split():
-                    root = direct_path_root(token)
-                    if (
-                        root
-                        and path_list_level is None
-                        and not (is_skill and (path.parent / root).is_dir())
-                    ):
-                        violations.append((rel, lineno, KIND_DIRECT, token))
 
             # 절 참조가 가리키는 제목이 있는지 확인한다.
             for match in SECTION_REF.finditer(line):

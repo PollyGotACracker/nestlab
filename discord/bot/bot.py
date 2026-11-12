@@ -963,7 +963,7 @@ class AgentBot(discord.Client):
             )
 
     # 명시적인 승인과 취소는 모델을 거치지 않고 요청자와 pending을 대조한 뒤 처리한다.
-    # 외부 API 호출 전에 executing으로 저장해 같은 메시지가 중복 실행되는 것을 막는다.
+    # 외부 API 호출 전에 executing으로 저장해 같은 메시지가 중복 실행되는 것을 차단한다.
     async def _handle_archive_command(self, message: discord.Message) -> bool:
         # archive 스레드의 승인이나 취소 명령을 확인하고 대기 중인 요청을 처리한다.
         if self.agent.role != "documenter" or not is_archive_thread(message.channel, self.runtime.config):
@@ -971,7 +971,7 @@ class AgentBot(discord.Client):
         command = MENTION.sub("", message.content).strip()
         if command not in {"승인", "취소"}:
             return False
-        # 같은 요청자의 기억 대기가 있으면 비정확 원문의 archive 실행을 막는다.
+        # 같은 요청자의 기억 대기가 있으면 비정확 원문의 archive 실행을 차단한다.
         # 저장소 작업 대기 없이 기억 대기만 있으면 기억 승인 처리에 넘긴다.
         approval = self.runtime.memory_approvals.active(message.channel.id)
         if (
@@ -1100,7 +1100,7 @@ class AgentBot(discord.Client):
 
     # 기억 업로드 대기의 요청자가 보낸 `승인` 및 `취소`를 모델 호출 없이 처리한다.
     # 대기 건의 캐릭터 봇만 실행 및 안내하고, 다른 봇은 같은 메시지를 소비만 한다.
-    # 외부 API 호출 전에 executing으로 저장해 같은 대기가 중복 실행되는 것을 막는다.
+    # 외부 API 호출 전에 executing으로 저장해 같은 대기가 중복 실행되는 것을 차단한다.
     async def _handle_memory_approval(self, message: discord.Message) -> bool:
         # 기억 승인 명령인지 확인하고 대기 중인 승인을 처리한다.
         runtime = self.runtime
@@ -1536,7 +1536,7 @@ class AgentBot(discord.Client):
             )
             return None
 
-        # 전송 실패 시에도 판단 대기를 보존하여 다른 진입 경로의 종속 진행을 막는다.
+        # 전송 실패 시에도 판단 대기를 보존하여 다른 진입 경로의 종속 진행을 차단한다.
         if user_wait:
             self.runtime.chat_user_wait[channel_id] = {
                 "reason": "user_decision", "agent": self.agent.name,

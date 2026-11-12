@@ -13,10 +13,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "check_tool_use"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "check_workflow_response"))
 
-import check_workflow_response as wf
-from check_workflow_response import STATUS_PATH, call_paths
-from sub_role import main_session
+from sub_docs import project_root, sibling
+from sub_record import STATUS_PATH, call_paths
+from sub_role import director_main, main_session
 from sub_session import read_session, session_path
 
 LIMIT = 200_000
@@ -45,16 +47,16 @@ def context_tokens(path: str, runner: str) -> int:
     return total
 
 
-# 세션이 쓴 경과 문서 중 작업 상태가 완료가 아닌 작업 폴더의 저장소 기준 상대 경로를 쓴 순서대로 반환한다.
-def open_statuses(data: dict, path: str) -> list[str]:
+# 세션이 쓴 경과 문서 중 작업 상태가 완료가 아닌 작업 폴더의 (저장소 기준 상대 경로, 작업 단계)를 쓴 순서대로 반환한다.
+def open_statuses(data: dict, path: str) -> list[tuple[str, str]]:
     found: dict[str, None] = {}
     for entry in read_session(path):
         for name, args in entry["calls"]:
             for written in call_paths(name, args):
                 match = STATUS_PATH.search(written.replace("\\", "/"))
                 if match:
-                    found[wf.sibling(Path(match.group(0)), "state").as_posix()] = None
-    root = wf.project_root(data.get("cwd"))
+                    found[sibling(Path(match.group(0)), "state").as_posix()] = None
+    root = project_root(data.get("cwd"))
     out = []
     for rel in found:
         try:
@@ -63,18 +65,23 @@ def open_statuses(data: dict, path: str) -> list[str]:
             continue
         state = re.search(r"(?m)^- 작업 상태: *(.+?) *$", text)
         if not state or state.group(1) != "완료":
-            out.append(rel.rsplit("/", 1)[0] + "/")
+            stage = re.search(r"(?m)^- 작업 단계: *(.+?) *$", text)
+            out.append((rel.rsplit("/", 1)[0] + "/", stage.group(1) if stage else ""))
     return out
 
 
 # 메인 세션이 기준에 도달했으면 stop_hook_active가 아닌 Stop마다 작업 기록과 compact를 지시한다.
+# 마지막으로 쓴 진행 중 작업이 구현 단계이면 구현과 검증 배정 흐름을 끊지 않도록 통과한다.
 def check(data: dict, runner: str = "claude") -> str | None:
     path = session_path(data, runner)
     data = {**data, "transcript_path": path}
-    if data.get("stop_hook_active") or not main_session(data) or context_tokens(path, runner) < LIMIT:
+    if data.get("stop_hook_active") or not director_main(data) or context_tokens(path, runner) < LIMIT:
         return None
-    docs = open_statuses(data, path)
-    lines = [f"컨텍스트가 {LIMIT:,} 토큰 이상입니다. 대화에만 있는 작업 정보를 진행 중인 작업 폴더의 문서에 기록하십시오."]
+    opened = open_statuses(data, path)
+    if opened and opened[-1][1] == "구현":
+        return None
+    docs = [d for d, _ in opened]
+    lines = [f"컨텍스트가 {LIMIT:,} 토큰 이상입니다. 대화에만 있는 작업 정보를 현재 진행 중인 작업 폴더의 문서에 기록하십시오.\n현재 작업 폴더가 없는 경우 관련 지침 또는 스킬에 따라 작업 폴더를 생성하십시오."]
     for d in docs:
         lines += [f"- 작업 폴더: {d}",
                   "  - 조사 결과: research.md",

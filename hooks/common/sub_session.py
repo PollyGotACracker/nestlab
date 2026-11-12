@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 CODEX_SESSIONS = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "sessions"
@@ -27,7 +28,7 @@ INJECTED = ("# AGENTS.md instructions", "<environment_context", "<user_instructi
 QUESTION_TOOLS = ("AskUserQuestion", "request_user_input")
 HOOK_PROMPT = re.compile(r"<hook_prompt\b(?=[^>]*\bhook_run_id\s*=)[^>]*>.*?</hook_prompt\s*>", re.S)
 # Claude Code가 사용자 메시지 자리에 넣는 하네스 알림이다. 사용자 발화로 보지 않는다.
-HARNESS = ("<task-notification>", "<local-command-", "<command-name>", "<command-message>",
+HARNESS = ("<task-notification>", "<agent-message","<local-command-", "<command-name>", "<command-message>",
            "Base directory for this skill", "Stop hook feedback", "PreToolUse:", "PostToolUse:", "SubagentStop hook feedback",
            "Skill /", "(Re-invocation of /", "Another Claude session sent a message", "<system-reminder>",
            "This session is being continued from a previous conversation")
@@ -66,6 +67,24 @@ def agent_transcript(data: dict) -> str:
 # Claude transcript 한 줄을 {role, text, calls, results, ids, replies} 항목으로 바꾼다. 하네스가 넣은 항목은 None이다.
 # ids는 calls와 같은 순서의 호출 id, replies는 {호출 id: {질문 문장: 답}}이다.
 def _claude_entry(d: dict) -> dict | None:
+    # 작업 도중 보낸 사용자 메시지는 queued_command attachment의 prompt에 남으므로 사용자 항목으로 읽는다.
+    att = d.get("attachment")
+    if d.get("type") == "attachment" and isinstance(att, dict) and att.get("type") == "hook_blocking_error":
+        if att.get("hookEvent") == "Stop" or att.get("hookEventName") == "Stop" or str(att.get("hookName") or "").startswith("Stop"):
+            error = att.get("blockingError")
+            error = error.get("blockingError") if isinstance(error, dict) else error
+            if isinstance(error, str) and error:
+                return {"role": "harness", "text": "", "calls": [], "results": [], "ids": [], "replies": {},
+                        "stop": {"reason": error, "turn_id": None, "create_time": d.get("timestamp")}}
+    if d.get("type") == "attachment" and isinstance(att, dict) and att.get("type") == "queued_command":
+        # commandMode가 prompt인 항목만 사용자 메시지이다. task-notification 등은 하네스 항목이다.
+        if (att.get("commandMode") or d.get("commandMode")) != "prompt":
+            return None
+        prompt = att.get("prompt")
+        text = prompt if isinstance(prompt, str) else "\n".join(
+            b.get("text", "") for b in prompt or [] if isinstance(b, dict) and b.get("type") == "text")
+        return {"role": "user", "text": text, "calls": [], "results": [], "ids": [], "replies": {}, "outcomes": {}}
+
     # 메시지 본문을 꺼낸다.
     msg = d.get("message") or {}
     content = msg.get("content") or []
@@ -77,8 +96,10 @@ def _claude_entry(d: dict) -> dict | None:
     blocks = [{"type": "text", "text": content}] if isinstance(content, str) else [b for b in content if isinstance(b, dict)]
     results = []
     replies = {}
+    outcomes = {}
     for b in blocks:
         if b.get("type") == "tool_result":
+            outcomes[b.get("tool_use_id")] = not b.get("is_error", False)
             # 질문 도구 결과의 answers 값을 호출 id로 보관한다.
             meta = d.get("toolUseResult")
             answers = meta.get("answers") if isinstance(meta, dict) else None
@@ -91,7 +112,8 @@ def _claude_entry(d: dict) -> dict | None:
     return {"role": d["type"], "text": "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text"),
             "calls": [(b.get("name"), b.get("input") or {}) for b in blocks if b.get("type") == "tool_use"],
             "results": [r for r in results if r.strip()],
-            "ids": [b.get("id") for b in blocks if b.get("type") == "tool_use"], "replies": replies}
+            "ids": [b.get("id") for b in blocks if b.get("type") == "tool_use"], "replies": replies, "outcomes": outcomes,
+            "phase": {"tool_use": "commentary", "end_turn": "final_answer"}.get(msg.get("stop_reason"))}
 
 
 # Codex rollout 한 줄을 {role, text, calls, results, ids, replies} 항목으로 바꾼다. 대화와 관계없는 줄은 None이다.
@@ -120,16 +142,35 @@ def _codex_entry(d: dict) -> dict | None:
         out = p.get("output")
         out = out if isinstance(out, str) else json.dumps(out, ensure_ascii=False) if out else ""
         return {"role": "user", "text": "", "calls": [], "results": [out] if out.strip() else [],
-                "ids": [], "replies": {p.get("call_id"): {"": out}} if out.strip() and not p.get("is_error") else {}}
+                "ids": [], "replies": {p.get("call_id"): {"": out}} if out.strip() and not p.get("is_error") else {},
+                "outcomes": {p.get("call_id"): not p.get("is_error", False)}}
 
     # 사용자와 assistant 메시지는 텍스트 항목으로 바꾸고, 주입된 지침과 hook 알림 요소는 뺀다.
     if p.get("type") == "message" and p.get("role") in ("user", "assistant"):
-        text = "\n".join(b.get("text", "") for b in p.get("content") or [] if isinstance(b, dict))
-        if p["role"] == "user" and HOOK_PROMPT.search(text):
-            text = HOOK_PROMPT.sub("\n", text).strip()
+        meta = p.get("internal_chat_message_metadata_passthrough") or {}
+        meta = meta if isinstance(meta, dict) else {}
+        items = meta.get("content_item_metadata") or []
+        items = items if isinstance(items, list) else []
+        texts, stop = [], None
+        for index, block in enumerate(p.get("content") or []):
+            if not isinstance(block, dict):
+                continue
+            text = block.get("text") or ""
+            provenance = (items[index].get("provenance") or {}) if index < len(items) and isinstance(items[index], dict) else {}
+            provenance = provenance if isinstance(provenance, dict) else {}
+            if (p["role"] == "user" and block.get("type") == "input_text"
+                    and provenance.get("type") == "harness" and provenance.get("hook") is True):
+                for prompt in HOOK_PROMPT.finditer(text):
+                    if re.search(r'''\bhook_run_id\s*=\s*["']stop:''', prompt[0].split(">", 1)[0]):
+                        reason = prompt[0].split(">", 1)[1].rsplit("</hook_prompt", 1)[0].strip()
+                        stop = {"reason": reason, "turn_id": meta.get("turn_id"), "create_time": meta.get("create_time")}
+                text = HOOK_PROMPT.sub("\n", text).strip()
+            texts.append(text)
+        text = "\n".join(texts)
         if p["role"] == "user" and text.startswith(INJECTED):
             return None
-        return {"role": p["role"], "text": text, "calls": [], "results": [], "ids": [], "replies": {}}
+        return {"role": "harness" if stop and not text.strip() else p["role"], "text": text, "calls": [], "results": [], "ids": [], "replies": {},
+                "channel": p.get("channel"), "phase": p.get("phase"), "turn_id": meta.get("turn_id"), "stop": stop}
     return None
 
 
@@ -142,17 +183,60 @@ def read_session(path: str) -> list[dict]:
             for line in f:
                 d = json.loads(line)
                 entry = (_codex_entry if "payload" in d else _claude_entry)(d)
-                if entry and (entry["text"].strip() or entry["calls"] or entry.get("results")):
+                if entry and (entry["text"].strip() or entry["calls"] or entry.get("results") or entry.get("outcomes") or entry.get("stop")):
+                    entry["timestamp"] = recorded_time(d.get("timestamp"))
                     entries.append(entry)
     except (OSError, ValueError):
         pass
     return entries
 
 
+# 실제 이벤트 timestamp만 KST로 변환한다. 없거나 잘못된 값은 빈 문자열이다.
+def recorded_time(value) -> str:
+    try:
+        stamp = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            return ""
+        return stamp.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return ""
+
+
+# 현재 사용자 턴의 Claude Stop 사유 또는 provenance가 검증된 Codex Stop 사유이다.
+def previous_stop_reason(path: str) -> str:
+    reason, active_turn = "", None
+    try:
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            entry = (_codex_entry if "payload" in row else _claude_entry)(row)
+            if entry and user_messages([entry]):
+                reason, active_turn = "", entry.get("turn_id")
+            elif (entry and entry["role"] == "assistant" and not active_turn
+                  and entry.get("phase") in (None, "final_answer") and entry.get("channel") in (None, "final")):
+                active_turn = entry.get("turn_id")
+            if entry and entry.get("stop") and (not active_turn or entry["stop"].get("turn_id") in (None, active_turn)):
+                reason = entry["stop"]["reason"]
+            attachment = row.get("attachment") or {}
+            if row.get("type") == "attachment" and attachment.get("type") == "hook_blocking_error":
+                # Stop 이외 hook 오류는 직전 workflow block의 근거가 아니다.
+                event = attachment.get("hookEvent") or attachment.get("hookEventName")
+                if event == "Stop" or str(attachment.get("hookName") or "").startswith("Stop"):
+                    error = attachment.get("blockingError")
+                    if isinstance(error, dict):
+                        error = error.get("blockingError")
+                    reason = error if isinstance(error, str) else ""
+    except (OSError, ValueError, TypeError):
+        return ""
+    return reason
+
+
 # Codex request_user_input 출력 JSON의 `answers`에서 질문 id의 답 문자열을 구한다. selected 값과 other 값을 쉼표로 잇고 없으면 빈 문자열이다.
 def _codex_answer(output: str, qid: str) -> str:
     try:
-        answers = json.loads(output).get("answers")
+        payload = json.loads(output)
+        if payload.get("error") or payload.get("isError"):
+            return ""
+        answers = payload.get("answers")
         entry = answers.get(qid) if isinstance(answers, dict) else None
     except (ValueError, AttributeError):
         return ""
@@ -202,7 +286,10 @@ def response_answers(questions, response) -> list[tuple[dict, str]]:
     # 응답을 JSON 문자열로 맞추고 answers를 꺼낸다.
     raw = response if isinstance(response, str) else json.dumps(response or {}, ensure_ascii=False)
     try:
-        answers = json.loads(raw).get("answers")
+        payload = json.loads(raw)
+        if payload.get("error") or payload.get("isError"):
+            return []
+        answers = payload.get("answers")
     except (ValueError, AttributeError):
         answers = None
 

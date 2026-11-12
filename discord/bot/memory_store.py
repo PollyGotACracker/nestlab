@@ -83,7 +83,7 @@ class MemoryStore:
     def open(cls, path: Path | str) -> "MemoryStore":
         return cls(sqlite3.connect(str(path)))
 
-    # DB 연결을 닫는다.
+    # DB 연결을 종료한다.
     def close(self) -> None:
         self.conn.close()
 
