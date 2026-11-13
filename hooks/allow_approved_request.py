@@ -40,7 +40,7 @@ TASK_DOCS_HOME = Path.home()
 TASK_DOCS_ID = re.compile(r"\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
-# 원본 생성기의 단일 호출이며 실제 출력 경로가 현재 프로젝트 안이면 True이다.
+# 원본 생성기의 단일 호출이며 출력 경로가 현재 프로젝트나 OS 임시 경로이면 True이다.
 def task_docs_command(command: str, cwd: str | Path | None = None) -> bool:
     command = command.strip()
     if command.startswith("& "):
@@ -84,12 +84,14 @@ def task_docs_command(command: str, cwd: str | Path | None = None) -> bool:
         if not TASK_DOCS_ID.fullmatch(task) or not title.strip() or stage not in TASK_DOCS_STAGES:
             return False
         root_value = options.get("--root", "")
-        if root_value.startswith("~") or any(mark in root_value for mark in "*?[]{}"):
+        if root_value.startswith("~") or any(mark in root_value for mark in "*?[]"):
             return False
         project = project_root(base).resolve()
         root = (base / options.get("--root", ".")).resolve()
         folder = root / "log" / "task" / task
-        return root == project and all(
+        from sub_path import in_temp
+        temporary = in_temp(str(root))
+        return (root == project or temporary) and all(
             path.resolve().is_relative_to(root) for path in [folder, *(folder / f"{kind}.md" for kind in TASK_DOCS_STAGES[stage])])
     except (OSError, ValueError):
         return False

@@ -109,7 +109,7 @@ class AllowApprovedRequest(unittest.TestCase):
         base = 'python tools/create_task_docs.py --task 20261107-130000-example --title "한글 제목" --stage review'
         transcript = self.root / "before-approval.jsonl"
         transcript.write_text(claude_line("user", "문서를 준비해 주세요.") + "\n", encoding="utf-8")
-        with patch.object(hook, "TASK_DOCS_SCRIPT", script):
+        with patch.object(hook, "TASK_DOCS_SCRIPT", script), patch.object(sub_path, "TEMP", self.root / "os-temp"):
             for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
                 data = {"agent_type": "director", "cwd": str(self.root), "transcript_path": str(transcript),
                         "tool_name": shell, "tool_input": {"command": base, "description": "검토 문서 생성"}}
@@ -184,7 +184,8 @@ class AllowApprovedRequest(unittest.TestCase):
         output = "nestlab-task-docs --print-template approval-research"
         transcript = self.root / "before-approval.jsonl"
         transcript.write_text(claude_line("user", "양식을 확인해 주세요.") + "\n", encoding="utf-8")
-        with patch.dict(os.environ, {"PATH": path_value}), patch.object(hook, "TASK_DOCS_HOME", home):
+        with patch.dict(os.environ, {"PATH": path_value}), patch.object(hook, "TASK_DOCS_HOME", home), \
+                patch.object(sub_path, "TEMP", self.root / "os-temp"):
             for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
                 generator = 'nestlab-task-docs --task 20261107-130000-example --title "example title; value" --stage kickoff'
                 for command in (output + "; git status --short", "git status --short; " + output,
@@ -207,6 +208,21 @@ class AllowApprovedRequest(unittest.TestCase):
             expected = hook.TASK_DOCS_SCRIPT.parents[1] / "shared" / "templates" / "workflow" / "approval-research.md"
             self.assertEqual(result.stdout.decode("utf-8").replace("\r\n", "\n").strip(),
                              expected.read_text(encoding="utf-8").strip())
+
+    # OS 임시 폴더 자신과 하위 폴더는 허용하고 일반 외부 경로는 차단한다.
+    def test_temporary_output_boundary(self):
+        home, path_value = self.install_launcher()
+        base = self.root / "os-temp"
+        with patch.object(sub_path, "TEMP", base), patch.object(hook, "TASK_DOCS_HOME", home), \
+                patch.dict(os.environ, {"PATH": path_value}):
+            command = 'nestlab-task-docs --task 20261113-092000-example --title "시험" --stage kickoff'
+            for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
+                for target, allowed in ((base, True), (base / "{measurement}", True), (self.root.parent / "outside", False)):
+                    data = {"agent_type": "director", "cwd": str(self.root), "tool_name": shell,
+                            "tool_input": {"command": command + f' --root "{target}"', "description": "임시 출력 경계 검증"}}
+                    with self.subTest(runner=runner, target=target):
+                        self.assertEqual(check_tool_use.check(data, runner) is None, allowed)
+                        self.assertEqual(verdict(data, runner), "allow" if allowed else "deny")
 
     def install_launcher(self):
         home = self.root / "command-home"
