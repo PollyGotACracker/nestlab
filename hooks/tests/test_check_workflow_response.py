@@ -778,23 +778,24 @@ class RecordAnswers(unittest.TestCase):
         self.assertIsNone(hook.check({**data, "background_tasks": [{"id": "t1"}]}))
         self.assertIn("- 검토 2. 이름: 확정 (사용자 검토 시각: ", self.text())
 
-    # 작업 상태를 승인과 중단 유형, 완료 검사로 계산한다.
-    def test_work_state(self):
+    # 기존 상태 기록은 단일 단계로 갱신하며 중단 사유는 별도로 보존한다.
+    def test_work_stage(self):
         approved = STATUS.replace("## 작업 경과", "## 승인\n\n### 실행 승인 범위\n\n- 사용자 승인 상태: 승인\n\n## 작업 경과")
-        self.assertEqual(sub_record.work_state(self.status, STATUS), "미개시")
-        self.assertEqual(sub_record.work_state(self.status, approved), "구현")
+        self.assertEqual(sub_record.work_stage(self.status, STATUS), "착수")
+        self.assertEqual(sub_record.work_stage(self.status, approved), "구현")
         stopped = approved.replace("- 중단 유형: <충족 불가>", "- 중단 유형: 충족 불가")
-        self.assertEqual(sub_record.work_state(self.status, stopped), "중단")
-        self.status.write_text(approved, encoding="utf-8")
+        self.assertEqual(sub_record.work_stage(self.status, stopped), "구현")
+        self.status.write_text(approved.replace("- 작업 상태: 미개시", "- 작업 상태: 미개시\n- 작업 단계: 구현"), encoding="utf-8")
         sub_record.record_answers({"cwd": str(self.root), "transcript_path": self.claude("q?", "확정")}, "claude", [])
-        self.assertIn("- 작업 상태: 구현", self.text())
+        self.assertIn("- 작업 단계: 구현", self.text())
+        self.assertNotIn("- 작업 상태:", self.text())
 
     # 관리 단계의 진행 상태는 이전 승인 값이 없어도 유지한다.
-    def test_managed_work_state_uses_stage(self):
-        for stage, expected in (("착수", "미개시"), ("조사", "미개시"), ("계획", "미개시"), ("구현", "구현")):
+    def test_managed_work_stage_uses_stage(self):
+        for stage, expected in (("착수", "착수"), ("조사", "조사"), ("계획", "착수"), ("구현", "구현")):
             with self.subTest(stage=stage):
                 text = STATUS.replace("- 작업 상태:", f"- 작업 단계: {stage}\n- 작업 상태:", 1)
-                self.assertEqual(sub_record.work_state(self.status, text), expected)
+                self.assertEqual(sub_record.work_stage(self.status, text), expected)
 
     # 명세 문서가 바뀌는 확정 답은 승인을 승인 대기로 바꾸고, 같은 답 재처리는 승인을 유지한다.
     def test_spec_change_resets_approval(self):

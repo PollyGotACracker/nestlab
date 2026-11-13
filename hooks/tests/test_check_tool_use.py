@@ -2070,8 +2070,8 @@ class StageGate(WriteScope):
         self.assertIsNone(self.write("hooks/a.py", "x", transcript=log))
         log, _ = self.stage_log("[implement]", "[research]\n다시 봐")
         self.assertIsNotNone(self.write("hooks/a.py", "x", transcript=log))
-        # 한국어 키워드, 본문이 붙은 첫 줄, 인용 줄은 단계를 바꾸지 않는다.
-        for bad in ("[구현]", "[implement] 그리고 이거 해", "> [implement]"):
+        # 한국어 키워드, 잘못된 작업 ID, 인용 줄은 단계를 바꾸지 않는다.
+        for bad in ("[구현]", "[implement 잘못된id]", "> [implement]"):
             log, _ = self.stage_log(bad)
             self.assertIsNotNone(self.write("hooks/a.py", "x", transcript=log))
         self.assertIn("- 작업 단계: 조사", status.read_text(encoding="utf-8"))
@@ -2095,9 +2095,10 @@ class StageGate(WriteScope):
         self.assertIn("[조사]", call("task: implement") or "")
         log, _ = self.stage_log("[implement]")
         self.assertIsNone(call("task: implement"))
-        # 완료 단계에서는 배정을 허용하지 않는다.
+        # 완료 선행 검사에 실패하면 구현 단계에 남아 보완 작업을 배정할 수 있다.
         log, _ = self.stage_log("[complete]")
-        self.assertIn("[완료]", call("task: implement") or "")
+        self.assertIsNone(call("task: implement"))
+        self.assertIn("[완료]", sub_approval.stage_call_reason("완료", "task: implement") or "")
 
     # 단계별 쓰기 대상: 조사는 research, refute, spec을 허용하고 착수는 spec을 막는다.
     def test_stage_write_targets(self):
@@ -2107,11 +2108,12 @@ class StageGate(WriteScope):
         log, _ = self.stage_log("[kickoff]")
         self.assertIsNotNone(self.write("log/task/t/spec.md", "# s" + "\n", transcript=log))
 
-    # 첫 줄이 [키워드] 또는 [키워드 작업ID] 하나만일 때 단계를 읽고, 그 밖의 대괄호 첫 줄은 보류, 대괄호가 없으면 None이다.
+    # 첫 줄 시작의 머리줄에서 단계를 읽으며 머리줄 뒤의 본문과 줄바꿈 표시는 허용한다.
     def test_stage_prefix_head_line_only(self):
         task = "20261110-005442-director-misstep-hooks"
         cases = {"[research]": "조사", "[kickoff]\n본문": "착수", f"[implement {task}]\n본문": "구현", "[complete]": "완료",
-                 "[research] 그리고 이거 해": "보류", "[구현]": "보류", "[implement 잘못된id]": "보류", "[research][complete]": "보류",
+                 "[research] 그리고 이거 해": "조사", "[구현]": "보류", "[implement 잘못된id]": "보류", "[research][complete]": "조사",
+                 "[implement]\\\n본문": "구현", f"[implement {task}] 본문": "구현",
                  "설명\n[implement]": None, "> [complete]": None, "": None}
         for message, expected in cases.items():
             with self.subTest(message=message):

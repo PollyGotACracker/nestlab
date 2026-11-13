@@ -184,8 +184,9 @@ def open_tasks(root: Path) -> list[Path]:
     for path in sorted(log.glob("task/*/status.md")):
         if path.name.endswith(("-input.md", "-research.md")):
             continue
-        m = re.search(r"^- 작업 상태:\s*(\S+)", read(path), re.M)
-        if m and m.group(1) in OPEN:
+        text = read(path)
+        m = re.search(r"^- 작업 단계:\s*(\S+)", text, re.M) or re.search(r"^- 작업 상태:\s*(\S+)", text, re.M)
+        if m and m.group(1) in (*OPEN, "착수", "조사"):
             out.append(path)
     return out
 

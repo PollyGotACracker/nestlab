@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from check_invalid_response import is_child, plain, transcript_of
-from sub_approval import APPROVED, stage_prefix
+from sub_approval import APPROVED, normalize_stage, stage_of, stage_prefix
 from sub_docs import doc, project_root, review_done_numbers, section, sibling
 from sub_judgment import open_tasks
 from sub_question import REVIEW, split_tag, tasks_of
@@ -98,7 +98,7 @@ def unfinished_reason(data: dict, message: str, runner: str) -> str | None:
 def complete_refusal(path: Path) -> str | None:
     # 구현 승인이 있고 아직 완료가 아닌 새 양식 명세 문서만 본다.
     text, plan = read(path), read(sibling(path, "input"))
-    if not plan.strip() or not REQUEST_APPROVED(text) or re.search(r"^- 작업 상태: 완료\s*$", text, re.M):
+    if not plan.strip() or not (stage_of(text) or REQUEST_APPROVED(text)) or stage_of(text) == "완료" or (not stage_of(text) and re.search(r"^- 작업 상태: 완료\s*$", text, re.M)):
         return None
 
     # 요구사항 검증이 모두 PASS이고 남은 문제가 없는지 확인한다.
@@ -111,7 +111,7 @@ def complete_refusal(path: Path) -> str | None:
         return None
 
     # 그런데도 완료 전이가 거부되면 사유를 반환한다.
-    as_state = lambda state: STATE_LINE.sub(f"- 작업 상태: {state}", text, count=1)
+    as_state = lambda state: normalize_stage(text, state) if stage_of(text) else STATE_LINE.sub(f"- 작업 상태: {state}", text, count=1)
     return transition_reason(path, as_state("완료"), as_state("구현"), plan)
 
 

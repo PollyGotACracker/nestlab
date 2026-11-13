@@ -106,7 +106,7 @@ def reimplement_pending(task: str | None, cwd: str | None = None) -> bool:
 STAGES = ("착수", "조사", "구현", "완료")
 # 사용자 메시지 머리줄의 단계 키워드와 경과 문서 작업 단계 값의 대응이다.
 KEYWORDS = {"kickoff": "착수", "research": "조사", "implement": "구현", "complete": "완료"}
-HEAD = re.compile(r"^\[(kickoff|research|implement|complete)(?: (\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*))?\]$")
+HEAD = re.compile(r"^\[(kickoff|research|implement|complete)(?: (\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*))?\]")
 STAGE_LINE = re.compile(r"(?m)^- 작업 단계:[ \t]*(.*)$")
 # log/ 밖 쓰기를 허용하는 단계와 단계별 허용 task 값이다.
 WRITE_STAGES = ("구현",)
@@ -115,7 +115,7 @@ STAGE_CALLS = {"조사": ("task: research", "task: refute"),
 REASON_STAGE_CALL = "경과 문서의 작업 단계 [{stage}]에서는 `{kind}` 배정을 할 수 없습니다. 허용: {allowed}."
 
 
-# 사용자 메시지 첫 줄의 머리줄을 (작업 단계 값, 작업 ID)로 읽는다. 머리줄은 `[키워드]` 또는 `[키워드 작업ID]` 하나만으로 이루어진 줄이다.
+# 사용자 메시지 첫 줄 시작의 `[키워드]` 또는 `[키워드 작업ID]`를 (작업 단계 값, 작업 ID)로 읽는다.
 # 첫 줄이 대괄호로 시작하지 않으면 (None, None), 대괄호로 시작하지만 머리줄 형식이 아니면 ("보류", None)이다.
 def head_line(message: str) -> tuple[str | None, str | None]:
     first = (message or "").split("\n", 1)[0].rstrip()
@@ -137,15 +137,44 @@ def stage_of(text: str) -> str | None:
     return value if value in STAGES else None
 
 
+# 기존 상태 기록을 단계 한 줄로 변환하고 나머지 본문은 보존한다.
+def normalize_stage(text: str, stage: str | None = None) -> str:
+    legacy = re.search(r"(?m)^- 작업 상태:[ \t]*(.*)$", text)
+    previous = {"미개시": "착수", "진행": "구현", "구현": "구현", "완료": "완료", "중단": "구현"}
+    stage = stage or stage_of(text) or (previous.get(legacy[1].strip()) if legacy else None)
+    if stage not in STAGES:
+        return text
+    line = f"- 작업 단계: {stage}"
+    if STAGE_LINE.search(text):
+        text = STAGE_LINE.sub(line, text, count=1)
+        return re.sub(r"(?m)^- 작업 상태:.*\n?", "", text)
+    if legacy:
+        return re.sub(r"(?m)^- 작업 상태:.*$", line, text, count=1)
+    header = re.search(r"(?m)^- 작업 ID:.*$", text) or re.search(r"(?m)^# .*$", text)
+    if header:
+        return text[:header.end()] + "\n" + line + text[header.end():]
+    return line + "\n" + text
+
+
+# 완료 요청의 선행 검사 실패 사유를 반환한다. 통과하면 None이다.
+def stage_completion_reason(status: Path, text: str | None = None) -> str | None:
+    from sub_docs import sibling
+    from sub_gate import transition_reason
+    text = read(status) if text is None else text
+    return transition_reason(status, normalize_stage(text, "완료"), normalize_stage(text, "구현"), read(sibling(status, "input")))
+
+
 # status 경과 문서에 단계 접두어(prefix)를 기록하고 현재 단계를 반환한다. 접두어가 없거나 잘못되면 기록된 단계를 유지한다.
 # 단계가 조사이면 빠진 research, refute, spec 문서만 생성하며 기존 본문은 보존한다.
 def apply_stage(status: Path, prefix: str | None) -> str | None:
     text = read(status)
-    if prefix in STAGES and stage_of(text) != prefix:
-        line = f"- 작업 단계: {prefix}"
-        text = (STAGE_LINE.sub(line, text, count=1) if STAGE_LINE.search(text)
-                else re.sub(r"(?m)^(- 작업 상태:.*)$", lambda m: m[1] + "\n" + line, text, count=1))
-        status.write_text(text, encoding="utf-8")
+    if prefix == "완료" and stage_completion_reason(status, text):
+        current = stage_of(normalize_stage(text))
+        prefix = current if current and current != "완료" else "구현"
+    updated = normalize_stage(text, prefix if prefix in STAGES else None)
+    if updated != text:
+        status.write_text(updated, encoding="utf-8")
+    text = updated
     stage = stage_of(text)
     if stage == "조사" and TASK_ID.fullmatch(status.parent.name):
         title = re.search(r"(?m)^# (.+)$", text)

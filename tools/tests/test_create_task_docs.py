@@ -39,6 +39,8 @@ class CreateTaskDocs(unittest.TestCase):
             status = paths[0]
             self.assertIn("한글 제목", status.read_text(encoding="utf-8").split("\n# ", 1)[-1].splitlines()[0])
             self.assertIn(TASK, status.read_text(encoding="utf-8"))
+            self.assertIn("- 작업 단계: 착수", status.read_text(encoding="utf-8"))
+            self.assertNotIn("- 작업 상태:", status.read_text(encoding="utf-8"))
             status.write_bytes(b"existing\r\nbytes")
             self.assertEqual(create(self.root, TASK, "변경 제목", "kickoff"), [])
             self.assertEqual(status.read_bytes(), b"existing\r\nbytes")

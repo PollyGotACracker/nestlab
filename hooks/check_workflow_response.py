@@ -6,7 +6,7 @@
 입력: hook 입력 JSON(last_assistant_message, stop_hook_active 등)을 stdin으로 받는다.
 반환:
 - 위반이면 stdout에 `{"decision": "block", "reason": ..., "systemMessage": ...}` JSON을 출력하고 통과하면 아무것도 출력하지 않는다.
-- `--record` 모드는 질문 도구 답과 작업 상태를 경과 문서에 기록하고 출력하지 않는다.
+- `--record` 모드는 질문 도구 답과 작업 단계를 경과 문서에 기록하고 출력하지 않는다.
 - check()는 block 사유 문자열 또는 None을 반환한다.
 - 조정 검사와 작업 문서 기록은 director 메인에만 적용한다.
 한계: 외부 모델을 호출하지 않는 정규식 판정이라 자연어 의미는 판정하지 못한다. 오류는 통과한다(fail-open).
@@ -214,7 +214,7 @@ def inspect(data: dict, runner: str = "claude", record: bool = True) -> tuple[st
     return None, ""
 
 
-# PostToolUse 입력의 질문 도구 답을 경과 문서에 기록하고 작업 상태를 다시 계산한다. 서브에이전트 입력은 건너뛴다.
+# PostToolUse 입력의 질문 도구 답을 기록하고 작업 단계를 정규화한다. 서브에이전트 입력은 건너뛴다.
 def record_tool(data: dict, runner: str) -> str | None:
     data = {**data, "transcript_path": transcript_of(data, runner)}
     if not director_main(data):
@@ -253,7 +253,7 @@ def main() -> int:
     args = parser.parse_args()
     runner = args.runner
 
-    # PostToolUse 기록 모드는 질문 답과 작업 상태를 기록하고 출력 없이 끝낸다.
+    # PostToolUse 기록 모드는 질문 답과 작업 단계를 기록하고 출력 없이 끝낸다.
     if args.record:
         try:
             notice = record_tool(json.load(sys.stdin), runner)

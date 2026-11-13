@@ -8,9 +8,9 @@
 - 머리줄이 있으면 기록 결과나 미기록 사유도 `additionalContext`에 더한다.
 - 둘 다 없으면 아무것도 출력하지 않고, 어느 경우에도 사용자 메시지를 차단하지 않는다.
 한계:
-- 머리줄은 첫 줄 전체가 `[kickoff|research|implement|complete]` 또는 `[키워드 작업ID]`일 때만 인정한다.
+- 첫 줄 시작의 `[kickoff|research|implement|complete]` 또는 `[키워드 작업ID]`를 머리줄로 인정한다.
 - 작업ID 없는 `[kickoff]`는 새 작업으로 보고 기존 문서에 기록하지 않는다.
-- 작업ID 없는 다른 키워드는 세션 기록의 가장 나중 작업 지정(머리줄 작업ID, 문서 생성기 --task 값, log/task 경로)을 대상으로 한다.
+- 작업ID 없는 다른 키워드는 세션 기록의 작업 지정 중 경과 문서가 있는 마지막 작업을 대상으로 한다.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "check_tool_use"))
 
 import check_invalid_response
-from sub_approval import apply_stage, head_line
+from sub_approval import apply_stage, head_line, stage_completion_reason
 from sub_docs import project_root
 from sub_paths import INCIDENT_REL, TASK_REL
 from sub_session import read_session
@@ -31,8 +31,8 @@ from sub_write import strings
 
 TASK = r"\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*"
 DESIGNATION = re.compile(rf"--task[ =]+({TASK})|{re.escape(TASK_REL)}/({TASK})/")
-REASON_FORMAT = ("첫 줄이 머리줄 형식이 아니라 작업 단계를 기록하지 않았습니다. "
-                 "첫 줄에는 `[kickoff]`, `[research]`, `[implement]`, `[complete]` 중 하나 또는 `[키워드 작업ID]`만 쓰고 본문은 둘째 줄부터 쓰십시오.")
+REASON_FORMAT = ("첫 줄 시작에 유효한 머리줄이 없어 작업 단계를 기록하지 않았습니다. "
+                 "첫 줄을 `[kickoff]`, `[research]`, `[implement]`, `[complete]` 중 하나 또는 `[키워드 작업ID]`로 시작하십시오.")
 REASON_NO_DOC = "작업ID {task}의 경과 문서가 없어 작업 단계를 기록하지 않았습니다."
 REASON_NEW = "작업ID 없는 `[kickoff]`는 새 작업으로 보고 기존 문서에 기록하지 않았습니다. 문서 생성기로 새 작업 폴더를 만드십시오."
 REASON_NO_TARGET = "세션 기록에서 대상 작업을 찾지 못해 작업 단계를 기록하지 않았습니다. 머리줄에 `[키워드 작업ID]`를 쓰십시오."
@@ -56,16 +56,21 @@ def undelivered_incidents(data: dict) -> list[str]:
     return notices
 
 
-# 세션 기록에서 가장 나중의 작업 지정(사용자 머리줄 작업ID, 도구 호출의 --task 값, log/task 경로)이 가리키는 작업ID이다. 없으면 None이다.
-def last_designation(path: str) -> str | None:
+# 세션 기록의 작업 지정 중 경과 문서가 있는 마지막 작업 ID를 반환한다. 없으면 None이다.
+def last_designation(path: str, cwd: str | None = None) -> str | None:
     found = None
+    root = project_root(cwd)
     for entry in read_session(path):
         if entry["role"] == "user":
-            found = head_line(entry["text"])[1] or found
+            task = head_line(entry["text"])[1]
+            if task and (root / TASK_REL / task / "status.md").is_file():
+                found = task
         for _, args in entry["calls"]:
             for text in strings(args):
                 for match in DESIGNATION.finditer(text):
-                    found = match[1] or match[2]
+                    task = match[1] or match[2]
+                    if (root / TASK_REL / task / "status.md").is_file():
+                        found = task
     return found
 
 
@@ -87,13 +92,16 @@ def decide_stage(data: dict) -> str | None:
     # 대상 작업은 머리줄 작업ID, 세션 기록의 마지막 작업 지정 순으로 정한다. 작업ID 없는 [kickoff]는 새 작업이다.
     if task is None and stage == "착수":
         return REASON_NEW
-    task = task or last_designation(data.get("transcript_path") or "")
+    task = task or last_designation(data.get("transcript_path") or "", data.get("cwd"))
     if task is None:
         return REASON_NO_TARGET
     status = project_root(data.get("cwd")) / TASK_REL / task / "status.md"
     if not status.is_file():
         return REASON_NO_DOC.format(task=task)
-    return RECORDED.format(task=task, stage=apply_stage(status, stage))
+    recorded = apply_stage(status, stage)
+    if stage == "완료" and recorded != "완료":
+        return f"작업 {task}의 완료 검사에 실패해 {recorded} 단계를 유지합니다. 사유: {stage_completion_reason(status)}"
+    return RECORDED.format(task=task, stage=recorded)
 
 
 def main() -> int:

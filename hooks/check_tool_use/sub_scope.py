@@ -40,25 +40,25 @@ def rel(path: Path, root: Path) -> str:
 
 REASON_NO_APPROVAL = "사용자 마지막 메시지에 '승인'이 없어 승인 상태를 승인으로 쓸 수 없습니다.\n" + APPROVAL_RETRY
 REASON_UNRESOLVED = "중단 사유의 `중단 판정 미해결` 줄은 `중단 판정`이 든 질문 도구 질문의 확정 선택지 답이 세션 기록에 있어야 지우거나 바꿀 수 있습니다. " + RETRY
-REASON_LOCKED = ("경과 문서의 작업 상태 줄, 요구사항 목록과 검토 필요 절은 hook만 바꿀 수 있습니다. "
-                 "작업 상태는 hook이 계산해 쓰고, 요구사항과 검토 항목은 질문 도구로 확정받으십시오.")
+REASON_LOCKED = ("경과 문서의 작업 단계 줄, 요구사항 목록과 검토 필요 절은 hook만 바꿀 수 있습니다. "
+                 "작업 단계는 사용자 머리줄로 지정하고, 요구사항과 검토 항목은 질문 도구로 확정받으십시오.")
 LOCKED = ("요구사항 목록", "검토 필요")
 STATE_LINE = re.compile(r"^- 작업 상태:.*$", re.M)
 
 
-# 문서의 `- 작업 상태:` 첫 줄이다. 없으면 빈 문자열이다.
+# 단일 작업 단계 줄을 반환하며 단계가 없는 기존 문서는 상태 줄을 읽는다. 둘 다 없으면 빈 문자열이다.
 def state_line(text: str) -> str:
-    m = STATE_LINE.search(text)
+    m = re.search(r"(?m)^- 작업 단계:.*$", text) or STATE_LINE.search(text)
     return m.group(0).strip() if m else ""
 
 
-# 경과 문서 쓰기 후 파일 전체 내용에서 작업 상태 줄, 요구사항 목록과 검토 필요 절이 기존 문서와 다르면 True이다.
+# 경과 문서 쓰기 후 작업 단계 줄, 요구사항 목록과 검토 필요 절이 기존 문서와 다르면 True이다.
 # 새 문서는 이 줄과 두 절이 경과 문서 양식 원문과 같아야 한다. 파일 전체 내용을 구할 수 없는 apply_patch는 True이다.
 def state_locked(data: dict, path: Path, new: str | None, old: str) -> bool:
     if new is None:
         return True
 
-    # 기존 문서는 기존 본문과, 새 문서는 양식 원문과 작업 상태 줄 및 절 본문을 주석 없이 비교한다.
+    # 기존 문서는 기존 본문과, 새 문서는 양식 원문과 보호 줄 및 절 본문을 주석 없이 비교한다.
     new, old = strip_comments(new), strip_comments(old)
     if state_line(new) != state_line(old or strip_comments(template_text(TEMPLATE_OF["state"]))):
         return True
@@ -427,13 +427,13 @@ REASON_LOG_BASH = "이 쓰기 커맨드는 log/ 폴더 경로를 포함합니다
 REASON_REVIEW_LEFT = "진행 중인 작업의 검토 필요 또는 사전 모델 호출 실측 필요 항목({items})이 끝나지 않아 log/ 밖에서 쓸 수 없습니다. " + RETRY
 
 
-# 작업 상태가 진행이고 구현 승인이 승인인 경과 문서의 (경로, 본문) 목록을 반환한다.
+# 구현 단계의 경과 문서를 반환한다. 단계가 없는 기존 문서는 진행 상태와 구현 승인을 확인한다.
 def running_states(root: Path) -> list[tuple[Path, str]]:
     out = []
     for path in sorted(root.glob(f"{TASK_REL}/*/status.md")):
         text = read(path)
         stage = stage_of(text)
-        if IN_PROGRESS.search(text) and (stage == "구현" if stage else EXEC_APPROVED.search(section(text, "구현 승인 범위"))):
+        if stage == "구현" or (not stage and IN_PROGRESS.search(text) and EXEC_APPROVED.search(section(text, "구현 승인 범위"))):
             out.append((path, text))
     return out
 

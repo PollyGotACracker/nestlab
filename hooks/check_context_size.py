@@ -47,7 +47,7 @@ def context_tokens(path: str, runner: str) -> int:
     return total
 
 
-# 세션이 쓴 경과 문서 중 작업 상태가 완료가 아닌 작업 폴더의 (저장소 기준 상대 경로, 작업 단계)를 쓴 순서대로 반환한다.
+# 세션이 쓴 미완료 작업 폴더의 (저장소 기준 상대 경로, 작업 단계)를 쓴 순서대로 반환한다.
 def open_statuses(data: dict, path: str) -> list[tuple[str, str]]:
     found: dict[str, None] = {}
     for entry in read_session(path):
@@ -63,9 +63,9 @@ def open_statuses(data: dict, path: str) -> list[tuple[str, str]]:
             text = (root / rel).read_text(encoding="utf-8")
         except OSError:
             continue
-        state = re.search(r"(?m)^- 작업 상태: *(.+?) *$", text)
+        stage = re.search(r"(?m)^- 작업 단계: *(.+?) *$", text)
+        state = stage or re.search(r"(?m)^- 작업 상태: *(.+?) *$", text)
         if not state or state.group(1) != "완료":
-            stage = re.search(r"(?m)^- 작업 단계: *(.+?) *$", text)
             out.append((rel.rsplit("/", 1)[0] + "/", stage.group(1) if stage else ""))
     return out
 

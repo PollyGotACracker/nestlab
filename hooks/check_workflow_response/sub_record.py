@@ -1,4 +1,4 @@
-"""질문 도구 답과 작업 상태, 승인 시각을 경과 문서와 명세 문서에 기록한다.
+"""질문 도구 답과 작업 단계, 승인 시각을 경과 문서와 명세 문서에 기록한다.
 
 호출자: hooks/check_workflow_response.py, hooks/check_context_size.py
 입력: hook 입력 dict, runner, 작업 문서 경로
@@ -19,11 +19,10 @@ from sub_docs import FENCE_LINE, HEADING, legacy, project_root, review_entries, 
 from sub_judgment import confirmed
 from sub_paths import TASK_REL
 from sub_question import DROP, RECOMMENDED, REVIEW, split_tag, tasks_of
-from sub_scope import PROBLEM_QUESTION, STATE_LINE, problem_record
+from sub_scope import PROBLEM_QUESTION, problem_record
 from sub_session import question_answers, read_session, turn
 from sub_spec import apply as apply_spec, blocks as spec_blocks
 from sub_document import filled, values
-from sub_gate import transition_reason
 from sub_write import PATCH_FILE, read, strings
 from sub_form import splice
 
@@ -123,26 +122,13 @@ def put_reviews(body: str, blocks: dict[str, str]) -> str:
     return head + "\n".join(items.values()) + ("\n\n" if body.endswith("\n\n") else "\n")
 
 
-# 경과 문서 내용에서 작업 상태를 계산한다. 중단 유형 기록이면 중단, 구현 승인과 완료 검사 통과면 완료, 구현 승인이면 구현, 그 밖에는 미개시이다.
-def work_state(path: Path, text: str) -> str:
-    # 중단 유형이 기록돼 있으면 중단이다.
-    if any(filled(v) for v in values(section(text, "중단 사유"), "중단 유형")):
-        return "중단"
-    from sub_approval import stage_of
+# 경과 문서의 단일 단계를 반환하며 완료 검사에 실패하면 구현을 반환한다.
+def work_stage(path: Path, text: str) -> str:
+    from sub_approval import stage_of, stage_completion_reason
     stage = stage_of(text)
     if stage:
-        if stage != "완료":
-            return "구현" if stage == "구현" else "미개시"
-        plan = read(sibling(path, "input"))
-        as_state = lambda state: STATE_LINE.sub(f"- 작업 상태: {state}", text, count=1)
-        return "완료" if plan.strip() and transition_reason(path, as_state("완료"), as_state("구현"), plan) is None else "구현"
-    if not REQUEST_APPROVED(text):
-        return "미개시"
-
-    # 완료 전이 검사를 통과하면 완료이고, 아니면 구현이다.
-    plan = read(sibling(path, "input"))
-    as_state = lambda state: STATE_LINE.sub(f"- 작업 상태: {state}", text, count=1)
-    return "완료" if plan.strip() and transition_reason(path, as_state("완료"), as_state("구현"), plan) is None else "구현"
+        return "구현" if stage == "완료" and stage_completion_reason(path, text) else stage
+    return "구현" if REQUEST_APPROVED(text) else "착수"
 
 
 # 답이 선택지 라벨과 정확히 같을 때만 고른 라벨 목록을 반환한다. 여러 개를 고르면 ", "로 이은 라벨이다.
@@ -155,7 +141,7 @@ def picked_labels(question: dict, answer: str) -> list[str]:
     return parts if parts and all(p in labels for p in parts) else []
 
 
-# 이번 턴 질문 도구 답을 경과 문서에 기록하고 작업 상태 줄을 다시 계산한다. answers가 있으면 그 답을 쓴다.
+# 이번 턴 질문 도구 답을 경과 문서에 기록하고 작업 단계를 정규화한다. answers가 있으면 그 답을 쓴다.
 # 질문 문장 끝 작업 식별자의 경과 문서에 기록하고, 식별자가 없으면 진행 중인 작업이 하나일 때 그 작업, 여럿이면 마지막으로 쓴 경과 문서에 기록한다.
 def record_answers(data: dict, runner: str, answers: list | None = None) -> None:
     # 이번 턴 질문 답을 읽고 식별자 꼬리를 뗀 질문과 대상 경과 문서로 묶는다.
@@ -241,16 +227,16 @@ def record_to(path: Path, answers: list) -> None:
         except (OSError, ValueError):
             pass
 
-    # 검토 필요 한 줄과 구현 승인 및 작업 상태를 갱신한다. 명세가 바뀌었으면 구현 승인을 승인 대기로 되돌린다.
+    # 검토 필요 한 줄과 구현 승인 및 작업 단계를 갱신한다. 명세가 바뀌었으면 구현 승인을 승인 대기로 되돌린다.
     def edit(text: str) -> str:
         if spec_changed:
             text = splice(text, "구현 승인 범위", lambda body: re.sub(
                 r"(?m)^(\s*-\s*(?:사용자 )?승인 상태:\s*)승인\s*$", r"\1승인 대기", body))
         if reviews:
             text = splice(text, "검토 필요", lambda body: put_reviews(body, reviews))
-        # 기존 작업 문서의 `진행` 기록은 구현과 같은 값으로 읽고 변환하지 않는다.
-        state = work_state(path, text)
-        return STATE_LINE.sub(lambda m: m[0] if state == "구현" and m[0].rstrip().endswith("진행") else f"- 작업 상태: {state}", text, count=1)
+        # 단계가 있는 문서는 단일 항목으로 갱신하고 상태만 있는 기존 문서는 보존한다.
+        from sub_approval import normalize_stage, stage_of
+        return normalize_stage(text, work_stage(path, text)) if stage_of(text) else text
     rewrite(path, edit)
 UNRESOLVED = "중단 판정 미해결"
 

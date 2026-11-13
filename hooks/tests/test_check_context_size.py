@@ -21,8 +21,8 @@ class CheckContextSize(unittest.TestCase):
             for name, state in (("a", "진행"), ("b", "미개시"), ("done", "완료")):
                 status = root / f"log/task/{name}/status.md"
                 status.parent.mkdir(parents=True)
-                stage = (stages or {}).get(name, "착수")
-                status.write_text(f"- 작업 상태: {state}\n- 작업 단계: {stage}\n## 작업 경과\n", encoding="utf-8")
+                stage = (stages or {}).get(name, "완료" if state == "완료" else "착수")
+                status.write_text(f"- 작업 단계: {stage}\n## 작업 경과\n", encoding="utf-8")
                 statuses[name] = f"log/task/{name}/"
             if runner == "claude":
                 user = {"type": "user", "message": {"content": "작업 요청"}}

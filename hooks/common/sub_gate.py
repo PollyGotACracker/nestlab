@@ -292,6 +292,7 @@ def check_research(state: Document, research: Document, items: list[str], review
 
 # 요구사항마다 최종 검증 PASS 기록이 있고 남은 문제와 재구현 요청이 없는지 확인한다.
 def check_complete(state: Document, plan: Document, names: list[str]) -> None:
+    require(not unresolved(state), R_UNRESOLVED_STOP)
     # 검증을 시작했는지 확인하고 검증 결과 항목을 나눈다.
     review = state.section("검증 결과")
     require("검증 미개시" not in review and legacy("검증 미개시") not in review, R_REVIEW_NOT_STARTED)
@@ -349,10 +350,11 @@ def check_review_left(state: Document, final: bool, research: Document | None = 
     require(not left, R_MEASURE_LEFT.format(items=", ".join(left[:3])))
 
 
-# 중단 사유에 구현 승인 가정 검사가 남긴 줄을 뺀 미해결 중단 판정 줄이 있으면 True이다.
+# 실제 중단 유형이나 미해결 중단 판정이 있으면 True이다. 구현 승인 가정 검사의 안내 줄은 제외한다.
 def unresolved(state: Document) -> bool:
-    return any("중단 판정 미해결" in line and "구현 승인을 기록하면 차단됩니다" not in line
-               for line in state.section("중단 사유").splitlines())
+    body = state.section("중단 사유")
+    return any(filled(value) for value in values(body, "중단 유형")) or any(
+        "중단 판정 미해결" in line and "구현 승인을 기록하면 차단됩니다" not in line for line in body.splitlines())
 
 # 작업 문서를 읽어 단계 선행 조건을 확인한다. 미달이면 사유를 담은 ValueError를 던진다.
 def validate(root: Path, task: str, stage: str) -> None:
@@ -390,10 +392,11 @@ def validate(root: Path, task: str, stage: str) -> None:
                      "reimplement": ("구현", "진행"), "reverify": ("구현", "진행"), "complete": ("완료",)}
         require(current in permitted.get(stage, ()), f"작업 단계 [{current}]에서는 {stage}를 실행할 수 없습니다.")
 
-    # 미해결 중단 판정과 작업 상태를 확인한다.
+    # 미해결 중단 판정과 기존 문서의 상태 기록을 확인한다.
     require(not unresolved(state), R_UNRESOLVED_STOP)
-    status = field(state.header(), "작업 상태")
-    require(status in ("미개시", "구현", "진행") or (stage == "complete" and status == "완료"), R_BAD_STATUS)
+    status = current if managed else field(state.header(), "작업 상태")
+    if not managed:
+        require(status in ("미개시", "구현", "진행") or (stage == "complete" and status == "완료"), R_BAD_STATUS)
 
     # 착수 단계는 착수 종료 조건만 확인한다.
     if stage == "kickoff":
@@ -460,7 +463,9 @@ def transition_reason(path: Path, new: str | None, old: str, plan: str) -> str |
     approved = lambda text, title: re.search(r"^\s*- (?:사용자 )?승인 상태:\s*승인\s*$", section(text, title), re.M)
     kickoff = approved(new, "조사 승인 범위") and not approved(old, "조사 승인 범위")
     execute = approved(new, "구현 승인 범위") and not approved(old, "구현 승인 범위")
-    complete = bool(re.search(r"^- 작업 상태: 완료\s*$", new, re.M)) and not re.search(r"^- 작업 상태: 완료\s*$", old, re.M)
+    from sub_approval import stage_of
+    finished = lambda text: stage_of(text) == "완료" or (not stage_of(text) and bool(re.search(r"^- 작업 상태: 완료\s*$", text, re.M)))
+    complete = finished(new) and not finished(old)
     if not (kickoff or execute or complete):
         return None
 

@@ -187,6 +187,36 @@ class Gate(unittest.TestCase):
         gone = sub_document.Document(status.replace("### 문제 정의\n", "### 문제 정의\n- 문제 4. 폐기: 중복\n  - 사용자 확인 시각: 2026-10-24 11:00:00\n"))
         self.assertEqual(sub_gate.check_plan(linked, gone), ["기능"])
 
+    # 단일 단계 문서는 실행과 완료 검사를 유지하며 실패한 완료 요청은 구현에 남긴다.
+    def test_single_stage_completion_and_legacy_migration(self):
+        from sub_approval import apply_stage
+        import record_stage
+        status = self.folder / "status.md"
+        problem = "## 문제 정의\n- 문제 1. 범위\n  - 사용자 확인 시각: 2026-10-24 11:00:00\n"
+        body = STATE.replace("- 작업 상태: 진행", "- 작업 단계: 구현\n" + problem)
+        status.write_text(body, encoding="utf-8")
+        sub_gate.validate(self.root, TASK, "implement")
+        self.assertEqual(apply_stage(status, "완료"), "완료")
+        self.assertNotIn("- 작업 상태:", status.read_text(encoding="utf-8"))
+        sub_gate.validate(self.root, TASK, "complete")
+        status.write_text(body.replace("  - PASS:", "  - FAIL:"), encoding="utf-8")
+        message = record_stage.decide_stage({"prompt": f"[complete {TASK}]", "cwd": str(self.root)})
+        self.assertIn("완료 검사에 실패", message)
+        self.assertEqual(apply_stage(status, None), "구현")
+        legacy = body.replace("- 작업 단계: 구현", "- 작업 상태: 미개시\n- 작업 단계: 조사")
+        status.write_text(legacy, encoding="utf-8")
+        self.assertEqual(apply_stage(status, "구현"), "구현")
+        migrated = status.read_text(encoding="utf-8")
+        self.assertNotIn("- 작업 상태:", migrated)
+        self.assertEqual(migrated.count("- 작업 단계:"), 1)
+        self.assertIn(problem.strip(), migrated)
+        self.assertIn(APPROVAL.strip(), migrated)
+        stopped = body.replace("## 중단 사유\n", "## 중단 사유\n- 중단 유형: 선택 필요\n")
+        status.write_text(stopped, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "중단"):
+            sub_gate.validate(self.root, TASK, "implement")
+        self.assertEqual(apply_stage(status, "완료"), "구현")
+
     # 착수의 환경과 흐름은 경과 문서에서 읽으며 조사와 명세가 없어도 검사할 수 있다.
     def test_managed_kickoff_without_research_and_spec(self):
         status = STATE.replace("- 작업 상태: 진행", "- 작업 상태: 진행\n- 작업 단계: 착수")
