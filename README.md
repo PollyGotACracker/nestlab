@@ -104,6 +104,10 @@ Discord 채널의 웹훅 봇 목록
 
 ```text
 ./
+├── .agent-logs/                   # 작업 관련 로그
+│   ├── incident/                  # 사건 로그
+│   ├── task/index.md              # 작업 색인
+│   └── task/<작업-id>/             # 작업 문서(경과, 조사, 반증, 명세)
 ├── .claude/                       # Claude Code 설정
 │   ├── agents/<role>/
 │   │   ├── AGENTS.md              # 에이전트별 지침
@@ -121,15 +125,12 @@ Discord 채널의 웹훅 봇 목록
 │   └── config.example.json        # config.json 예시
 ├── docs/                          # 환경별 연결 문서
 ├── hooks/                         # 훅 스크립트
-├── .agent-logs/                   # 작업 관련 로그
-│   ├── task/index.md              # 작업 색인
-│   ├── task/<작업-id>/            # 경과, 조사, 명세와 반증 문서
-│   └── incident/                  # 사건 로그
+├── rules/                         # 저장소 상세 규칙
 ├── shared/
 │   ├── settings/                  # 공통 설정(권한 등)
 │   ├── skills/<skill>/SKILL.md    # 공통 skill
-│   └── templates/workflow/       # 작업 문서와 질문, 보고, 승인 요청 양식 원본
-├── tools/                         # 직접 실행 스크립트
+│   └── templates/workflow/        # 작업 문서와 질문, 보고, 승인 요청 양식 원본
+├── tools/                         # 실행 스크립트
 ├── AGENTS.global.md               # 전역 지침
 ├── AGENTS.md                      # 저장소 지침
 ├── CLAUDE.md                      # AGENTS.md를 읽는 Claude Code 진입점
