@@ -270,7 +270,7 @@ REASON_GLOBAL_WRITE = "{token}은 ~/.claude 또는 ~/.codex 안이므로 쓸 수
 REASON_SUB_OUTSIDE = "{token}은 서브에이전트가 접근할 수 없는 경로입니다. " + RETRY
 REASON_SUB_DOC = "{token}은 입력 문서가 아닙니다. 입력 문서의 작업 폴더에서는 입력 문서 {doc}만 읽을 수 있습니다. 입력 문서 경로 또는 그 작업 폴더 밖 경로를 지정하십시오. " + RETRY
 REASON_REFUTE_BASH = "반증 reviewer는 Bash를 사용할 수 없습니다. " + RETRY
-INPUT_DOC = re.compile(rf"^input: ({TASK_REL}/[\w.\-]+/[\w.\-]+\.md)\s*$", re.M)
+INPUT_DOC = re.compile(rf"^input: ({re.escape(TASK_REL)}/[\w.\-]+/[\w.\-]+\.md)\s*$", re.M)
 
 
 # 서브에이전트의 입력 문서 경로(저장소 상대)와 반증 reviewer 여부이다. 배정 요청에 문서 줄이 없으면 (None, 반증 여부)이다.
@@ -288,7 +288,6 @@ def check_paths(data: dict, runner: str) -> str | None:
     project = project_root(cwd)
     skills = skill_paths()
     patterns = secret_patterns()
-    wiki_repo = archive_root()
     sub = not main_session(data)
     role = resolve_role(data) if sub else None
     allowed, refute = doc_access(data, role) if sub else (None, False)
@@ -342,6 +341,7 @@ def check_paths(data: dict, runner: str) -> str | None:
         return None
 
     # 항목마다 보안 문서, 스킬, 위키 저장소, 저장소와 허용 폴더 순으로 판정한다.
+    wiki = archive_root()
     for path, token, looks in items:
         real = norm(os.path.realpath(path), cwd)
         if is_secret(path, patterns) or is_secret(real, patterns):
@@ -356,11 +356,18 @@ def check_paths(data: dict, runner: str) -> str | None:
                 return REASON_SKILL_WRITE.format(token=token)
             continue
         if not write and any(real == norm(os.path.realpath(p), cwd)
-                             for p in (HOME / CODEX_HOME_NAME / "config.toml", SETTINGS)):
+                             for p in (HOME / CODEX_HOME_NAME / "config.toml", SETTINGS, LOCAL_SETTINGS, WIKI_SKILL)):
             continue
+        # 사건 문서 폴더는 어느 저장소 세션이든 읽고 쓸 수 있다. 위키 저장소는 설정의 보관 폴더 안에서 읽고 쓸 수 있고 링크 탈출은 막는다.
+        if in_incident(path):
+            continue
+        if wiki and inside(real, wiki):
+            continue
+        if wiki and inside(path, wiki):
+            return REASON_WIKI_LINK.format(token=token)
         # 서브에이전트는 저장소, 사건 문서 폴더와 OS 임시 폴더 안의 경로만 허용한다.
         if sub and looks:
-            if in_temp(real) or in_incident(path):
+            if in_temp(real):
                 continue
             if not inside(real, project):
                 return REASON_SUB_OUTSIDE.format(token=token)
@@ -374,19 +381,9 @@ def check_paths(data: dict, runner: str) -> str | None:
                 if folder or other:
                     return REASON_SUB_DOC.format(token=token, doc=allowed)
             continue
-        # 짧은 루트 표기와 링크 탈출은 실제 상위 경로도 대조한다.
-        if wiki_repo and (inside(path, wiki_repo) or inside(real, wiki_repo)
-                         or any(norm(os.path.realpath(parent), cwd) == norm(str(wiki_repo), cwd)
-                                for parent in Path(path).parents)):
-            if not inside(real, wiki_repo):
-                return REASON_WIKI_LINK.format(token=token)
+        if not looks or inside(real, project):
             continue
-        if not looks or inside(real, project) or in_incident(path):
-            continue
-        if not write and any(real == norm(os.path.realpath(p), cwd)
-                             for p in (LOCAL_SETTINGS, WIKI_SKILL)):
-            continue
-        if in_temp(path):
+        if in_temp(real):
             continue
         if any(inside(path, g) for g in GLOBAL):  # 읽기는 허용하고 쓰기는 승인 턴에도 차단한다.
             if token in changed if name in SHELLS else write:
@@ -437,6 +434,9 @@ def source_leak(text: str, data: dict, root: Path) -> str | None:
         absolute = bool(DRIVE.match(ref)) or ref.startswith(("~", "/", "\\"))
         bare = "/" not in ref and "\\" not in ref
         if not ref or (bare and not (line and TASK_DOC_NAME.match(ref))):
+            continue
+        # 표 칸의 `\|`와 정규식 이스케이프는 경로가 아니다.
+        if re.fullmatch(r"\\+", ref) or re.match(r"\\[^\\\w]", ref) or is_regex_text(ref):
             continue
         if not absolute and not bare and not re.search(r"\.\w{1,6}$", ref):
             continue

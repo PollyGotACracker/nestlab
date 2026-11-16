@@ -86,10 +86,15 @@ class Document:
 
         # 제목 문자열이 중복되면 절을 확정할 수 없으므로 차단한다.
         # 안 블록과 결과 블록의 하위 제목(주장 목록, 주장 판정, 열람 범위, 한계)은 직전 검토 또는 결과 제목 범위에서 비교한다.
-        keys, review = [], ""
+        # 요구사항 항목의 칸 제목(목표, 기대 결과 등)은 직전 `<번호>. <이름>` 제목 범위에서 비교한다.
+        keys, review, item = [], "", ""
         for _, _, title in self.headings:
             review = title if re.match(r"검토 \d+\.|조사 \d+\. .+ 결과$|\d+회차 반증 결과$", title) else review
-            keys.append((review, title) if re.match(r"안 \d+\.|(?:주장 목록|주장 판정|열람 범위|한계)$", title) else ("", title))
+            item = title if re.fullmatch(REQ_TITLE, title) or title.startswith("<번호>. ") else item
+            if title in FIELDS and item:
+                keys.append((item, title))
+            else:
+                keys.append((review, title) if re.match(r"안 \d+\.|(?:주장 목록|주장 판정|열람 범위|한계)$", title) else ("", title))
         require(len(keys) == len(set(keys)), R_DUP_TITLE)
 
     # 제목 문자열로 절의 줄 범위(시작, 끝)를 찾는다. 수준(`#` 개수)은 보지 않는다.
@@ -146,11 +151,20 @@ def field(body: str, name: str) -> str:
 
 
 # 한 줄 값과 칸 아래 들여쓴 목록 값을 모두 읽고 반복 칸도 보존한다. 값 안의 콜론은 칸 경계로 보지 않는다.
+# 요구사항 항목의 `#### <칸 이름>` 제목 칸은 다음 제목 전까지의 줄을 값 하나로 읽는다.
 def values(body: str, name: str) -> list[str]:
     found = []
     lines = body.splitlines()
     names = "|".join(re.escape(n) for n in dict.fromkeys((name, legacy(name))))
     for index, line in enumerate(lines):
+        if re.fullmatch(r"#{1,6} (?:" + names + r")\s*", line):
+            parts = []
+            for following in lines[index + 1:]:
+                if re.match(r"#{1,6} ", following):
+                    break
+                parts.append(following.strip().removeprefix("- ").strip())
+            found.append(" ".join(p for p in parts if p))
+            continue
         # 칸 이름 줄이면 들여쓰기 깊이와 한 줄 값을 읽는다.
         match = re.match(r"^(\s*)(?:- )?(?:" + names + r"):[ \t]*(.*?)\s*$", line)
         if not match:
@@ -202,6 +216,11 @@ def number_of(name: str) -> str:
     return re.search(r"\d+", name)[0]
 
 
+# 명세 문서가 요구사항 항목 칸을 제목으로 쓰는 통합 구조이면 True이다. 아니면 `- 칸:` 줄을 쓰는 기존 구조이다.
+def integrated(plan_text: str) -> bool:
+    return bool(re.search(r"(?m)^#{4} (?:사용자 확인 시각|문제|목표|기대 결과)\s*$", plan_text or ""))
+
+
 # 요구사항 절이 폐기됐으면 True이다. 제목이 `요구사항 <번호>. 폐기`이거나 기대 결과 칸이 `폐기`로 시작한다.
 def dropped(name: str, body: str) -> bool:
     return name.endswith(". 폐기") or any(v.startswith("폐기") for v in values(body, "기대 결과"))
@@ -209,7 +228,7 @@ def dropped(name: str, body: str) -> bool:
 
 # 항목 한 줄에 `(요구사항 <번호>)` 표기가 있고 모든 번호가 numbers에 있으면 True이다.
 def has_ref(item: str, numbers: set[str]) -> bool:
-    refs = [n for group in REQ_REF.findall(item) for n in re.split(r", ?", group)]
+    refs = [n for group in REQ_REF.findall(item) for n in re.findall(r"(?<![\w.])\d+(?![\w.]*\.)", group)]
     return bool(refs) and all(n in numbers for n in refs)
 
 
@@ -273,11 +292,14 @@ R_APPROVAL_FIELD = "`{title}`의 `{name}` 칸이 비어 있습니다."
 
 
 REQ_TITLE = r"(?:요구사항 )?\d+\. .+"
+# 통합 구조 요구사항 항목의 칸 제목이며 양식 순서이다.
+FIELDS = ("사용자 확인 시각", "문제", "목표", "기대 결과", "한계", "잠재 위험", "검증", "Test Case")
 R_NO_REQ = "요구사항 목록에 요구사항이 없습니다."
 R_REQ_NAME = "요구사항 제목이 `<번호>. <이름>` 형식이 아닙니다."
 
 
-REQ_REF = re.compile(r"\(요구사항 (\d+(?:, ?\d+)*)\)")
+# 번호 뒤에 `19의 결과 저장 검사`처럼 범위 설명이 붙은 표기도 번호만 읽는다.
+REQ_REF = re.compile(r"\(요구사항 (\d+[^()]*)\)")
 R_REQ_REF = "`{title}`의 항목 `{item}`에 요구사항 목록에 있는 번호의 `(요구사항 <번호>)` 표기가 없습니다."
 
 

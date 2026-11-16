@@ -25,7 +25,7 @@ class TaskWorktree(unittest.TestCase):
         (self.source / "src/a.py").write_text("original\n", encoding="utf-8")
         (self.source / "src/other.py").write_text("other\n", encoding="utf-8")
         self.task = "20261110-015333-transfer"
-        self.spec = f"log/task/{self.task}/spec.md"
+        self.spec = f".agent-logs/task/{self.task}/spec.md"
         (self.source / self.spec).parent.mkdir(parents=True)
         (self.source / self.spec).write_text(f"# spec\n- 작업 ID: {self.task}\n## 배정 범위\n- worker: src\n", encoding="utf-8")
         self.git("add", ".")

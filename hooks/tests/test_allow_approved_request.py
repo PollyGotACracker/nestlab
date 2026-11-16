@@ -58,17 +58,19 @@ class AllowApprovedRequest(unittest.TestCase):
         p = patch.object(sub_role, "CODEX_SESSIONS", self.root)
         p.start()
         self.addCleanup(p.stop)
+        # 임시 저장소가 OS 임시 폴더 안에 있어도 임시 폴더 허용 판정과 분리한다.
+        separate = patch.object(sub_path, "TEMP", self.root / "separate-temp")
+        separate.start()
+        self.addCleanup(separate.stop)
         self.addCleanup(self.tmp.cleanup)
 
     # 사용자 마지막 메시지가 user인 Claude 기록과 도구 입력으로 판정한다.
     def claude(self, user, command="python a.py", tool="Bash", **extra):
         path = self.root / "t.jsonl"
-        kickoff = json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "id": "1", "name": "Skill", "input": {"skill": "nestlab-kickoff"}}]}})
-        path.write_text(kickoff + "\n" + claude_line("assistant", "계획") + "\n" + claude_line("user", user) + "\n",
-                        encoding="utf-8")
+        path.write_text(claude_line("assistant", "계획") + "\n" + claude_line("user", user) + "\n", encoding="utf-8")
+        # cwd는 임시 저장소이다. 실제 저장소의 작업 색인과 작업 단계를 읽지 않는다.
         return verdict({"tool_name": tool, "tool_input": {"command": command, "description": "커맨드 실행"},
-                            "transcript_path": str(path), **extra}, "claude")
+                            "transcript_path": str(path), "cwd": str(self.root), **extra}, "claude")
 
     # 승인 턴에 PreToolUse를 통과한 스크립트는 allow이고 git 비가역 작업은 출력 없이 승인 창을 유지한다.
     def test_permission_request_approval_turn(self):
@@ -92,7 +94,7 @@ class AllowApprovedRequest(unittest.TestCase):
 
     # fd 병합만 제거하며 따옴표 안 인자와 파일 쓰기 리다이렉트는 원문대로 남긴다.
     def test_command_parts_preserves_quoted_fd_argument(self):
-        generator = 'nestlab-task-docs --task 20261107-130000-example --title "example 2>&1; title" --stage review'
+        generator = 'nestlab-task-docs --task 20261107-130000-example --title "example 2>&1; title" --stage plan'
         self.assertEqual(sub_write.command_parts(generator + " 2>&1 && git status", preserve_quotes=True),
                          [generator, "git status"])
         command = "python -m unittest discover -s hooks/tests"
@@ -106,7 +108,7 @@ class AllowApprovedRequest(unittest.TestCase):
     # 승인 전 원본 생성기는 두 hook을 통과하고 출력 탈출과 임의 스크립트는 거부한다.
     def test_task_docs_pretool_and_permission_entry(self):
         script = self.root / "tools" / "create_task_docs.py"
-        base = 'python tools/create_task_docs.py --task 20261107-130000-example --title "한글 제목" --stage review'
+        base = 'python tools/create_task_docs.py --task 20261107-130000-example --title "한글 제목" --stage plan'
         transcript = self.root / "before-approval.jsonl"
         transcript.write_text(claude_line("user", "문서를 준비해 주세요.") + "\n", encoding="utf-8")
         with patch.object(hook, "TASK_DOCS_SCRIPT", script), patch.object(sub_path, "TEMP", self.root / "os-temp"):
@@ -128,13 +130,13 @@ class AllowApprovedRequest(unittest.TestCase):
                             base.replace("python ", "python -B -X arbitrary ", 1),
                             base.replace('"한글 제목"', "*"), base.replace('"한글 제목"', "{a,b}"),
                             base.replace("20261107-130000-example", "../escape"),
-                            base + " --stage kickoff")
+                            base + " --stage plan")
                 for command in rejected:
                     event = {**data, "tool_input": {**data["tool_input"], "command": command}}
                     with self.subTest(runner=runner, command=command):
                         self.assertIsNotNone(check_tool_use.check(event, runner))
                         self.assertEqual(verdict(event, runner), "deny")
-            self.assertFalse(hook.in_allow_list(base.replace("review", "unknown"), self.root))
+            self.assertFalse(hook.in_allow_list(base.replace("--stage plan", "--stage unknown"), self.root))
 
     # 외부 프로젝트는 설치된 고정 커맨드를 사용하고 원본 경로 직접 접근은 거부한다.
     def test_external_project_trusted_generator_and_report_output(self):
@@ -143,7 +145,7 @@ class AllowApprovedRequest(unittest.TestCase):
         direct = f'"{python}" -B -X utf8 "{script}" --print-template approval-implement'
         home, path_value = self.install_launcher()
         args = "nestlab-task-docs"
-        create = args + f' --task 20261107-130000-example --title "외부 프로젝트" --stage review --root "{self.root}"'
+        create = args + f' --task 20261107-130000-example --title "외부 프로젝트" --stage plan --root "{self.root}"'
         with patch.object(sub_path, "TEMP", self.root / "os-temp"), \
                 patch.dict(os.environ, {"PATH": path_value}), patch.object(hook, "TASK_DOCS_HOME", home):
             for runner, shell, prefix in (("claude", "Bash", ""), ("codex", "PowerShell", "& ")):
@@ -169,12 +171,13 @@ class AllowApprovedRequest(unittest.TestCase):
         run = lambda stage: subprocess.run(fixed + ["--task", "20261107-130000-example", "--title", "외부 프로젝트",
                                                     "--stage", stage, "--root", str(self.root)],
                                            cwd=self.root, env={**os.environ, "PATH": path_value}, check=True, capture_output=True)
-        run("kickoff")
-        status = self.root / "log" / "task" / "20261107-130000-example" / "status.md"
-        status.write_text(status.read_text(encoding="utf-8").replace("- 작업 단계: 착수", "- 작업 단계: 조사"), encoding="utf-8")
-        run("review")
-        spec = self.root / "log" / "task" / "20261107-130000-example" / "spec.md"
-        self.assertIn("외부 프로젝트", spec.read_text(encoding="utf-8"))
+        run("plan")
+        status = self.root / ".agent-logs" / "task" / "20261107-130000-example" / "status.md"
+        status.write_text(status.read_text(encoding="utf-8").replace("- 작업 단계: 계획", "- 작업 단계: 계획"), encoding="utf-8")
+        run("plan")
+        spec = self.root / ".agent-logs" / "task" / "20261107-130000-example" / "spec.md"
+        self.assertIn("# 경과 문서: 외부 프로젝트", status.read_text(encoding="utf-8"))
+        self.assertIn("- 작업 ID: 20261107-130000-example", spec.read_text(encoding="utf-8"))
         self.assertIsNone(check_tool_use.check({"agent_type": "worker", "agent_id": "child", "cwd": str(self.root),
                                                 "tool_name": "Read", "tool_input": {"file_path": str(spec)}}, "claude"))
 
@@ -187,9 +190,9 @@ class AllowApprovedRequest(unittest.TestCase):
         with patch.dict(os.environ, {"PATH": path_value}), patch.object(hook, "TASK_DOCS_HOME", home), \
                 patch.object(sub_path, "TEMP", self.root / "os-temp"):
             for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
-                generator = 'nestlab-task-docs --task 20261107-130000-example --title "example title; value" --stage kickoff'
+                generator = 'nestlab-task-docs --task 20261107-130000-example --title "example title; value" --stage plan'
                 for command in (output + "; git status --short", "git status --short; " + output,
-                                generator + "; git status", generator + " && nestlab-task-docs --print-template question-kickoff"):
+                                generator + "; git status", generator + " && nestlab-task-docs --print-template question-plan"):
                     event = {"agent_type": "director", "cwd": str(self.root), "transcript_path": str(transcript),
                              "tool_name": shell, "tool_input": {"command": command, "description": "양식 출력과 상태 확인"}}
                     with self.subTest(runner=runner, command=command):
@@ -215,7 +218,7 @@ class AllowApprovedRequest(unittest.TestCase):
         base = self.root / "os-temp"
         with patch.object(sub_path, "TEMP", base), patch.object(hook, "TASK_DOCS_HOME", home), \
                 patch.dict(os.environ, {"PATH": path_value}):
-            command = 'nestlab-task-docs --task 20261113-092000-example --title "시험" --stage kickoff'
+            command = 'nestlab-task-docs --task 20261113-092000-example --title "시험" --stage plan'
             for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
                 for target, allowed in ((base, True), (base / "{measurement}", True), (self.root.parent / "outside", False)):
                     data = {"agent_type": "director", "cwd": str(self.root), "tool_name": shell,
@@ -236,7 +239,7 @@ class AllowApprovedRequest(unittest.TestCase):
 
     def test_fixed_command_uses_only_installed_launcher(self):
         home, path_value = self.install_launcher()
-        command = 'nestlab-task-docs --task 20261107-130000-example --title "외부 프로젝트" --stage review'
+        command = 'nestlab-task-docs --task 20261107-130000-example --title "외부 프로젝트" --stage plan'
         with patch.dict(os.environ, {"PATH": path_value}), patch.object(hook, "TASK_DOCS_HOME", home):
             for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
                 data = {"agent_type": "director", "cwd": str(self.root), "tool_name": shell,
@@ -254,6 +257,19 @@ class AllowApprovedRequest(unittest.TestCase):
             self.assertFalse(hook.task_docs_command(command, self.root))
             self.assertIsNotNone(check_tool_use.check(data, runner))
             self.assertEqual(verdict(data, runner), "deny")
+
+    # 신뢰된 생성기의 단독 도움말만 승인 없이 허용하고 추가 인자와 다른 스크립트는 거부한다.
+    def test_trusted_generator_help(self):
+        home, path_value = self.install_launcher()
+        with patch.dict(os.environ, {"PATH": path_value}), patch.object(hook, "TASK_DOCS_HOME", home):
+            # 원본 경로 직접 실행은 원본 저장소 안에서만 신뢰한다.
+            for launcher, cwd in (("nestlab-task-docs", self.root), (f'python -B "{hook.TASK_DOCS_SCRIPT}"', hook.TASK_DOCS_SCRIPT.parents[1])):
+                for flag in ("-h", "--help"):
+                    command = f"{launcher} {flag}"
+                    self.assertTrue(hook.task_docs_command(command, cwd))
+                    for extra in (" --root C:/Windows", " --stage plan", " --help"):
+                        self.assertFalse(hook.task_docs_command(command + extra, cwd))
+            self.assertFalse(hook.task_docs_command("python other.py --help", self.root))
 
     # PreToolUse를 통과한 메인 읽기는 allow이며 쓰기는 runner 권한 판정을 따른다.
     def test_permission_request_read_before_approval(self):
@@ -306,7 +322,7 @@ class AllowApprovedRequest(unittest.TestCase):
     # 이전 명칭의 구현 승인 상태가 있는 작업 폴더를 만들고 프로젝트 경로를 반환한다.
     def project(self, approval="승인", task="T1"):
         proj = self.root / "proj"
-        folder = proj / "log" / "task" / task
+        folder = proj / ".agent-logs" / "task" / task
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "status.md").write_text(f"# t\n\n## 실행 승인 범위\n\n- 사용자 승인 상태: {approval}\n", encoding="utf-8")
         (folder / "spec.md").write_text("old\n", encoding="utf-8")
@@ -329,7 +345,7 @@ class AllowApprovedRequest(unittest.TestCase):
             extra.update(transcript_path=str(rollout))
         return {"tool_name": tool, "tool_input": {"file_path": "a.py"}, "cwd": str(proj), **extra}
 
-    FIRST = "task: implement\ninput: log/task/T1/spec.md"
+    FIRST = "task: implement\ninput: .agent-logs/task/T1/spec.md"
 
     # PreToolUse를 통과한 하위 실행은 구현 승인 기록과 무관하게 allow이다.
     def test_permission_request_subagent_after_pretool(self):
@@ -348,9 +364,9 @@ class AllowApprovedRequest(unittest.TestCase):
 
     # PreToolUse 통과 여부만 하위 실행의 자동 허용을 결정한다.
     def test_permission_request_any_role(self):
-        prompts = {"worker": self.FIRST, "documenter": "task: implement\ninput: log/task/T1/spec.md",
-                   "reviewer": "task: refute\ninput: log/task/T1/refute.md",
-                   "researcher": "task: research\ninput: log/task/T1/research.md", None: self.FIRST}
+        prompts = {"worker": self.FIRST, "documenter": "task: implement\ninput: .agent-logs/task/T1/spec.md",
+                   "reviewer": "task: refute\ninput: .agent-logs/task/T1/refute.md",
+                   "researcher": "task: research\ninput: .agent-logs/task/T1/research.md", None: self.FIRST}
         for runner in ("claude", "codex"):
             for role, first in prompts.items():
                 with self.subTest(runner=runner, role=role):
@@ -392,7 +408,7 @@ class AllowApprovedRequest(unittest.TestCase):
         decision = json.loads(out.getvalue())["hookSpecificOutput"]["decision"]
         self.assertEqual((decision["behavior"], decision["message"]), ("deny", hook.REASON_CHECK_ERROR))
 
-    # director의 작업 문서 apply_patch는 allow이며 코드 파일이 섞이면 runner 권한 판정을 따른다.
+    # director의 작업 문서 apply_patch는 allow이며 승인 전에 코드 파일이 섞이면 PreToolUse 사유로 deny한다.
     def test_permission_request_task_doc_before_approval(self):
         proj = self.project("승인 대기")
         rollout = self.root / "rollout-1-M.jsonl"
@@ -406,9 +422,9 @@ class AllowApprovedRequest(unittest.TestCase):
                                 "transcript_path": str(rollout)}, "codex")
         import sub_scope
         with patch.object(sub_scope, "skill_called", return_value=True):
-            self.assertEqual(patch_of("log/task/T1/spec.md"), "allow")
-            self.assertEqual(patch_of("hooks/a.py"), "allow")
-            self.assertEqual(patch_of("log/task/T1/spec.md", "hooks/a.py"), "allow")
+            self.assertEqual(patch_of(".agent-logs/task/T1/spec.md"), "allow")
+            self.assertEqual(patch_of("hooks/a.py"), "deny")
+            self.assertEqual(patch_of(".agent-logs/task/T1/spec.md", "hooks/a.py"), "deny")
 
     # PreToolUse 검사를 통과한 호출은 모든 역할과 세션에서 allow이고 git 비가역 작업과 질문 도구는 출력 없이 둔다.
     def test_permission_request_session_matrix(self):
@@ -433,8 +449,8 @@ class AllowApprovedRequest(unittest.TestCase):
                                  ("Bash", {"command": "git push"}, None),
                                  ("Write", {"file_path": "a.py"}, "allow"),
                                  ("Edit", {"file_path": "hooks/a.py"}, "allow"),
-                                 ("Edit", {"file_path": "log/task/T1/spec.md"}, "allow"),
-                                 ("Write", {"file_path": "log/incident/i.md"}, "allow"),
+                                 ("Edit", {"file_path": ".agent-logs/task/T1/spec.md"}, "allow"),
+                                 ("Write", {"file_path": ".agent-logs/incident/i.md"}, "allow"),
                                  ("AskUserQuestion", {}, None)]
                         for tool, inputs, expected in calls:
                             data = {**event, "tool_name": tool, "tool_input": inputs}

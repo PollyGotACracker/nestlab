@@ -4,6 +4,9 @@ title: reviewer
 description: "주장 및 자료 반증, 결과물 검증"
 tools: Skill, Read, Grep, Glob, Bash, WebSearch, WebFetch, AskUserQuestion
 disallowedTools: Write, Edit
+skills:
+  - nestlab-review
+  - nestlab-refute
 model: sonnet
 effort: medium
 readonly: false

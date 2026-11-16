@@ -29,7 +29,7 @@ QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", re.S)
 WRITE_BASH = re.compile(r"(^|[;&|]\s*)(rm|rmdir|mv|cp|mkdir|touch|tee|Set-Content|Out-File|New-Item|Remove-Item)\b"
                         r"|\bgit\s+(?:checkout\s+--(?=\s|$)|(?:restore|apply|reset\s+--hard)\b)|\bfind\b[^;&|]*\s-delete\b|\bxargs\s+rm\b"
-                        r"|\bsed\s+-i\b|(?<![&>])>{1,2}\s*(?!&|/dev/null\b|\$null\b|NUL\b)[^\s>]", re.I)
+                        r"|\bsed\s+-i\b|\bperl\b[^;&|\n]*?\s(?-i:-[0-9a-z]*i)|(?<![&>])>{1,2}\s*(?!&|/dev/null\b|\$null\b|NUL\b)[^\s>]", re.I)
 PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 
 
@@ -50,7 +50,8 @@ SUBCOMMAND = re.compile(r"\|\||&&|\|&|[;|&\n]")
 SHELL_C = re.compile(r"(?:^|[\s;&|(])(?:(?:ba|z)?sh\s+-[a-z]*c|(?:powershell|pwsh)(?:\.exe)?\s+-(?:c|command))"
                      r"\s+(\"[^\"]*\"|'[^']*')", re.I)
 CONTENT_WRITE = re.compile(
-    r"^(?:tee|touch|Set-Content|Add-Content|Out-File|New-Item)\b|^sed\b[^\n]*?\s-[a-zA-Z]*i", re.I)
+    r"^(?:tee|touch|Set-Content|Add-Content|Out-File|New-Item)\b|^sed\b[^\n]*?\s-[a-zA-Z]*i"
+    r"|^perl(?:\.exe)?\b[^\n]*?\s(?-i:-[0-9a-z]*i)", re.I)
 # 인터프리터 옵션이다. `-X utf8`과 `-W ignore`만 값을 따로 받는다.
 OPTIONS = r"(?:\s+(?:-[XW]\s+[\w=,.:]+|-[A-Za-z]+))*"
 INLINE_CODE = re.compile(rf"^(?:python3?|py|node|perl|ruby)(?:\.exe)?\b{OPTIONS}\s+-(?:c|e)\b"
@@ -60,7 +61,9 @@ WRITE_CALL = re.compile(
     r"\bopen\s*\(\s*[^,)]+,\s*(?:mode\s*=\s*)?['\"][rbt]*[wax+][rbt+]*['\"]|\.open\(\s*['\"][rbt]*[wax+]"
     r"|\.write_text\(|\.write_bytes\(|\bos\.(?:remove|unlink|rename|rmdir|removedirs|replace|makedirs|mkdir|system|popen)\b"
     r"|\bshutil\b|\bsubprocess\b|\bchild_process\b"
-    r"|\b(?:writeFile|appendFile|writeFileSync|appendFileSync|unlink|unlinkSync|rmSync|renameSync|mkdirSync)\b")
+    r"|\b(?:writeFile|appendFile|writeFileSync|appendFileSync|unlink|unlinkSync|rmSync|renameSync|mkdirSync)\b"
+    # hook 모듈의 결과 쓰기 함수이다. 목록 밖 함수는 판정하지 못하므로 새 쓰기 함수가 생기면 추가한다.
+    r"|\b(?:write_result|insert_result|write_claims)\b")
 ARITH = re.compile(r"\$\(\([^)]*\)\)")
 REDIRECT = re.compile(r"(?<![<&>\d=-])\d?>{1,2}(?!&)\s*([^\s>]+)")
 NULL = re.compile(r"^(?:/dev/null|\$null|NUL)$", re.I)

@@ -16,6 +16,9 @@
     "statusMessage": "Nestlab 에이전트 상태줄 이름 표시"
   },
   "permissions": {
+    "defaultMode": "bypassPermissions",
+    "blockReadsOutsideWorkingDirectories": true,
+    "blockWritesOutsideWorkingDirectories": true,
     "additionalDirectories": ["~/.claude", "~/.codex", "<TEMP>", "<WIKI_REPO>"],
     "allow": [
       "WebSearch",
@@ -279,6 +282,17 @@
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_subagent_result.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 메인 세션 결과 원문 저장"
+          }
+        ]
+      }
+    ],
+    "MessageDisplay": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/replace_blocked_response.py\"",
+            "timeout": 10
           }
         ]
       }

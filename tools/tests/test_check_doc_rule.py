@@ -22,7 +22,7 @@ class ReferencePathTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             assets = ("shared/settings/local.json", "shared/templates/workflow/approval.md",
-                      "shared/templates/workflow/approval-research.md")
+                      "shared/templates/workflow/approval-plan.md")
             for asset in assets:
                 path = root / asset
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,8 +36,34 @@ class ReferencePathTest(unittest.TestCase):
                              [(sub_rules.KIND_PATH, "shared/missing.md")])
 
 
+class SkillAgentNameTest(unittest.TestCase):
+    # 스킬 본문의 에이전트명은 위반이고, 작업 ID와 경로 안의 일치와 스킬 밖 문서는 위반이 아니다.
+    def test_agent_names_only_in_skill_body(self):
+        body = ("# 스킬\n- director가 배정한다.\n- Nico에게 묻는다.\n```text\nworker 호출\n```\n"
+                "- 작업 20261110-005442-director-misstep-hooks를 읽는다.\n- `.claude/agents/reviewer/AGENTS.md` 참조\n"
+                "- 조사 담당이 확인한다.\n")
+        found = sub_rules.check_file("shared/skills/demo/SKILL.md", set(), {}, body)
+        self.assertEqual([(line, value) for _, line, kind, value in found if kind == sub_rules.KIND_AGENT],
+                         [(2, "director"), (3, "Nico"), (5, "worker")])
+        self.assertFalse([v for v in sub_rules.check_file("AGENTS.md", set(), {}, body) if v[2] == sub_rules.KIND_AGENT])
+
+
+class RecordIdTest(unittest.TestCase):
+    # 주석과 docstring의 식별자는 검사8 위반이고, 문자열 리터럴과 폴더, 작업 색인 일반 언급은 허용한다.
+    def test_record_ids_only_in_comments_and_docstrings(self):
+        src = ('"""모듈 설명 20261114-170000-workflow-entry-guards 참조."""\n'
+               "# 사건 20261114-1700-0a1b2c3d 기록\n"
+               "x = 1  # 보강 (요구사항 23)\n"
+               "# 문서는 .agent-logs/task/20261114-170000-a/spec.md 를 본다\n"
+               "# .agent-logs/ 폴더와 .agent-logs/task/index.md 일반 언급\n"
+               "y = '20261114-170000-workflow-entry-guards (요구사항 1)'\n")
+        found = sub_rules.check_file("hooks/demo.py", set(), {}, src)
+        self.assertEqual([(line, kind) for _, line, kind, _ in found], [(i, "검사8 작업 기록 식별자") for i in (1, 2, 3, 4)])
+        self.assertFalse(sub_rules.check_file("hooks/demo.py", set(), {}, "# .agent-logs/ 폴더\nz = '20261114-170000-abc'\n"))
+
+
 class PreToolUseHook(unittest.TestCase):
-    """--hook 입력의 쓰기 뒤 파일 내용을 검사해 위반이면 deny하고 파일은 바꾸지 않는다. (요구사항 25)"""
+    """--hook 입력의 쓰기 뒤 파일 내용을 검사해 위반이면 deny하고 파일은 바꾸지 않는다."""
 
     # --hook 모드를 실행해 (출력 JSON 또는 None)을 반환한다.
     def run_hook(self, data):

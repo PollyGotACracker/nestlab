@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -72,6 +73,8 @@ def main() -> int:
     event = payload.get("hook_event_name") or "SessionStart"
     requested = resolve_agent(payload, event, args.default_role)
     if not requested:
+        if payload.get("agent_type"):
+            raise ValueError(f"에이전트 역할을 확인할 수 없어 persona 주입을 중단했습니다: {payload['agent_type']}")
         return 0
 
     # 요청한 에이전트를 역할 이름으로 바꾼다. 알 수 없는 역할이면 출력하지 않는다.
@@ -105,6 +108,22 @@ def main() -> int:
         sections.append("# Role\n\n" + strip_frontmatter(role_file.read_text(encoding="utf-8")))
     if mode_file.is_file():
         sections.append("# Task\n\n" + mode_file.read_text(encoding="utf-8").strip())
+    # 작업 색인은 director 메인 세션에만 주입한다. 다른 역할은 작업 단계를 기록하지 않는다.
+    from sub_paths import TASK_INDEX_REL
+    from sub_task_index import local
+    workspace = Path(payload.get("cwd") or Path.cwd()).resolve()
+    index = local(workspace, workspace / TASK_INDEX_REL)
+    if role == "director" and main_session(payload) and index.is_file():
+        sections.append("작업 시작 전 다음 색인의 현재 진행 작업을 확인하고, 다른 작업을 진행하면 "
+                        f"{TASK_INDEX_REL}의 `## 현재 진행 작업` 절을 해당 작업 줄로 바꾸십시오.\n"
+                        + index.read_text(encoding="utf-8-sig"))
+    # 압축 뒤 첫 모델 요청 전에 현재 진행 작업의 다음 작업 줄을 재주입한다. 줄에 기록하지 않은 약속은 재주입되지 않는다.
+    if payload.get("source") == "compact" and role == "director" and main_session(payload) and index.is_file():
+        from sub_task_index import selected_status
+        status = selected_status(workspace)
+        found = re.findall(r"(?m)^- 다음 작업:.*$", status.read_text(encoding="utf-8-sig")) if status else []
+        if found:
+            sections.append("압축 전 기록한 현재 진행 작업의 다음 작업이다. 첫 응답에서 이 작업을 이어 수행하십시오.\n" + found[-1])
 
     # 에이전트 지침을 hook 출력으로 내보낸다.
     json.dump({

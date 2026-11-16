@@ -19,10 +19,10 @@ from sub_docs import FENCE_LINE, HEADING, legacy, project_root, review_entries, 
 from sub_judgment import confirmed
 from sub_paths import TASK_REL
 from sub_question import DROP, RECOMMENDED, REVIEW, split_tag, tasks_of
-from sub_scope import PROBLEM_QUESTION, problem_record
+from sub_scope import PROBLEM_QUESTION, problem_spec
 from sub_session import question_answers, read_session, turn
-from sub_spec import apply as apply_spec, blocks as spec_blocks
-from sub_document import filled, values
+from sub_spec import apply as apply_spec, blocks as spec_blocks, text_of
+from sub_document import filled, integrated, values
 from sub_write import PATCH_FILE, read, strings
 from sub_form import splice
 
@@ -89,18 +89,21 @@ def call_paths(name: str, args) -> list[str]:
             else [str((args or {}).get("file_path") or "")])
 
 
-# 세션 기록에서 에이전트가 마지막으로 쓴 경과 문서 경로를 반환한다. PostToolUse 입력이면 지금 호출도 포함한다. 없으면 None이다.
-def written_status(data: dict, runner: str) -> Path | None:
-    calls = [c for entry in read_session(transcript_of(data, runner)) for c in entry["calls"]]
-    if data.get("tool_name"):
-        calls.append((data["tool_name"], data.get("tool_input")))
+# 이번 도구 호출이 쓴 작업 문서와 같은 작업의 경과 문서 경로를 반환한다. 작업 문서를 쓰지 않은 호출이면 None이다.
+def call_status(data: dict) -> Path | None:
+    root = project_root(data.get("cwd"))
     last = None
-    for name, args in calls:
-        for p in call_paths(name, args):
-            m = STATUS_PATH.search(p.replace("\\", "/"))
-            last = m.group(0) if m else last
-    path = sibling(project_root(data.get("cwd")) / last, "state") if last else None
-    return path if path and path.is_file() else None
+    for p in call_paths(data.get("tool_name") or "", data.get("tool_input")):
+        m = STATUS_PATH.search(p.replace("\\", "/"))
+        last = m.group(0) if m else last
+    path = sibling(root / last, "state") if last else None
+    return path if path and path.resolve().is_relative_to(root.resolve()) and path.is_file() else None
+
+
+# 이번 호출이 쓴 작업과 색인의 현재 진행 작업의 경과 문서 목록이다.
+def target_statuses(data: dict) -> list[Path]:
+    from sub_task_index import selected_status
+    return list(dict.fromkeys(p for p in (call_status(data), selected_status(project_root(data.get("cwd")))) if p))
 
 
 # 검토 필요 항목의 구분 키이다. `검토 <번호>.` 항목은 번호로, 그 밖의 항목은 이름 전체로 구분한다.
@@ -128,7 +131,7 @@ def work_stage(path: Path, text: str) -> str:
     stage = stage_of(text)
     if stage:
         return "구현" if stage == "완료" and stage_completion_reason(path, text) else stage
-    return "구현" if REQUEST_APPROVED(text) else "착수"
+    return "구현" if REQUEST_APPROVED(text) else "계획"
 
 
 # 답이 선택지 라벨과 정확히 같을 때만 고른 라벨 목록을 반환한다. 여러 개를 고르면 ", "로 이은 라벨이다.
@@ -142,24 +145,24 @@ def picked_labels(question: dict, answer: str) -> list[str]:
 
 
 # 이번 턴 질문 도구 답을 경과 문서에 기록하고 작업 단계를 정규화한다. answers가 있으면 그 답을 쓴다.
-# 질문 문장 끝 작업 식별자의 경과 문서에 기록하고, 식별자가 없으면 진행 중인 작업이 하나일 때 그 작업, 여럿이면 마지막으로 쓴 경과 문서에 기록한다.
+# 질문 문장 끝 작업 식별자의 경과 문서에 기록하고, 식별자가 없으면 색인의 현재 진행 작업에 기록한다.
 def record_answers(data: dict, runner: str, answers: list | None = None) -> None:
     # 이번 턴 질문 답을 읽고 식별자 꼬리를 뗀 질문과 대상 경과 문서로 묶는다.
     if answers is None:
         answers = question_answers(turn(read_session(transcript_of(data, runner)))[2])
     groups: dict[Path, list] = {}
     for q, answer in answers:
-        # 문제 정의 확인 답은 같은 작업의 경과 문서 문제 정의 절에 기록한다. 문서 생성 전 답은 다음 기록 때 세션 기록에서 다시 읽는다.
+        # 문제 정의 확인 답은 질문 식별자 작업의 명세 문서 요구사항 목록에 기록한다. 문서 생성 전 답은 다음 기록 때 세션 기록에서 다시 읽는다.
         if (problem := PROBLEM_QUESTION.fullmatch(" ".join(str(q.get("question") or "").split()))):
             for target in tasks_of(data, runner, problem[6])[:1]:
-                if target.is_file():
-                    rewrite(target, lambda text, t=target, item=(q, answer): problem_record(data, t, text, [item]))
+                if target.is_file() and sibling(target, "input").is_file():
+                    rewrite(sibling(target, "input"), lambda text, t=target, item=(q, answer): problem_spec(data, t, text, [item]))
             continue
         text, tag = split_tag(q.get("question") or "")
         target = (tasks_of(data, runner, tag) or [None])[0]
         if target is not None:
             groups.setdefault(target, []).append(({**q, "question": text}, answer))
-    if not answers and (path := written_status(data, runner)) is not None:
+    if not answers and (path := call_status(data)) is not None:
         groups.setdefault(path, [])
     for path, items in groups.items():
         record_to(path, items)
@@ -167,15 +170,22 @@ def record_answers(data: dict, runner: str, answers: list | None = None) -> None
 
 # 현재 세션의 작업 문서에 실제 사용자 기록 시각을 반영하며 같은 입력의 재처리는 파일을 바꾸지 않는다.
 def record_times(data: dict, runner: str) -> str:
-    path = written_status(data, runner)
-    if path is None or not path.is_file():
-        return ""
-    rewrite(path, lambda text: approval_record_times(data, path, problem_record(data, path, text)))
-    probe = read(path).replace("기록 없음", "<자동 시각>")
-    missing = ["사용자 승인 시각"] if re.search(r"(?m)^\s*- 사용자 승인 시각: 기록 없음\s*$",
-                                             approval_record_times(data, path, probe)) else []
-    return (f"{path.as_posix()}: {', '.join(missing)}은 대응 사용자 이벤트의 timestamp를 확인할 수 없어 기록 없음으로 남겼습니다."
-            if missing else "")
+    paths = set(target_statuses(data))
+    for question, _ in question_answers(read_session(transcript_of(data, runner))):
+        match = PROBLEM_QUESTION.fullmatch(" ".join(str(question.get("question") or "").split()))
+        if match and match[6]:
+            paths.update(target for target in tasks_of(data, runner, match[6]) if target.is_file())
+    notices = []
+    for path in sorted(paths):
+        rewrite(path, lambda text: approval_record_times(data, path, text))
+        if sibling(path, "input").is_file():
+            rewrite(sibling(path, "input"), lambda text: problem_spec(data, path, text))
+        probe = read(path).replace("기록 없음", "<자동 시각>")
+        missing = ["사용자 승인 시각"] if re.search(r"(?m)^\s*- 사용자 승인 시각: 기록 없음\s*$",
+                                                 approval_record_times(data, path, probe)) else []
+        if missing:
+            notices.append(f"{path.as_posix()}: {', '.join(missing)}은 대응 사용자 이벤트의 timestamp를 확인할 수 없어 기록 없음으로 남겼습니다.")
+    return "\n".join(notices)
 
 
 # 형식을 지킨 검토 질문의 선택지 답만 path 경과 문서 검토 필요 절에 한 줄로 기록하고, 확정 안(폐기와 재조사 제외)은 같은 작업 폴더 명세 문서 요구사항 목록 끝에 추가한다.
@@ -189,6 +199,9 @@ def record_to(path: Path, answers: list) -> None:
     spec = path.with_name("spec.md")
     listed = [(k, t) for k, t in spec_blocks(section(read(spec), "요구사항 목록")) if k is not None] if spec.is_file() else []
     fresh = max((k for k, _ in listed), default=0) + 1
+    # 통합 구조 명세의 기대 결과 칸이 비었거나 자리표시 값인 항목 번호이다.
+    unified = spec.is_file() and integrated(read(spec))
+    empty = {k for k, t in listed if unified and not filled(text_of(t, "기대 결과"))}
     line = lambda number, name, label: f"- 검토 {number}. {name}: {label} (사용자 검토 시각: {now})"
     for q, answer in answers:
         # 선택지 답이 아니면 기록하지 않는다.
@@ -213,9 +226,15 @@ def record_to(path: Path, answers: list) -> None:
             same = next((k for k, t in listed if re.match(rf"### {k}\. {re.escape(name)}\s*$", t.splitlines()[0])), None)
             target = same or fresh
             fresh += 0 if same else 1
+            # 통합 구조 명세는 검토 질문의 첫 문제 번호 항목의 빈 결과 칸을 채우고, 결과가 이미 있으면 새 항목에 그 문제 칸을 복사한다.
+            problems = [int(n) for n in re.findall(r"\d+", rev[4])]
+            source = problems[0] if unified and not same and problems else None
+            if source in empty:
+                target, fresh, source = source, fresh - 1, None
+                empty.discard(target)
             names[target] = name
             ops.append(("req", target, label + (f": {desc}" if desc else ""),
-                        "문제 " + ", ".join(re.findall(r"\d+", rev[4]))))
+                        "문제 " + ", ".join(re.findall(r"\d+", rev[4])), source))
 
     # 명세 문서가 있으면 요구사항 목록에 추가한다.
     spec_changed = False
@@ -242,7 +261,7 @@ UNRESOLVED = "중단 판정 미해결"
 
 
 REVIEW_KEY = re.compile(r"(검토 \d+)(?=[. ])")
-STATUS_PATH = re.compile(rf"{TASK_REL}/[\w.\-]+/(?:status|spec)\.md")
+STATUS_PATH = re.compile(rf"{re.escape(TASK_REL)}/[\w.\-]+/(?:status|spec|research|refute)\.md")
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "apply_patch", "exec")
 TIME_LINE = re.compile(r"\(사용자 검토 시각: [^)]*\)")
 APPLY_CALL = re.compile(r"tools\.apply_patch\(")

@@ -8,6 +8,7 @@ sys.path[:0] = [str(HOOKS), str(HOOKS / "common"), str(HOOKS / "check_tool_use")
 
 import io
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +17,7 @@ from unittest.mock import patch
 import save_subagent_result as hook
 import sub_docs
 
-RESEARCH = """# 조사 문서: t
+RESEARCH = """# 조사 문서
 
 ## 조사 계획
 
@@ -49,8 +50,6 @@ RESEARCH = """# 조사 문서: t
 #### 한계
 
 - 한계: <내용>
-
-## 후보 비교
 """
 
 REFUTE_DOC = """# 반증 문서
@@ -84,12 +83,10 @@ REFUTE_DOC = """# 반증 문서
 #### 한계
 
 - 한계: <내용>
-
-## 후보 비교
 """
 
-ASK_RESEARCH = "task: research\ninput: log/task/t/research.md"
-ASK_REFUTE = "task: refute\ninput: log/task/t/refute.md"
+ASK_RESEARCH = "task: research\ninput: .agent-logs/task/t/research.md"
+ASK_REFUTE = "task: refute\ninput: .agent-logs/task/t/refute.md"
 
 
 # 조사 항목 하나의 결과 보고이다. 칸 값은 override로 바꾼다.
@@ -148,7 +145,7 @@ class SaveResult(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.parent = self.root / "parent.jsonl"
         self.parent.write_text(json.dumps({"payload": {"agent_role": "director"}}) + "\n", encoding="utf-8")
-        self.state = self.root / "log" / "task" / "t"
+        self.state = self.root / ".agent-logs" / "task" / "t"
         self.state.mkdir(parents=True)
         self.doc = self.state / "research.md"
         self.doc.write_text(RESEARCH, encoding="utf-8")
@@ -184,7 +181,7 @@ class SaveResult(unittest.TestCase):
         self.assertIn("## 조사 결과\n\n" + report.strip(), text)
         self.assertNotIn("```", text)
         self.assertNotIn("<번호>", text)
-        self.assertLess(text.index("### 조사 1. 구조 결과"), text.index("## 후보 비교"))
+        self.assertTrue(text.rstrip().endswith("- 한계: 없음"))
 
     # 후보 안 블록 칸이 비거나 자리표시자가 남은 보고는 사유와 함께 막고 조사 문서를 바꾸지 않는지 확인한다.
     def test_blank_or_placeholder_field_blocked(self):
@@ -206,7 +203,7 @@ class SaveResult(unittest.TestCase):
         self.stop("nico", ASK_RESEARCH, research_report(claim=""))
         self.assertIn("주장 목록", self.reason)
         inconclusive = ("### 조사 1. 구조 결과\n\n- 결론: 결론 불가입니다. 근거가 부족합니다.\n- 이전 반증 반영: 해당 없음\n\n"
-                        "#### 주장 목록\n\n- 주장 1: [조사 1. 구조는 무엇입니까?] 사실 (출처: https://a.example)\n\n#### 한계\n\n- 한계: 자료 부족\n")
+                        "#### 주장 목록\n\n- 주장 1: [조사 1. 구조는 무엇입니까?] 사실 (출처: https://a.example)\n\n#### 한계\n\n- 한계: 자료 부족 (출처: https://a.example)\n")
         text = self.stop("nico", ASK_RESEARCH, inconclusive)
         self.assertIsNone(self.reason)
         self.assertIn("결론 불가입니다", text)
@@ -255,8 +252,55 @@ class SaveResult(unittest.TestCase):
         second = refute_report("- 주장 1: 지지 | 출처: https://b.example", n=2)
         text = self.stop("ricky", ASK_REFUTE, "", handback=second)
         self.assertIn("| 2 | 0 | 정지(반증 0건) |", text)
-        self.assertLess(text.index("### 2회차 반증 결과"), text.index("## 후보 비교"))
         self.assertLess(text.index("### 1회차 반증 결과"), text.index("### 2회차 반증 결과"))
+
+    # 보고 끝에 최상위 절이 붙고 한계 줄에 출처가 없으면 위반 행과 양식 이름으로 막고 문서를 바꾸지 않으며, 최상위 절은 블록에 넣지 않는지 확인한다.
+    def test_trailing_section_cut_and_document_checked(self):
+        tail = "\n## 검색 결과 요약\n\n- 항목 [확인 완료]\n"
+        bad = (research_report() + tail).replace("- 한계: 없음", "- 한계: 크기 제한이 있습니다.")
+        text = self.stop("nico", ASK_RESEARCH, bad)
+        self.assertRegex(self.reason, r"^research\.md: 작업 문서 \d+행: ")
+        self.assertIn("log-research", self.reason)
+        self.assertEqual(text, RESEARCH)
+        text = self.stop("nico", ASK_RESEARCH, research_report() + tail)
+        self.assertIsNone(self.reason)
+        self.assertIn("- 한계: 없음", text)
+        self.assertNotIn("검색 결과 요약", text)
+        text = self.stop("ricky", ASK_REFUTE, "", handback=refute_report() + tail)
+        self.assertIsNone(self.reason)
+        self.assertNotIn("검색 결과 요약", text)
+
+    # 이미 저장된 결과 블록의 한계 줄에 진행 상태 표현이 있어도 새 항목 결과는 저장되고, 새 블록의 같은 표현은 막는지 확인한다.
+    def test_saved_block_progress_word_does_not_block_new_result(self):
+        self.stop("nico", ASK_RESEARCH, research_report())
+        self.assertIsNone(self.reason)
+        saved = self.doc.read_text(encoding="utf-8").replace(
+            "## 조사 결과", "### 조사 2. 형식 (문제 1)\n\n- 질문: 형식은 무엇입니까?\n\n## 조사 결과", 1).replace(
+            "- 한계: 없음", "- 한계: 주입 문자 수는 미확인이다. (출처: https://a.example)")
+        self.doc.write_text(saved, encoding="utf-8")
+        ask = ASK_RESEARCH + "\nitem: research 2"
+        claim = "- 주장 1: [조사 2. 형식은 무엇입니까?] 사실 둘 (출처: https://a.example)"
+        bad = research_report(number=2, claim=claim).replace("- 한계: 없음", "- 한계: 크기는 미확인이다. (출처: https://a.example)")
+        self.assertEqual(self.stop("nico", ask, bad), saved)
+        self.assertIn("log-research", self.reason)
+        text = self.stop("nico", ask, research_report(number=2, claim=claim))
+        self.assertIsNone(self.reason)
+        self.assertIn("### 조사 2. 구조 결과", text)
+        self.assertIn("주입 문자 수는 미확인이다.", text)
+
+    # 거부 사유에 문서 행 번호와 함께 보고의 해당 줄 원문이 들어가는지 확인한다.
+    def test_rejection_names_report_line(self):
+        bad = research_report().replace("- 한계: 없음", "- 한계: 크기는 미확인이다. (출처: https://a.example)")
+        self.stop("nico", ASK_RESEARCH, bad)
+        self.assertIn("보고의 해당 줄: `- 한계: 크기는 미확인이다. (출처: https://a.example)`", self.reason)
+
+    # 결과 양식 주석에 적은 거부 표현 목록이 hook의 진행 상태 표현 목록과 같은지 확인한다.
+    def test_template_lists_progress_words(self):
+        for name in ("log-research.md", "log-refute.md", "log-spec.md", "log-status.md"):
+            with self.subTest(name=name):
+                text = (HOOKS.parent / "shared/templates/workflow" / name).read_text(encoding="utf-8")
+                line = next(l for l in text.splitlines() if "쓰면" in l and "거부된다" in l)
+                self.assertEqual(re.findall(r"`([^`]+)`", line), sub_docs.PROGRESS.split("|"))
 
     # 반증 보고의 칸이 비었거나 판정 줄이 없으면 막고 반증 문서를 바꾸지 않는지 확인한다.
     def test_refute_blank_field_or_no_verdict_blocked(self):
@@ -306,7 +350,7 @@ class SaveResult(unittest.TestCase):
         self.assertEqual(text.count("### 조사 1. 구조 결과"), 1)
         self.assertEqual(self.refute.read_text(encoding="utf-8").count("사실 하나"), 1)
 
-    # 작업 ID를 찾지 못한 director 배정 종료는 block 사유를 반환하고, director 배정이 아닌 실행과 이미 저장된 보고는 출력 없이 통과한다. (요구사항 27)
+    # 작업 ID를 찾지 못한 director 배정 종료는 block 사유를 반환하고, director 배정이 아닌 실행과 이미 저장된 보고는 출력 없이 통과한다.
     def test_missing_task_id_blocked(self):
         path = self.root / "nico-no-id.jsonl"
         path.write_text(json.dumps({"type": "user", "message": {"content": "task: research"}}) + "\n", encoding="utf-8")
@@ -348,9 +392,22 @@ class SaveResult(unittest.TestCase):
 
     # reviewer 검증 결과는 저장하지 않는지 확인한다.
     def test_review_not_saved(self):
-        text = self.stop("ricky", "task: verify\ninput: log/task/t/spec.md", "PASS")
+        text = self.stop("ricky", "task: verify\ninput: .agent-logs/task/t/spec.md", "PASS")
         self.assertEqual(text, REFUTE_DOC)
         self.assertEqual(self.doc.read_text(encoding="utf-8"), RESEARCH)
+
+    # 검증 보고의 실제 동작 PASS 항목은 실행 커맨드 근거가 없으면 거부하고, 근거가 있거나 정적 PASS만 있으면 허용하며 문서는 바꾸지 않는다.
+    def test_verify_actual_pass_needs_command(self):
+        ask = "task: verify\ninput: .agent-logs/task/t/spec.md"
+        bare = "- 요구사항 1 차단 입력 (실제 동작): PASS, deny 확인\n- 요구사항 2 문구 (정적): PASS"
+        run = "- 요구사항 1 차단 입력 (실제 동작): PASS\n  - 실행: `python hooks/check_tool_use.py` 입력\n  - 응답: deny 사유 출력"
+        static = "- 요구사항 2 문구 (정적): PASS"
+        for report, blocked in ((bare, True), (run, False), (static, False)):
+            with self.subTest(report=report):
+                text = self.stop("ricky", ask, report)
+                self.assertEqual(self.reason is not None, blocked)
+                self.assertEqual(text, REFUTE_DOC)
+        self.assertIn("요구사항 1 차단 입력", self.stop("ricky", ask, bare) and self.reason)
 
     # Stop 경로의 빈 보고는 block 사유를 반환하고 문서를 바꾸지 않는다.
     def test_stop_empty_report_blocked(self):

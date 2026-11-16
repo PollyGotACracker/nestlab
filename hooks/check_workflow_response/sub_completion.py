@@ -21,9 +21,10 @@ from sub_session import QUESTION_TOOLS, question_answers, read_session, turn
 from sub_document import Document, dropped, number_of, numbered, requirements
 from sub_gate import check_complete, transition_reason
 from sub_write import read
-from sub_form import APPROVAL_BLOCK, body_of, form_of, requests_approval
+from sub_form import body_of, form_of
+from sub_gate import REQUEST_LINE
 from sub_paths import TASK_REL
-from sub_record import REQUEST_APPROVED, picked_labels, written_status
+from sub_record import REQUEST_APPROVED, picked_labels
 
 
 # 현재 요청이 가리킨 작업의 경과 문서 목록이다. 도구 입력에 적힌 다른 작업 경로는 연결하지 않는다.
@@ -63,8 +64,12 @@ def unfinished_reason(data: dict, message: str, runner: str) -> str | None:
         return None
     root = project_root(data.get("cwd"))
     paths = linked_statuses(root, user, entries)
+    if not paths:
+        from sub_task_index import selected_status
+        selected = selected_status(root)
+        paths = [selected] if selected else []
     stopped = stopped_statuses(data, runner, entries, paths)
-    if APPROVAL_BLOCK.search(body_of(message)) or requests_approval(message):
+    if REQUEST_LINE.search(body_of(message)):
         return None
     # 권한 거부 결과와 그 영향 및 사용자 조작을 함께 보고한 경우만 실행 차단 대기로 본다.
     if (any(TOOL_DENIED.search(result) for entry in entries for result in entry["results"])
@@ -123,10 +128,11 @@ def completion_reason(data: dict, runner: str, message: str, user: str, entries:
     root = project_root(data.get("cwd"))
     paths = linked_statuses(root, message, entries) or linked_statuses(root, user, entries)
     if not paths:
-        written = written_status(data, runner)
-        paths = [written] if written else open_tasks(root)
+        from sub_task_index import selected_status
+        selected = selected_status(root)
+        paths = [selected] if selected else []
     if not paths:
-        return REASON_COMPLETION.format(path="기록 없음", reason="완료 검사할 경과 문서와 명세 문서가 없습니다")
+        return REASON_COMPLETION.format(path="경과 문서", reason="작업 색인의 현재 진행 작업 또는 응답의 경과 문서 링크")
     for path in paths:
         try:
             state, plan = Document(read(path)), Document(read(sibling(path, "input")))
@@ -138,8 +144,7 @@ def completion_reason(data: dict, runner: str, message: str, user: str, entries:
     return None
 
 
-REASON_UNFINISHED = ("승인된 작업이 남아 있습니다. 응답을 종료하지 않고 연결된 작업을 계속하십시오. "
-                     "작업 위치: {status} > 검증 결과, {spec} > 재구현 요청 및 재검증 요청. 사유: {reason}")
+REASON_UNFINISHED = "{status}, {spec}: 승인된 작업을 계속하고 관련 지침과 log-spec 템플릿을 준수하십시오. 보완 대상: {reason}"
 WORK_REQUEST = re.compile(r"승인\s*[.!~]*$|고쳐|고치|마저|끝내|완료해|"
                           r"(?m:^\s*계속[.!~]*\s*$)|"
                           r"계속(?:\s*(?:진행|작업|구현|수정|검증|실행))?\s*"
@@ -149,10 +154,10 @@ TOOL_DENIED = re.compile(r"permission denied|access (?:is )?denied|not permitted
                          r"권한[^\n]*(?:없|부족|거부|오류)|승인[^\n]*(?:필요|차단)", re.I)
 
 
-REASON_COMPLETION = "완료 선행 검사에 실패했습니다. 작업 위치: {path}. 사유: {reason}. 기존 검증 기록을 보완하고 이미 받은 완료 접두어는 다시 요구하지 마십시오."
+REASON_COMPLETION = "완료 승인 요청 {path}: 관련 지침과 log-status 템플릿을 준수하십시오. 보완 대상: {reason}. 이미 받은 완료 접두어는 다시 요구하지 마십시오."
 
 
-STATE_REF = re.compile(rf"{TASK_REL}/([\w.\-]+)/(?:status|spec|research|refute)\.md")
+STATE_REF = re.compile(rf"{re.escape(TASK_REL)}/([\w.\-]+)/(?:status|spec|research|refute)\.md")
 
 
 STOP_REQUEST = re.compile(r"(?:중단|종료|취소)(?:해|하|합|요|\s*$)|멈춰|그만(?:해|하|\s*$)|^stop\b", re.I)

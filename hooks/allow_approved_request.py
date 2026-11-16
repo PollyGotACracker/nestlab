@@ -24,16 +24,16 @@ from sub_paths import CREATE_TASK_DOCS
 from sub_role import director_main, main_session
 from sub_session import QUESTION_TOOLS
 from sub_write import SHELLS, SUBCOMMAND, bash_command, command_parts, git_write_reason, plain, targets
-from sub_task_docs import STAGES as TASK_DOCS_STAGES, trusted_launcher
+from sub_task_docs import STAGES as TASK_DOCS_STAGES, TASK_ID, trusted_launcher
 
-# 승인 여부와 무관하게 허용하는 검증 커맨드 목록이다.
+# 승인 여부와 무관하게 허용하는 검증 커맨드 목록
 ALLOW_LIST = ("python -m unittest *", "python3 -m unittest *", "py -m unittest *", "python hooks/tests/test_*.py",
               "python -B tools/tests/test_set_hooks.py", "python tools/check_doc_rule.py",
               "python tools/set_skills.py check", "python ../tools/check_doc_rule.py",
               "python ../tools/set_skills.py check")
-# 단일 커맨드가 아님을 나타내는 문자(하위 커맨드 구분자, 치환, 리다이렉트)이다.
+# 단일 커맨드가 아님을 나타내는 문자(하위 커맨드 구분자, 치환, 리다이렉트)
 COMPOUND = re.compile(r"[`<>\n]|\$\(")
-# 승인 창 없이 질문을 전달해야 하는 도구이다.
+# 승인 창 없이 질문을 전달해야 하는 도구
 QUESTION = QUESTION_TOOLS + ("ExitPlanMode",)
 TASK_DOCS_SCRIPT = CREATE_TASK_DOCS
 TASK_DOCS_HOME = Path.home()
@@ -71,8 +71,13 @@ def task_docs_command(command: str, cwd: str | Path | None = None) -> bool:
                 return False
             if not TASK_DOCS_SCRIPT.resolve().is_relative_to(project_root(base).resolve()):
                 return False
+        if args in (["--help"], ["-h"]):
+            return True
         if len(args) == 2 and args[0] == "--print-template":
             return args[1] in RESPONSE_TEMPLATES
+        # 구현 승인 양식은 작업 문서 원문으로 채워 출력할 수 있다. 읽기만 하는 출력이다.
+        if len(args) == 4 and args[:3] == ["--print-template", "approval-implement", "--task"]:
+            return bool(TASK_ID.fullmatch(args[3]))
         if len(args) not in (6, 8):
             return False
         options = {}
@@ -88,7 +93,7 @@ def task_docs_command(command: str, cwd: str | Path | None = None) -> bool:
             return False
         project = project_root(base).resolve()
         root = (base / options.get("--root", ".")).resolve()
-        folder = root / "log" / "task" / task
+        folder = root / ".agent-logs" / "task" / task
         from sub_path import in_temp
         temporary = in_temp(str(root))
         return (root == project or temporary) and all(

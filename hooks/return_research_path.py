@@ -23,7 +23,7 @@ from sub_role import director_main
 from save_subagent_result import saved_body, without_heading
 from sub_session import session_path
 
-RESEARCH_LINE = re.compile(rf"^input: {TASK_REL}/[\w.\-]+/(?:research|refute)\.md\s*$", re.M)
+RESEARCH_LINE = re.compile(rf"^input: {re.escape(TASK_REL)}/[\w.\-]+/(?:research|refute)\.md\s*$", re.M)
 SLOT_FINAL = "조사 결과"
 SLOT_ROUND = "{n}회차 반증 결과"
 

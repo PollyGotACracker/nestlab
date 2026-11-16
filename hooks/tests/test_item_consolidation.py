@@ -27,7 +27,7 @@ class Consolidation(unittest.TestCase):
         patcher = patch.object(sub_docs, "project_root", return_value=self.root)
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.status = self.root / "log/task/20261104-234558-test/status.md"
+        self.status = self.root / ".agent-logs/task/20261104-234558-test/status.md"
         self.status.parent.mkdir(parents=True)
         self.status.write_text(STATE, encoding="utf-8")
         self.spec = self.status.with_name("spec.md")

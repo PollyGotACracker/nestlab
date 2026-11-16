@@ -3,6 +3,8 @@ name: pepper
 title: documenter
 description: "문서 작성"
 tools: Skill, Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, AskUserQuestion
+skills:
+  - nestlab-implement-doc
 model: sonnet
 effort: medium
 readonly: false

@@ -14,9 +14,9 @@ import unittest.mock
 
 import replace_blocked_response as hook
 
-PLAIN = tempfile.mkdtemp()  # 질문 문장 검사는 log/state가 있는 저장소에서만 적용된다.
-(Path(PLAIN) / "log" / "state").mkdir(parents=True)
-QUESTION = "어느 쪽으로 할까요?"
+PLAIN = tempfile.mkdtemp()  # 질문 문장 검사는 .agent-logs/state가 있는 저장소에서만 적용된다.
+(Path(PLAIN) / ".agent-logs" / "state").mkdir(parents=True)
+QUESTION = "설치 상태를 확인하겠습니다."  # 결과물 없는 예고 응답이며 응답 미흡(REASON_EMPTY)이다.
 GOOD = "수정했습니다.\n\n- `hooks/a.py`: 추가\n"
 
 
@@ -50,12 +50,16 @@ def transcript(text, *stop_reasons):
 
 
 class Display(unittest.TestCase):
-    # 승인 서식은 도구 호출 앞의 메시지와 백그라운드 실행 중에도 표시 전에 차단한다.
-    def test_approval_checked_before_midturn_and_background(self):
-        message = "# 승인 요청\n\n승인으로 답해 주십시오."
-        with unittest.mock.patch.object(hook, "has_pending_background", return_value=True):
-            self.assertEqual(send("approval-mid", message, True, transcript(message, "tool_use")), hook.REPLACEMENT)
-            self.assertEqual(send("approval-bg", message, True, transcript(message, "end_turn")), hook.REPLACEMENT)
+    # 통과한 응답의 구현 승인 요청 줄은 생성한 승인 요청 본문으로 바꿔 표시하고, 생성 검사가 막히면 원문을 표시한다.
+    def test_request_line_replaced_with_generated_body(self):
+        line = "구현 승인 요청: 20261116-060912-agent-api"
+        with unittest.mock.patch.object(hook, "check", return_value=None), \
+             unittest.mock.patch.object(hook, "approval_request", return_value=(None, "# 구현 승인 요청\n\n본문")):
+            shown = send("request-1", line, True)
+        self.assertEqual(shown, "# 구현 승인 요청\n\n본문" + hook.NOTICE_REQUEST)
+        with unittest.mock.patch.object(hook, "check", return_value=None), \
+             unittest.mock.patch.object(hook, "approval_request", return_value=("구현 승인 요청: 빈 칸", "")):
+            self.assertEqual(send("request-2", line, True), line)
 
     def test_specialist_deltas_skip_batch_and_wait(self):
         for role in ("assistant", "worker", "documenter", "researcher", "reviewer", "unknown"):
@@ -74,6 +78,10 @@ class Display(unittest.TestCase):
         self.assertEqual(send("viol-1", "첫 줄\n", False), "")
         self.assertEqual(send("viol-1", QUESTION, True), hook.REPLACEMENT)
         self.assertFalse(hook.batch_file("viol-1").exists())
+
+    # 응답 미흡이 아닌 사유(질문 문장 종료)로 차단될 응답은 원문으로 표시된다.
+    def test_other_block_shown(self):
+        self.assertEqual(send("other-1", "어느 쪽으로 할까요?", True), "어느 쪽으로 할까요?")
 
     # 통과 응답은 마지막 batch에서 누적한 원문 전체로 표시되는지 확인한다.
     def test_pass_shows_collected_text(self):
@@ -124,6 +132,16 @@ class Display(unittest.TestCase):
         self.assertEqual(send("bg-3", QUESTION, True, with_lines(agent, bash, done("a1"))), QUESTION)
         self.assertEqual(send("bg-4", QUESTION, True, with_lines(agent, bash, done("a1"), done("b1"))), hook.REPLACEMENT)
         self.assertEqual(send("bg-5", QUESTION, True, with_lines()), hook.REPLACEMENT)
+
+    # 완료 알림이 없는 백그라운드 작업이 있어도 다짐 문장은 교체되고, 다짐이 없는 응답은 원문으로 표시된다.
+    def test_background_pending_checks_pledge(self):
+        path = transcript("x", "end_turn")
+        agent = json.dumps({"toolUseResult": {"isAsync": True, "status": "async_launched", "agentId": "a9"}}, separators=(",", ":"))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(agent + "\n")
+        pledge = "다음 세션에서 같은 일이 반복되지 않도록 기록하겠습니다."
+        self.assertEqual(send("pl-1", pledge, True, path), hook.REPLACEMENT)
+        self.assertEqual(send("pl-2", "worker가 작업 중입니다.", True, path), "worker가 작업 중입니다.")
 
     # 판정이 사건 문서 기록이나 분석 실행을 일으키지 않는지 확인한다.
     def test_check_runs_without_recording(self):

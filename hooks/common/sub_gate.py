@@ -7,7 +7,7 @@
 - hooks/save_handback_report.py, hooks/save_subagent_result.py, tools/run_workflow.py
 입력: 작업 문서 본문 또는 저장소 루트, 작업 ID, 단계 이름
 반환:
-- 검사 함수(validate, check_plan, check_research, check_complete 등)는 통과하면 None을 반환하고
+- 검사 함수(validate, check_plan, research_items, check_complete 등)는 통과하면 None을 반환하고
   미달이면 사유 문자열을 담은 ValueError를 던진다.
 - transition_reason, call_reason은 차단 사유 문자열 또는 통과 시 None을 반환한다.
 한계: 문서의 구조와 칸 형식만 판정하고 자연어 내용의 정확성은 판정하지 않는다.
@@ -18,38 +18,37 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from sub_docs import FENCE_LINE, approval_targets, legacy, measure_pending, problem_entries, review_done_numbers, review_entries, review_pending, section, sibling, task_doc, titles
-from sub_document import Document, R_REQ_REF, approval, bare, check_numbers, check_refs, dropped, field, filled, has_ref, number_of, numbered, require, requirements, timestamp, values
+from sub_docs import FENCE_LINE, approval_targets, legacy, measure_pending, review_pending, section, sibling, task_doc, titles
+from sub_document import Document, R_REQ_REF, approval, bare, check_numbers, check_refs, dropped, field, filled, has_ref, integrated, number_of, numbered, require, requirements, timestamp, values
 
 
 # 명세 문서가 구현 승인 전 필수 칸을 갖췄는지 확인하고 요구사항 이름 목록을 반환한다.
-def check_plan(plan: Document, state: Document | None = None) -> list[str]:
+# state와 every는 기존 호출 호환용이며 판정에 사용하지 않는다.
+def check_plan(plan: Document, state: Document | None = None, every: bool = True) -> list[str]:
+    from sub_docs import constraint_reason
+    reason = constraint_reason("\n".join(plan.raw), "input")
+    require(reason is None, reason or "")
     # 요구사항마다 필수 칸, 검증 유형, 한계와 Test Case 표를 확인한다.
     items = requirements(plan)
+    unified = integrated("\n".join(plan.raw))
     for name, body in items:
         # 폐기한 요구사항 절은 필수 칸을 검사하지 않는다.
         if dropped(name, body):
+            continue
+        # 통합 구조 항목은 hook이 기록한 사용자 확인 시각, 문제와 기대 결과 칸, director가 쓴 잠재 위험 칸을 함께 요구한다.
+        if unified:
+            for key in ("사용자 확인 시각", "문제", "목표", "기대 결과", "잠재 위험", "검증"):
+                entries = values(body, key)
+                require(len(entries) == 1 and filled(entries[0]), R_ITEM_FIELD.format(name=bare(name), key=key))
+            timestamp("사용자 확인 시각", values(body, "사용자 확인 시각")[0])
+            require(bool(re.search(r"\((?:정적|실제 동작)\)", values(body, "검증")[0])), R_REVIEW_TYPE.format(name=bare(name)))
+            require(not case_gaps(name, body), "; ".join(case_gaps(name, body)))
             continue
         for key in ("목표", "결과", "검증", "기대 결과"):
             entries = values(body, key)
             require(bool(entries) and all(filled(v) for v in entries), R_ITEM_FIELD.format(name=bare(name), key=key))
         require(all(re.search(r"\((?:정적|실제 동작)\)", v) for v in values(body, "검증")), R_REVIEW_TYPE.format(name=bare(name)))
         require(not case_gaps(name, body), "; ".join(case_gaps(name, body)))
-
-    # 단계가 있는 작업은 요구사항마다 확정되고 폐기되지 않은 문제에 연결돼야 하고, 확정 문제마다 연결 요구사항이 1개 이상 있어야 한다.
-    state_text = "\n".join(state.raw) if state is not None else ""
-    if state is not None and re.search(r"(?m)^- 작업 단계: ", state_text):
-        live = {n for n, (confirmed, gone) in problem_entries(state_text).items() if confirmed and not gone}
-        linked = set()
-        for name, body in items:
-            if dropped(name, body):
-                continue
-            line = re.search(r"(?m)^- 문제:\s*(.+)$", body)
-            refs = {int(n) for n in re.findall(r"\d+", line[1])} if line else set()
-            require(bool(refs) and refs <= live, R_PROBLEM_LINK.format(name=bare(name)))
-            linked |= refs
-        missing = sorted(live - linked)
-        require(not missing, R_PROBLEM_MISSING.format(numbers=", ".join(map(str, missing))))
 
     # 필수 절에 자리표시자나 빈 내용이 없는지 확인한다.
     for title in ("요구사항 목록", "작업 계획"):
@@ -106,13 +105,14 @@ def case_gaps(name: str, body: str) -> list[str]:
 
     # 한계에 출처와 확인 방법이 있는지 확인한다.
     limits = values(body, "한계")
-    if not limits or not all(filled(v) and "출처:" in v and "확인 방법:" in v for v in limits):
+    if not limits or not all(v == "없음" or filled(v) and "출처:" in v and "확인 방법:" in v for v in limits):
         gaps.append(R_GAP_LIMIT.format(name=bare(name)))
 
-    # Test Case 표에 차단 행과 허용 행이 있는지 확인한다.
+    # 차단 동작이 없다고 명시한 요구사항만 허용 행으로 검증한다.
     rows = CASE_ROW.findall(body)
     kinds = {kind for kind, *_ in rows}
-    if kinds != {"차단", "허용"}:
+    required = {"허용"} if re.search(r"(?m)^\s*- 차단 동작:[ \t]*없음[ \t]*$", body) else {"차단", "허용"}
+    if not required <= kinds:
         gaps.append(R_GAP_KINDS.format(name=bare(name)))
 
     # Test Case 행마다 입력, 커맨드, 기대 결과가 채워졌는지 확인한다.
@@ -219,77 +219,6 @@ def check_refutation(message: str) -> None:
             R_VERDICT_SOURCE)
 
 
-# 조사 항목이 폐기 문제에만 연결됐거나 명세 문서 작업 기준 자료에 `- 조사 <번호>.` 결정 항목이 있으면 True이다.
-def review_exempt(state: Document, plan: Document | None, item: str) -> bool:
-    number = item.split(". ", 1)[0].split()[1]
-    if plan is not None and re.search(r"^- 조사 " + number + r"\. ", section("\n".join(plan.raw), "작업 기준 자료"), re.M):
-        return True
-    refs = [n for group in PROBLEM_REF.findall(item) for n in re.split(r", ?", group)]
-    gone = set(re.findall(r"(?m)^- 문제 (\d+)\. 폐기:", section("\n".join(state.raw), "문제 정의")))
-    return bool(refs) and all(n in gone for n in refs)
-
-
-# 조사 원문, 반증 회차, 사용자 확인과 검토 항목 기록이 갖춰졌는지 확인한다. reviewed가 False면 사용자 확인 전 검사만 한다.
-def check_research(state: Document, research: Document, items: list[str], reviewed: bool = True,
-                   refute: Document | None = None, plan: Document | None = None) -> None:
-    # 확인할 항목이 없으면 끝낸다.
-    if not items:
-        return
-
-    # 최종 조사 원문과 반증 회차 표가 있는지 확인한다. 반증 문서가 없으면 조사 문서에서 읽는다.
-    # 사용자 검토가 끝난 항목은 원문 형식을 다시 검사하지 않는다.
-    refute = refute or research
-    done = review_done_numbers("\n".join(state.raw)) if reviewed else set()
-    pending = [item for item in items if item.split(". ", 1)[0].split()[1] not in done
-               and not (reviewed and review_exempt(state, plan, item))]
-    check_result_sections(research, pending)
-    rows = re.findall(r"^\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([^|]+)\s*\|\s*$",
-                      refute.section("조사 및 반증 루프"), re.M)
-    require(bool(rows), R_NO_ROUNDS)
-
-    # 회차마다 순서와 정지 조건, 반증 원문의 판정과 출처를 확인한다.
-    for index, (number, count, stop) in enumerate(rows, 1):
-        if not reviewed:  # 사용자 선택이 기록된 뒤에는 회차 수와 정지 순서로 차단하지 않는다.
-            require(int(number) == index and index <= 2, R_ROUND_ORDER)
-            expected = "정지(반증 0건)" if int(count) == 0 else ("정지(2회 도달)" if index == 2 else "계속")
-            require(stop.strip() == expected, R_STOP_MISMATCH)
-            require(index == len(rows) or expected == "계속", R_AFTER_STOP)
-        title = f"{number}회차 반증 결과"
-        raw = refute.section(title) if title in [name for _, _, name in refute.headings] else refute.raw_block(f"{number}회차 반증 원문")
-        from sub_call import VERDICT
-        verdicts = [(m[2], m[3]) for m in map(VERDICT.match, raw.splitlines()) if m]
-        require(bool(verdicts), R_NO_VERDICT)
-        require(sum(verdict == "반증" for verdict, _ in verdicts) == int(count), R_COUNT_MISMATCH)
-        require(all(verdict == "미확인" or bool(re.search(r"https?://\S+|\S+:\d+", source))
-                    for verdict, source in verdicts), R_VERDICT_SOURCE_LOOP)
-
-    # 사용자 확인 전 검사라면 조사와 반증이 정지했는지만 확인하고 끝낸다.
-    if not reviewed:
-        require(rows[-1][2].strip().startswith("정지("), R_NOT_FINISHED)
-        return
-
-    # 조사 문서의 사용자 확인 상태와 시각을 확인한다.
-    require(field(research.header(), "확인 상태") == "확인", R_USER_CONFIRM)
-    timestamp("확인 시각", field(research.header(), "확인 시각"))
-
-    # 조사 항목마다 경과 문서 검토 필요 절의 확정 답 한 줄이 있는지 확인한다. 같은 번호 항목을 찾고, 없으면 첫 줄에 항목 이름이 든 항목을 찾는다.
-    # 폐기 문제에 연결됐거나 작업 기준 자료에 결정이 기록된 항목은 검토 기록을 요구하지 않는다.
-    review = state.section("검토 필요")
-    entries = [(line, ok) for line, ok in review_entries("\n".join(state.raw)) if line.startswith("- 검토 ")]
-    for item in items:
-        if review_exempt(state, plan, item):
-            continue
-        number, name = item.split(". ", 1)
-        base = PROBLEM_REF.sub("", name).strip()
-        matches = ([e for e in entries if e[0].startswith("- 검토 " + number.split()[1] + ".")]
-                   or [e for e in entries if base in e[0]])
-        require(len(matches) == 1, R_REVIEW_ITEM.format(item=bare(item)))
-        require(matches[0][1], R_REVIEW_UNDONE.format(item=bare(item)))
-
-    # 반증이 남은 채 2회에 도달했으면 검증 미완 보고가 있는지 확인한다.
-    if len(rows) >= 2 and int(rows[-1][1]):
-        require("검증 미완" in review, R_UNVERIFIED)
-
 # 요구사항마다 최종 검증 PASS 기록이 있고 남은 문제와 재구현 요청이 없는지 확인한다.
 def check_complete(state: Document, plan: Document, names: list[str]) -> None:
     require(not unresolved(state), R_UNRESOLVED_STOP)
@@ -330,7 +259,7 @@ def check_complete(state: Document, plan: Document, names: list[str]) -> None:
 # 경과 문서의 검토 필요 항목과 실측 필요 항목이 끝났는지 확인한다. 완료 단계(final)는 사후 실측도 요구한다.
 # 관리 단계는 현재 명세 요구사항을, 기존 작업은 기록된 승인 연결 대상을 실측 범위로 삼는다.
 def measurement_targets(state_text: str, plan: Document | None = None) -> set[str] | None:
-    if plan is not None and re.search(r"(?m)^- 작업 단계: (착수|조사|구현|진행|완료)\s*$", state_text):
+    if plan is not None:
         return {number_of(name) for name, body in requirements(plan) if not dropped(name, body)}
     return approval_targets(state_text)
 
@@ -345,8 +274,7 @@ def check_review_left(state: Document, final: bool, research: Document | None = 
     # 구현 승인 단계에서는 승인 대상 요구사항과 연결되지 않은 사전 실측 항목을 뺀다.
     state_text = "\n".join(state.raw)
     targets = measurement_targets(state_text, plan)
-    managed = bool(re.search(r"(?m)^- 작업 단계: (착수|조사|구현|진행|완료)\s*$", state_text))
-    left = measure_pending(state_text, ("사전", "사후") if final else ("사전",), targets if managed or not final else None)
+    left = measure_pending(state_text, ("사전", "사후") if final else ("사전",), targets)
     require(not left, R_MEASURE_LEFT.format(items=", ".join(left[:3])))
 
 
@@ -356,26 +284,19 @@ def unresolved(state: Document) -> bool:
     return any(filled(value) for value in values(body, "중단 유형")) or any(
         "중단 판정 미해결" in line and "구현 승인을 기록하면 차단됩니다" not in line for line in body.splitlines())
 
-# 작업 문서를 읽어 단계 선행 조건을 확인한다. 미달이면 사유를 담은 ValueError를 던진다.
+# 작업 문서를 읽어 단계 또는 배정 종류의 선행 조건을 확인한다. 미달이면 사유를 담은 ValueError를 던진다.
 def validate(root: Path, task: str, stage: str) -> None:
     # 작업 ID와 단계 이름을 확인한다.
     require(bool(TASK_ID.fullmatch(task)), R_TASK_ID)
-    require(stage in STAGES + CALL_STAGES, R_STAGE.format(stage=stage))
+    require(stage in STAGE_OF, R_STAGE.format(stage=stage))
 
-    # 경과, 명세, 조사 문서를 읽고 작업 ID가 일치하는지 확인한다. 반증 문서는 있을 때만 읽는다.
+    # 경과, 명세, 조사, 반증 문서를 읽고 작업 ID가 일치하는지 확인한다. 경과 문서 외에는 있을 때만 읽는다.
     documents = []
     for kind in ("state", "input", "research", "refute"):
         path = task_doc(root, task, kind)
         require(path.resolve().is_relative_to(root.resolve()), R_OUTSIDE)
-        if kind == "refute" and not path.is_file():
-            documents.append(None)
-            continue
-        managed_state = bool(documents and re.search(r"(?m)^- 작업 단계: (착수|조사|구현|진행|완료)\s*$", documents[0].header()))
-        if kind == "research" and not path.is_file() and (stage == "kickoff" or managed_state):
-            documents.append(None)
-            continue
-        if kind == "input" and not path.is_file():
-            require(stage in SPECLESS_STAGES, R_NO_SPEC)
+        if kind != "state" and not path.is_file():
+            require(kind != "input" or STAGE_OF[stage] == "계획", R_NO_SPEC)
             documents.append(None)
             continue
         document = Document(path.read_text(encoding="utf-8-sig"))
@@ -383,54 +304,53 @@ def validate(root: Path, task: str, stage: str) -> None:
         documents.append(document)
     state, plan, research, refute = documents
 
+    # 경과 문서의 작업 단계가 요청 단계에 맞는지와 미해결 중단 판정을 확인한다.
     current = next((value.split(":", 1)[1].strip() for value in state.header().splitlines()
                     if value.startswith("- 작업 단계:")), "")
-    managed = current in ("착수", "조사", "구현", "진행", "완료")
-    if managed:
-        permitted = {"kickoff": ("착수",), "research": ("조사",), "refute": ("조사",),
-                     "implement": ("구현", "진행"), "verify": ("구현", "진행"),
-                     "reimplement": ("구현", "진행"), "reverify": ("구현", "진행"), "complete": ("완료",)}
-        require(current in permitted.get(stage, ()), f"작업 단계 [{current}]에서는 {stage}를 실행할 수 없습니다.")
-
-    # 미해결 중단 판정과 기존 문서의 상태 기록을 확인한다.
+    require(current == STAGE_OF[stage], R_STAGE_MISMATCH.format(current=current or "미지정", stage=stage))
     require(not unresolved(state), R_UNRESOLVED_STOP)
-    status = current if managed else field(state.header(), "작업 상태")
-    if not managed:
-        require(status in ("미개시", "구현", "진행") or (stage == "complete" and status == "완료"), R_BAD_STATUS)
 
-    # 착수 단계는 착수 종료 조건만 확인한다.
-    if stage == "kickoff":
-        check_kickoff(state if managed else research)
+    # 계획 단계는 계획 종료 조건을, 조사와 반증 배정은 조사 계획과 조사 결과를 확인한다.
+    if stage == "plan":
+        check_plan_exit(state)
         return
-
-    # 조사 승인과 조사 계획을 확인한다. 조사와 반증 단계는 여기서 끝난다.
-    if not managed:
-        approval(state, "조사 승인 범위")
-    items = research_items(research) if research is not None else []
     if stage in ("research", "refute"):
+        require(research is not None, R_NO_RESEARCH)
+        items = research_items(research)
         require(bool(items), R_NO_ITEMS)
         if stage == "refute":
             require(refute is not None or "조사 및 반증 루프" in [t for _, _, t in research.headings], R_NO_REFUTE)
             check_result_sections(research, items)
         return
 
-    # 구현 승인, 입력 문서 계획, 조사 기록, 검토 필요와 실측 필요 항목을 확인한다.
-    if not managed:
-        approval(state, "구현 승인 범위")
-        require(status in ("구현", "진행", "완료"), R_EXEC_STATUS)
+    # 원인 분석, 문서 구조와 한계, 명세 계획, 검토 필요와 실측 필요 항목을 확인한다.
+    check_causes(state)
+    from sub_docs import structure_reason, constraint_reason, mask_results
+    # 결과 저장 hook만 쓰는 결과 블록은 배정 단계에서 고칠 수 없으므로 출처와 값 검사에서 제외한다.
+    for kind, document in zip(("state", "input", "research", "refute"), documents):
+        if document is not None:
+            reason = structure_reason("\n".join(document.raw), kind) or constraint_reason(mask_results("\n".join(document.raw)), kind)
+            require(reason is None, reason or "")
     check_numbers(state, plan)
-    names = check_plan(plan, state)
-    if not managed:
-        check_research(state, research, items, refute=refute, plan=plan)
-    check_review_left(state, stage == "complete", None if managed else research, plan=plan)
+    # 재구현과 재검증은 기존 요구사항의 결함 처리이므로 아직 요구사항이 없는 새 확정 문제로 막지 않는다.
+    names = check_plan(plan, state, every=stage not in ("reimplement", "reverify"))
+    check_review_left(state, stage == "complete", plan=plan)
 
     # 재구현과 재검증 단계는 요청 절의 대상과 위치를 확인한다.
     if stage in ("reimplement", "reverify"):
         title = "재구현 요청" if stage == "reimplement" else "재검증 요청"
         body = plan.section(title)
-        key = "기대 결과" if stage == "reimplement" else "필요한 근거"
-        require(filled(body) and bool(values(body, key)) and all(filled(v) for v in values(body, key)), R_REIMPLEMENT_TARGET.format(title=title, key=key))
+        key = "기대 결과"
+        keys = ("판정 기준", "커맨드") if stage == "reverify" else (key,)
+        for k in keys:
+            require(filled(body) and bool(values(body, k)) and all(filled(v) for v in values(body, k)), R_REIMPLEMENT_TARGET.format(title=title, key=k))
         require(bool(re.search(r"^- .+: .+", body, re.M)), R_REIMPLEMENT_POSITION.format(title=title))
+        # 재검증 요청 항목은 판정 기준과 커맨드 칸을 모두 채워야 한다.
+        for item in (re.split(r"(?m)^- ", body)[1:] if stage == "reverify" else []):
+            if re.match(r"[^\n]+: .+", item):
+                for k in keys:
+                    found = values(item, k)
+                    require(bool(found) and all(filled(value) for value in found), R_REIMPLEMENT_TARGET.format(title=title, key=k))
         if stage == "reimplement":
             for item in re.split(r"(?m)^- ", body)[1:]:
                 if re.match(r"[^\n]+: .+", item):
@@ -443,62 +363,147 @@ def validate(root: Path, task: str, stage: str) -> None:
         check_complete(state, plan, names)
 
 
-# 착수 종료 조건으로 프로젝트 환경, 기존 흐름 코드 블록, 조사 계획을 확인한다. 요구사항 목록은 계획 단계에서 확정하므로 요구하지 않는다.
-def check_kickoff(research: Document) -> None:
-    environment = research.section("프로젝트 환경")
-    require(filled(environment) and "출처:" in environment, R_KICKOFF_ENV)
+# 계획 종료 조건으로 경과 문서의 프로젝트 환경, 기존 흐름 코드 블록, 조사 계획을 확인한다.
+def check_plan_exit(state: Document) -> None:
+    environment = state.section("프로젝트 환경")
+    require(filled(environment) and "출처:" in environment, R_PLAN_EXIT_ENV)
 
     # 기존 흐름 절 안에 비어 있지 않은 코드 블록이 있는지 확인한다.
-    start, end = research.bounds("기존 흐름")
-    require(any(start <= first < last < end and filled(body) for first, last, body in research.blocks), R_KICKOFF_FLOW)
-    research_items(research)
+    start, end = state.bounds("기존 흐름")
+    require(any(start <= first < last < end and filled(body) for first, last, body in state.blocks), R_PLAN_EXIT_FLOW)
+    research_items(state)
 
-# 상태 문서 새 내용이 조사 승인, 구현 승인, 완료로 바뀌면 선행 조건을 확인해 사유를 반환한다. 해당하지 않으면 None이다.
+# 경과 문서 원인 분석 항목마다 원인, 근거 내용, 출처, 한계가 채워졌는지 확인한다. 미달이면 ValueError를 던진다.
+def check_causes(state: Document) -> None:
+    reason = "경과 문서 `원인 분석` 절: 원인, 근거 내용, 출처 또는 한계가 없습니다. log-status 양식을 따르십시오."
+    try:
+        body = state.section("원인 분석")
+    except ValueError:
+        raise ValueError(reason) from None
+    items = re.split(r"(?m)^- ", body)[1:]
+    require(bool(items), reason)
+    for item in items:
+        head = item.splitlines()[0]
+        require(bool(re.fullmatch(r"[^:\n]+: \S.*", head)) and filled(head) and not UNKNOWN_CAUSE.search(head)
+                and "근거 출처" not in item, reason)
+        for key in ("근거 내용", "출처", "한계"):
+            try:
+                value = field(item, key)
+            except ValueError:
+                raise ValueError(reason) from None
+            require(value == "없음" if key == "한계" and not filled(value) else filled(value), reason)
+            require(key != "한계" or value == "없음" or "출처:" in value, reason)
+
+
+# 경과 문서 쓰기가 구현 승인, 구현 단계 또는 완료로 바뀌면 선행 조건을 확인해 사유를 반환한다. 해당하지 않으면 None이다.
 def transition_reason(path: Path, new: str | None, old: str, plan: str) -> str | None:
     # 새 문서 내용이 없으면 전환 검사를 건너뛴다.
     if new is None:
         return None
 
-    # 이번 쓰기로 새로 승인되거나 완료되는 전이를 찾는다.
-    approved = lambda text, title: re.search(r"^\s*- (?:사용자 )?승인 상태:\s*승인\s*$", section(text, title), re.M)
-    kickoff = approved(new, "조사 승인 범위") and not approved(old, "조사 승인 범위")
-    execute = approved(new, "구현 승인 범위") and not approved(old, "구현 승인 범위")
+    # 이번 쓰기로 새로 승인되거나 완료되는 전환을 찾는다.
     from sub_approval import stage_of
-    finished = lambda text: stage_of(text) == "완료" or (not stage_of(text) and bool(re.search(r"^- 작업 상태: 완료\s*$", text, re.M)))
-    complete = finished(new) and not finished(old)
-    if not (kickoff or execute or complete):
+    approved = lambda text: re.search(r"^\s*- (?:사용자 )?승인 상태:\s*승인\s*$", section(text, "구현 승인 범위"), re.M)
+    execute = (approved(new) and not approved(old)) or (stage_of(new) == "구현" and stage_of(old) != "구현")
+    complete = stage_of(new) == "완료" and stage_of(old) != "완료"
+    if not (execute or complete):
         return None
 
-    # 전이에 맞는 선행 조건을 확인하고 미달 사유를 반환한다.
+    # 구현 전환은 원인 분석을, 완료 전환은 명세와 검증 기록을 확인한다.
     try:
-        state_doc, plan_doc = Document(new), Document(plan) if plan.strip() else None
-        managed = bool(re.search(r"(?m)^- 작업 단계: (착수|조사|구현|진행|완료)\s*$", state_doc.header()))
-        if managed and not complete:
-            return None
-        research_path = sibling(path, "research")
-        research = Document(research_path.read_text(encoding="utf-8-sig")) if research_path.is_file() else None
-        refute = sibling(path, "refute")
-        refute_doc = Document(refute.read_text(encoding="utf-8-sig")) if refute.is_file() else None
-        if kickoff:
-            if not managed:
-                check_kickoff(research)
-        if execute or complete:
-            if not managed:
-                require(research is not None, "조사 문서가 없습니다. 조사 단계에서 생성하십시오.")
+        state_doc = Document(new)
+        if execute:
+            check_causes(state_doc)
+        if complete:
+            plan_doc = Document(plan) if plan.strip() else None
             require(plan_doc is not None, R_NO_SPEC)
             check_numbers(state_doc, plan_doc)
             require(not unresolved(state_doc), R_UNRESOLVED_STOP)
             names = check_plan(plan_doc, state_doc)
-            if not managed:
-                check_research(state_doc, research, research_items(research), refute=refute_doc, plan=plan_doc)
-            check_review_left(state_doc, complete, None if managed else research, plan=plan_doc)
-            if complete:
-                check_complete(state_doc, plan_doc, names)
+            check_review_left(state_doc, True, plan=plan_doc)
+            check_complete(state_doc, plan_doc, names)
     except OSError as error:
         return R_IO.format(error=error)
     except ValueError as error:
         return str(error)
     return None
+
+
+# 구현 승인 요청 줄이다. 에이전트는 이 한 줄만 쓰고 hook이 생성한 승인 요청 본문을 사용자에게 표시한다.
+REQUEST_LINE = re.compile(r"(?m)^[ \t]*구현 승인 요청:[ \t]*`?(\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*)`?[ \t]*$")
+R_REQUEST_NO_DOC = "구현 승인 요청: 작업 {task}의 경과 문서와 명세 문서가 없습니다. 작업 문서 생성이 먼저입니다."
+R_REQUEST_BLANK = "구현 승인 요청: 명세 문서 요구사항의 빈 칸부터 채우십시오. 빈 칸: {items}"
+R_REQUEST_PENDING = ("구현 승인 요청: 경과 문서의 검토 필요 또는 사전 모델 호출 실측 필요에 끝나지 않은 항목({items})이 있습니다. "
+                     "검토 필요 항목은 확정 답을, 모델 호출 실측 필요 항목은 상태 `모델 호출 실측 완료`를 기록하십시오.")
+R_REQUEST_PLAN = "구현 승인 요청: 명세 문서를 log-spec 양식대로 채우십시오. 사유: {reason}"
+R_REQUEST_TRANSITION = "구현 승인 요청: 경과 문서에 구현 승인을 기록하면 차단됩니다. 사유: {reason}"
+# Codex에서 hook 안내를 Hook feedback으로 표시한 뒤 모델이 작성할 확인 줄이다.
+ACK_LINE = "hook 안내를 사용자에게 표시했습니다."
+
+
+# Codex Stop block reason에 담아 사용자에게 표시할 안내와 확인 줄 지시를 반환한다.
+def shown_reason(notice: str) -> str:
+    return f"{notice}\n\n위 안내는 사용자에게 표시되었습니다. 응답에는 `{ACK_LINE}` 한 줄만 작성하십시오."
+
+
+# 명세 문서의 폐기되지 않은 요구사항 번호 목록이다.
+def live_numbers(plan: str) -> list[str]:
+    from sub_spec import blocks
+    body = section(plan.replace("\r\n", "\n"), "요구사항 목록")
+    return [str(n) for n, block in blocks(body) if n is not None and not block.split("\n", 1)[0].strip().endswith(". 폐기")]
+
+
+# 경과 문서 구현 승인 범위 절의 승인 상태를 승인으로, 승인 시각을 stamp로, 연결 대상을 요구사항 번호로 바꾼 본문을 반환한다.
+def approved_status(text: str, stamp: str, numbers: list[str]) -> str:
+    head = re.search(r"(?m)^#{2,3} 구현 승인 범위[ \t]*$", text)
+    if not head:
+        return text
+    tail = re.search(r"(?m)^#{1,3} ", text[head.end():])
+    end = head.end() + tail.start() if tail else len(text)
+    body = re.sub(r"(?m)^(\s*-\s*(?:사용자 )?승인 상태:).*$", r"\1 승인", text[head.end():end], count=1)
+    body = re.sub(r"(?m)^(\s*-\s*(?:사용자 )?승인 시각:).*$", lambda m: f"{m[1]} {stamp}", body, count=1)
+    if numbers:
+        body = re.sub(r"(?m)^(\s*-\s*연결 대상:).*$", lambda m: f"{m[1]} 요구사항 {', '.join(numbers)}", body, count=1)
+    return text[:head.end()] + body + text[end:]
+
+
+# 작업의 구현 승인 요청을 검사해 (차단 사유, 사용자에게 표시할 승인 요청 본문)을 반환한다. 통과하면 사유가 None이다.
+def approval_request(root: Path, task: str) -> tuple[str | None, str]:
+    from sub_docs import strip_comments
+    from sub_task_docs import approval_text
+    from sub_write import read
+    status = task_doc(root, task, "state")
+    spec = sibling(status, "input")
+    if not status.is_file() or not spec.is_file():
+        return R_REQUEST_NO_DOC.format(task=task), ""
+    text, plan = read(status), read(spec)
+
+    # 끝나지 않은 검토와 사전 실측이 있으면 요청할 수 없다.
+    try:
+        targets = measurement_targets(text, Document(plan))
+    except ValueError:
+        targets = None
+    pending = review_pending(text) + measure_pending(text, targets=targets)
+    if pending:
+        return R_REQUEST_PENDING.format(items=", ".join(pending[:3])), ""
+
+    # 생성 출력에 자리표시자가 남으면 명세 빈 칸부터 채우게 한다.
+    output = approval_text(status)
+    blanks = [line.strip() for line in strip_comments(output).splitlines() if re.search(r"<[^<>\n]+>", line)]
+    if blanks:
+        return R_REQUEST_BLANK.format(items=" / ".join(blanks[:3])), ""
+
+    # 명세 양식과 구현 승인 전환 조건을 확인한다.
+    try:
+        state_doc, plan_doc = Document(text), Document(plan)
+        check_numbers(state_doc, plan_doc)
+        check_plan(plan_doc, state_doc)
+    except ValueError as error:
+        return R_REQUEST_PLAN.format(reason=error), ""
+    reason = transition_reason(status, approved_status(text, "", live_numbers(plan)), text, plan)
+    if reason:
+        return R_REQUEST_TRANSITION.format(reason=reason), ""
+    return None, output
 
 
 # 서브에이전트 호출이 단계 선행 조건을 채웠는지 확인해 사유를 반환한다. 대상 호출이 아니면 None이다.
@@ -527,10 +532,17 @@ def call_reason(data: dict) -> str | None:
     return None
 
 
-STAGES = ("kickoff", "research", "refute", "implement", "reimplement", "complete")
+# 작업 단계 이름과 경과 문서의 작업 단계 값이다.
+STAGES = ("plan", "implement", "complete")
+STAGE_DOCS = {"plan": "계획", "implement": "구현", "complete": "완료"}
 # 서브에이전트 호출 검사에만 쓰는 단계이다. 단계 실행기는 실행하지 않는다.
-CALL_STAGES = ("verify", "reverify")
+CALL_STAGES = {"research": "계획", "refute": "계획", "reimplement": "구현", "verify": "구현", "reverify": "구현"}
+STAGE_OF = {**STAGE_DOCS, **CALL_STAGES}
+R_STAGE_MISMATCH = "작업 단계 [{current}]에서는 {stage}를 실행할 수 없습니다. 작업 단계에 맞는 배정을 요청하십시오."
+R_NO_RESEARCH = "조사 문서가 없습니다. nestlab-task-docs로 계획 단계 문서를 생성하십시오."
 TASK_ID = re.compile(r"\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*")
+# 원인 분석 항목의 원인 칸에 쓸 수 없는 미특정 표현이다.
+UNKNOWN_CAUSE = re.compile(r"미확인|확인 필요|불명")
 CASE_ROW = re.compile(r"^\|\s*(차단|허용)\s*\|([^|\n]*)\|([^|\n]*)\|([^|\n]*)\|\s*$", re.M)
 
 
@@ -548,11 +560,9 @@ R_CHECK_ACTUAL = "검증 계획의 실제 검증에 확인 수단 출처가 없�
 R_CHECK_CMDS = "검증 계획에 검증 커맨드 목록이 없습니다."
 
 
-R_PROBLEM_LINK = "요구사항 `{name}`의 `- 문제:` 줄이 없거나 확정되지 않았거나 폐기된 문제를 가리킵니다. 확정된 문제 번호에 연결하십시오."
-R_PROBLEM_MISSING = "확정된 문제 {numbers}에 연결된 요구사항이 없습니다. 요구사항의 `- 문제:` 줄로 연결하거나 문제 폐기 질문으로 정리하십시오."
-R_GAP_LIMIT = "요구사항 `{name}`에 한계, 출처와 확인 방법이 없습니다."
-R_GAP_KINDS = "요구사항 `{name}`의 Test Case 표에 차단 행과 허용 행이 1행 이상 있어야 합니다."
-R_GAP_FIELDS = "요구사항 `{name}`의 Test Case 행마다 입력, 커맨드와 기대 결과가 있어야 합니다."
+R_GAP_LIMIT = "명세 문서 요구사항 `{name}`: 한계 칸에 출처와 확인 방법이 없습니다. log-spec 양식을 따르십시오."
+R_GAP_KINDS = "명세 문서 요구사항 `{name}`: Test Case 표에 차단 또는 허용 행이 없습니다. log-spec 양식을 따르십시오."
+R_GAP_FIELDS = "명세 문서 요구사항 `{name}`: Test Case 표의 입력, 커맨드 또는 기대 결과 칸이 비어 있습니다. log-spec 양식을 따르십시오."
 
 
 R_ITEM_FORMAT = "조사 계획의 조사 항목 이름이 `조사 <번호>. <이름>` 형식이 아닙니다."
@@ -564,39 +574,28 @@ R_SOURCE_FORMAT = "조사 문서의 출처가 URL 또는 `파일:행` 형식이 
 
 
 PROBLEM_REF = re.compile(r"\(문제 (\d+(?:, ?\d+)*)\)")
-R_PROBLEM_REF = "조사 계획의 항목 `{item}`에 `(문제 <번호>)` 표기가 없거나 `문제 <번호> 조사 필요 판정`에 없는 번호입니다."
+R_PROBLEM_REF = "조사 계획 항목 `{item}`: 문제 번호 표기가 log-research 양식과 다릅니다."
 
 
-R_RESULT_EMPTY = "조사 원문이 비어 있습니다."
-R_RESULT_ITEM = "조사 원문에 `{item}` 항목이 없습니다."
-R_RESULT_LABEL = "조사 원문의 `{item}`에 `{label}` 항목이 없습니다."
-R_RESULT_FIT = "조사 원문의 `{item}`에 후보 충족 여부가 없습니다."
+R_RESULT_EMPTY = "조사 결과: 결과 본문이 비어 있습니다. log-research 양식의 결과 블록을 채우십시오."
+R_RESULT_ITEM = "조사 결과 `{item}`: 결과 블록이 없습니다. log-research 양식의 결과 블록 제목을 쓰십시오."
+R_RESULT_LABEL = "조사 결과 `{item}`: `{label}` 칸이 없습니다. log-research 양식을 따르십시오."
+R_RESULT_FIT = "조사 결과 `{item}`: 충족 여부 칸이 없습니다. log-research 양식을 따르십시오."
 
 
 R_NO_VERDICT = "반증 판정과 출처가 없습니다."
 R_VERDICT_SOURCE = "반증 판정의 출처가 URL 또는 `파일:행` 형식이 아닙니다."
-R_VERDICT_FORMAT = "반증 판정 줄이 `주장 <번호>: <지지 | 반증 | 미확인> | 출처: <URL 또는 파일:행>` 형식이 아닙니다. 줄: `{line}`"
+R_VERDICT_FORMAT = "반증 결과 `{line}`: 판정 줄 형식이 log-refute 양식과 다릅니다."
 CLAIM_START = re.compile(r"^[\s\-*]*주장\s*\d+\s*[:：]\s*(?:지지|반증|미확인)")
 
 
-R_VERDICT_SOURCE_LOOP = "반증 판정의 출처가 URL 또는 `파일:행` 형식이 아닙니다."
-R_NO_ROUNDS = "반증 문서에 반증 회차 기록이 없습니다."
-R_ROUND_ORDER = "반증 회차는 1회차와 2회차 순서로만 기록할 수 있습니다."
-R_STOP_MISMATCH = "반증 건수와 정지 여부가 일치하지 않습니다."
-R_AFTER_STOP = "정지한 뒤에 반증 회차가 더 기록돼 있습니다."
-R_COUNT_MISMATCH = "반증 원문의 반증 건수가 기록한 건수와 다릅니다."
-R_NOT_FINISHED = "조사와 반증이 아직 정지하지 않았습니다."
-R_USER_CONFIRM = "조사 결과를 사용자가 확인하지 않았습니다."
-R_REVIEW_ITEM = "상태 문서의 검토 필요에 `{item}` 항목이 없거나 중복돼 있습니다."
-R_REVIEW_UNDONE = "`{item}`의 사용자 검토가 끝나지 않았습니다."
-R_UNVERIFIED = "반증 2회에 도달했으므로 검증 미완을 사용자 보고로 기록해야 합니다."
 
 
 R_REVIEW_NOT_STARTED = "검증을 시작하지 않은 작업은 완료로 쓸 수 없습니다."
 R_REVIEW_MISSING = "`{name}`의 검증 결과가 없습니다."
 R_REVIEW_NOT_PASS = "`{name}`의 최종 검증 결과가 PASS가 아닙니다."
 R_REMAINING = "검증 결과의 남은 문제가 없음으로 기록돼 있지 않습니다."
-R_PENDING = "`{title}`에 처리하지 않은 항목이 있습니다."
+R_PENDING = "명세 문서 `{title}` 절: 처리하지 않은 요청이 있습니다. log-spec 양식을 따르십시오."
 
 
 R_TASK_ID = "작업 ID 형식이 올바르지 않습니다."
@@ -604,23 +603,20 @@ R_STAGE = "지원하지 않는 단계 `{stage}`입니다."
 R_OUTSIDE = "문서 경로가 저장소 밖을 가리킵니다."
 R_ID_MISMATCH = "`{name}`의 작업 ID가 요청한 작업 ID와 다릅니다."
 R_UNRESOLVED_STOP = "중단 사유에 미해결 중단 판정이 있어 다음 단계로 진행할 수 없습니다."
-R_BAD_STATUS = "작업 상태가 중단이거나 이 단계에서 쓸 수 없는 값입니다."
 R_NO_ITEMS = "조사할 조사 항목이 없습니다."
-R_EXEC_STATUS = "구현 승인 뒤 작업 상태는 구현이어야 합니다."
 R_REVIEW_LEFT = "상태 문서의 검토 필요에 검토가 끝나지 않은 항목이 있습니다."
 R_MEASURE_LEFT = "상태 문서의 모델 호출 실측 필요에 실측이 끝나지 않은 항목({items})이 있습니다."
 
 
-R_REIMPLEMENT_TARGET = "`{title}`에 대상과 `{key}` 칸이 있어야 합니다."
-R_REIMPLEMENT_POSITION = "`{title}`에 대상 위치가 없습니다."
+R_REIMPLEMENT_TARGET = "명세 문서 `{title}`: `{key}` 칸이 비어 있습니다. log-spec 양식을 따르십시오."
+R_REIMPLEMENT_POSITION = "명세 문서 `{title}`: 수정 위치 항목이 없습니다. log-spec 양식을 따르십시오."
 
 R_NO_REFUTE = "반증 문서가 없습니다."
 R_NO_SPEC = "명세 문서가 없습니다."
-SPECLESS_STAGES = ("kickoff", "research", "refute")
 
 
-R_KICKOFF_ENV = "착수 기록의 프로젝트 환경에 확인 내용과 출처가 없습니다."
-R_KICKOFF_FLOW = "착수 기록의 `기존 흐름` 절에 코드 블록이 없습니다."
+R_PLAN_EXIT_ENV = "경과 문서 `프로젝트 환경` 절: 출처가 없습니다. log-status 양식을 따르십시오."
+R_PLAN_EXIT_FLOW = "경과 문서 `기존 흐름` 절: 채운 코드 블록이 없습니다. log-status 양식을 따르십시오."
 
 
 R_IO = "작업 문서를 읽지 못했습니다({error})."

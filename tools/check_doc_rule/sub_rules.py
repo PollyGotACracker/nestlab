@@ -1,17 +1,25 @@
 """검사 대상 파일을 찾고 경로, 절 참조와 문구를 검사한다."""
 from __future__ import annotations
 
+import ast
+import io
+import tokenize
 from pathlib import Path
 
 from sub_config import (
+    AGENT_NAME,
+    AGENT_NAME_SCOPE,
     FENCE,
+    KIND_AGENT,
     INLINE_CODE,
     KIND_CROSS,
     KIND_NEGATIVE,
     KIND_PATH,
+    KIND_RECORD,
     KIND_RULE_ID,
     KIND_SECTION,
     NEGATIVE,
+    RECORD_ID,
     ROOT,
     RULE_ID,
     RULE_ID_SCOPE,
@@ -20,6 +28,28 @@ from sub_config import (
 )
 from sub_paths import as_repo_path, path_exists
 from sub_sections import read_headings, section_targets
+
+
+# Python 소스의 (행, 주석 또는 docstring 줄) 목록을 반환한다.
+# 문자열 리터럴은 docstring만 포함하고, 소스를 해석하지 못하면 해석한 부분까지만 반환한다.
+def comment_lines(source: str) -> list[tuple[int, str]]:
+    found: list[tuple[int, str]] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type == tokenize.COMMENT:
+                found.append((tok.start[0], tok.string))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    try:
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+                first = node.body[0]
+                if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+                    for offset, line in enumerate(first.value.value.splitlines()):
+                        found.append((first.lineno + offset, line))
+    except SyntaxError:
+        pass
+    return found
 
 
 # 파일 하나를 검사해 위반 목록을 반환한다.
@@ -32,8 +62,18 @@ def check_file(
     # 파일 종류별 검사 조건을 정한다. text가 있으면 파일 대신 그 내용을 검사한다.
     path = ROOT / rel
     violations: list[tuple[str, int, str, str]] = []
+
+    # Python 파일은 주석과 docstring의 작업 기록 식별자만 검사한다.
+    if rel.endswith(".py"):
+        source = path.read_text(encoding="utf-8-sig") if text is None else text
+        for lineno, line in sorted(comment_lines(source)):
+            for match in RECORD_ID.finditer(line):
+                violations.append((rel, lineno, KIND_RECORD, match.group(0)))
+        return violations
+
     in_fence = False
     check_rule_id = rel.startswith(RULE_ID_SCOPE)
+    check_agent = bool(AGENT_NAME_SCOPE.match(rel))
     # 줄마다 코드 블록 밖에서 경로와 절 참조를 검사한다.
     for lineno, line in enumerate((path.read_text(encoding="utf-8-sig") if text is None else text).splitlines(), 1):
         if FENCE.match(line):
@@ -64,6 +104,11 @@ def check_file(
         if check_rule_id:
             for match in RULE_ID.finditer(line):
                 violations.append((rel, lineno, KIND_RULE_ID, match.group(0)))
+
+        # 스킬 본문의 에이전트명은 코드 블록 안에서도 위반으로 판정한다.
+        if check_agent:
+            for match in AGENT_NAME.finditer(line):
+                violations.append((rel, lineno, KIND_AGENT, match.group(0)))
 
         # 부정 표현을 위반으로 판정한다.
         for match in NEGATIVE.finditer(line):

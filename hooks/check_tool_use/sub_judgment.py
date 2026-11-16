@@ -7,7 +7,7 @@
 반환:
 - check_raw, check_judgment, check_stage는 deny 사유 문자열 또는 통과 시 None
 - review_items는 {항목 이름: 본문} dict
-- open_tasks는 상태 문서 경로 목록
+- open_tasks는 색인의 현재 진행 작업 경과 문서 경로 목록(0개 또는 1개)
 - unanswered는 아직 답을 받지 않은 조사 문서 `검토 <번호>.` 보고 이름 목록
 - early_items는 명세 문서 쓰기 전에 끝나지 않은 검토 이름 목록
 한계: 조사 문서는 기록된 검토 필요 항목만 검사한다.
@@ -19,13 +19,11 @@ from pathlib import Path
 
 from sub_docs import review_pending, section, sibling, titles
 from sub_session import answered_questions
-from sub_document import Document, approval
 from sub_write import read
 
 RAW = ("최종 조사 원문", "최종 반증 원문")
 ROUND = re.compile(r"^#{1,6} (\d+회차 반증 (?:요청|원문))\s*$", re.M)
 ITEM = re.compile(r"(?m)^- (.+)$")
-OPEN = ("미개시", "구현", "진행")
 RAW_EMPTY = re.compile(r"^(`{3,})[^\n]*\n\s*(?:기록 없음|<[^<>\n]*>)?\s*\n\1$")
 DONE = "검토 완료"
 ASK = "사용자 검토 필요"
@@ -69,9 +67,9 @@ def check_raw(new: str | None, old: str, blank_ok: bool = False) -> str | None:
     if blank_ok and new is not None and not rounds(new) and not rounds(old) and all(raw_empty(t, title) for t in (new, old) for title in RAW):
         return None
 
-    # 최종 원문 칸이 바뀌면 차단한다. 새 문서의 빈 원문 칸은 허용한다.
+    # 최종 원문 칸이 바뀌면 차단한다. 변경 전후가 모두 빈 원문 칸(새 문서, 이전 양식의 빈 칸 제거)은 허용한다.
     changed = [t for t in RAW if new is not None and section(new, t) != section(old, t)]
-    if changed and not (not old and all(raw_empty(new, t) for t in changed)):
+    if changed and not all(raw_empty(new, t) and raw_empty(old, t) for t in changed):
         return REASON_RAW
 
     # 회차 반증 블록이 바뀌면 차단한다.
@@ -116,28 +114,22 @@ def confirmed_by(transcript: str, key: str) -> bool:
 
 
 REASON_CONFIRM = "조사 문서 확인 상태를 확인으로 쓰기 전에 {items}의 검토 질문 확정 답이 경과 문서에 기록돼야 합니다."
-REASON_BEFORE = "조사 문서 확인 상태를 쓰기 전에 상태 문서의 조사 승인이 기록돼야 합니다({error})."
+REASON_BEFORE = "조사 문서 확인 상태는 경과 문서의 작업 단계가 계획일 때 쓰십시오(현재 작업 단계 [{stage}])."
 CHECKED = re.compile(r"^\s*(?:- )?확인 상태:\s*(\S+)", re.M)
 
-# 조사 문서 확인 상태가 새로 확인이 되면 앞 단계(조사 승인)와 검토 질문 확정 답 기록을 요구한다.
+# 조사 문서 확인 상태가 새로 확인이 되면 계획 단계와 검토 질문 확정 답 기록을 요구한다.
 def check_judgment(path: Path, new: str | None, old: str, transcript: str) -> str | None:
     # 확인 상태가 확인으로 바뀐 쓰기만 검사한다.
     pick = lambda text: (CHECKED.search(text or "") or [None, ""])[1]
     if new is None or pick(new) != "확인" or pick(old) == "확인":
         return None
 
-    # 상태 문서의 조사 승인 칸이 채워졌는지 단계 함수로 확인한다.
+    # 경과 문서의 작업 단계가 계획인지 확인한다.
     state = sibling(path, "state")
-    try:
-        from sub_approval import stage_of
-        current = stage_of(read(state))
-        if current:
-            if current != "조사":
-                return REASON_BEFORE.format(error=f"현재 작업 단계 [{current}]")
-        else:
-            approval(Document(read(state)), "조사 승인 범위")
-    except ValueError as error:
-        return REASON_BEFORE.format(error=error)
+    from sub_approval import stage_of
+    current = stage_of(read(state))
+    if current != "계획":
+        return REASON_BEFORE.format(stage=current or "미지정")
 
     # 검토 질문 확정 답이 모두 기록됐는지 확인한다. 경과 문서가 없으면 건너뛴다.
     try:
@@ -148,7 +140,6 @@ def check_judgment(path: Path, new: str | None, old: str, transcript: str) -> st
 
 
 REASON_STOP_TYPE = ("중단 유형 칸을 쓸 수 없습니다. `중단 판정`이 든 질문 도구 질문의 확정 선택지 답이 세션 기록에 없습니다.")
-REASON_STOP_APPROVAL = "중단 유형 칸을 쓰기 전에 상태 문서의 구현 승인이 기록돼야 합니다({error})."
 STOP_TYPE = re.compile(r"^\s*- 중단 유형:[ \t]*(.*?)\s*$", re.M)
 
 
@@ -157,38 +148,25 @@ def stop_filled(value: str) -> bool:
     return bool(value) and not value.startswith("<")
 
 
-# 상태 문서의 중단 유형 칸 변경이 구현 승인과 질문 확정 답을 갖췄는지 검사한다.
+# 상태 문서의 중단 유형 칸 변경이 질문 확정 답을 갖췄는지 검사한다.
 def check_stage(path: Path, new: str | None, old: str, transcript: str) -> str | None:
     if new is None:
         return None
 
-    # 중단 유형 칸이 새로 쓰이거나 바뀌면 구현 승인과 질문 확정 답을 요구한다.
+    # 중단 유형 칸이 새로 쓰이거나 바뀌면 질문 확정 답을 요구한다.
     kinds = lambda text: [v for v in STOP_TYPE.findall(text) if stop_filled(v)]
     if kinds(new) != kinds(old) and kinds(new):
-        try:
-            from sub_approval import stage_of
-            current = stage_of(new)
-            if not current:
-                approval(Document(new), "구현 승인 범위")
-        except ValueError as error:
-            return REASON_STOP_APPROVAL.format(error=error)
         if not confirmed_by(transcript, "중단 판정"):
             return REASON_STOP_TYPE
     return None
 
 
-# 진행 중인 작업의 경과 문서이다.
+# 색인의 현재 진행 작업이 미완료이면 그 경과 문서 하나를 담은 목록을 반환한다.
 def open_tasks(root: Path) -> list[Path]:
-    log = root / "log"
-    out = []
-    for path in sorted(log.glob("task/*/status.md")):
-        if path.name.endswith(("-input.md", "-research.md")):
-            continue
-        text = read(path)
-        m = re.search(r"^- 작업 단계:\s*(\S+)", text, re.M) or re.search(r"^- 작업 상태:\s*(\S+)", text, re.M)
-        if m and m.group(1) in (*OPEN, "착수", "조사"):
-            out.append(path)
-    return out
+    from sub_approval import stage_of
+    from sub_task_index import selected_status
+    status = selected_status(root)
+    return [status] if status is not None and stage_of(read(status)) != "완료" else []
 
 
 # 명세 문서 쓰기 전에 경과 문서 검토 필요 절에서 확정 답이 없는 검토 이름 목록이다.

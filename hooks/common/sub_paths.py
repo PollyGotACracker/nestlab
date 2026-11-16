@@ -12,11 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 # 저장소 안 폴더와 파일이다.
 SHARED_DIR = ROOT / "shared"
 TEMPLATE_DIR = SHARED_DIR / "templates" / "workflow"
+INDEX_TEMPLATE = TEMPLATE_DIR / "log-index.md"
 SKILL_DIR = SHARED_DIR / "skills"
 SETTINGS_DIR = SHARED_DIR / "settings"
 AGENT_DIR = ROOT / ".claude" / "agents"
 TOOLS_DIR = ROOT / "tools"
-LOG_DIR = ROOT / "log"
+LOG_DIR = ROOT / ".agent-logs"
 INCIDENT_DIR = LOG_DIR / "incident"
 LOCAL_SETTINGS = SETTINGS_DIR / "local.json"
 WIKI_SKILL = SKILL_DIR / "wiki" / "SKILL.md"
@@ -26,8 +27,9 @@ MANAGE_WORKTREE = TOOLS_DIR / "manage_task_worktree.py"
 
 # 저장소 루트 기준 상대 경로 문자열이다. 정규식과 안내 문구, glob에 쓴다.
 SHARED_NAME = SHARED_DIR.name
-TASK_REL = "log/task"
-INCIDENT_REL = "log/incident"
+TASK_REL = ".agent-logs/task"
+TASK_INDEX_REL = TASK_REL + "/index.md"
+INCIDENT_REL = ".agent-logs/incident"
 SKILL_REL = "shared/skills"
 SKILL_GLOB = f"{SKILL_REL}/*/SKILL.md"
 TEMPLATE_GLOB = "shared/templates/workflow/*.md"

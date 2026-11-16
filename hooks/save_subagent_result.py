@@ -23,7 +23,7 @@ sys.path.insert(0, str(HOOKS / "common"))
 sys.path.insert(0, str(HOOKS / "check_tool_use"))
 sys.path.insert(0, str(HOOKS / "check_workflow_response"))
 
-from sub_call import VERDICT, refute_mode
+from sub_call import VERDICT, refute_mode, task_stage
 from sub_docs import doc, loop_count, saved_report, sibling, strip_task_comments, task_id, template_text
 from sub_role import codex_rollout, director_assignment, first_prompt, main_session, parent_thread, resolve_role
 from sub_session import agent_transcript, handback_report
@@ -35,6 +35,8 @@ REQUESTED = re.compile(r"^item: (research \d+)\s*$", re.M)
 # 결과 블록 제목 줄이다. 조사는 `### 조사 <번호>. <항목명> 결과`, 반증은 `### <n>회차 반증 결과`이다.
 RESEARCH_BLOCK = re.compile(r"(?m)^### 조사 (\d+)\. .+ 결과[ \t]*$")
 REFUTE_BLOCK = re.compile(r"(?m)^### .*회차 반증 결과[ \t]*$")
+# 실행 커맨드 근거 표기이다. 코드 스팬 안의 실행 도구 이름 또는 `커맨드:`와 `실행:` 줄이다.
+EXEC_EVIDENCE = re.compile(r"`[^`\n]*\b(?:python3?|py|node|npm|bash|sh|git|grep|rg|cat|echo|pytest|uv)\b[^`\n]*`|(?:커맨드|실행)\s*[:：]\s*\S")
 RESULT_SECTION = {"research": "조사 결과", "refute": "회차 결과"}
 
 
@@ -110,7 +112,7 @@ def result_gaps(kind: str, message: str, wanted: list[str]) -> list[str]:
     if kind == "research":
         # 결론 불가 보고는 후보 안 블록이 없어도 된다.
         if "결론 불가" in message:
-            gaps = [g for g in gaps if not g.startswith("`안 ")]
+            gaps = [g for g in gaps if not g.startswith("`안`")]
         found = set(RESEARCH_BLOCK.findall(message))
         gaps += [f"조사 {n} 결과 블록이 없습니다" for n in wanted if n not in found]
         # 주장 목록 절은 줄이 하나 이상 있어야 한다.
@@ -165,17 +167,32 @@ def insert_result(text: str, kind: str, blocks: list[tuple[str, str]]) -> str:
     return "\n".join(lines[:found[0] + 1]) + "\n\n" + body + "\n" + ("\n" + tail + "\n" if tail else "")
 
 
+# 결과 블록 본문을 코드 블록 밖의 첫 `#`, `##` 제목 줄 앞에서 끊는다. 보고 끝에 붙은 최상위 절은 블록에 넣지 않는다.
+def cut_block(text: str) -> str:
+    out, fence = [], ""
+    for line in text.splitlines():
+        run = re.match(r"`{3,}|~{3,}", line)
+        if run and not fence:
+            fence = run.group()
+        elif run and line.startswith(fence) and not line.strip().strip(fence[0]):
+            fence = ""
+        elif not fence and re.match(r"#{1,2} ", line):
+            break
+        out.append(line)
+    return "\n".join(out).strip("\n")
+
+
 # 보고에서 조사 결과 블록을 (조사 번호, 블록 본문) 목록으로 나눈다. 첫 블록 앞의 글은 버린다.
 def research_blocks(message: str) -> list[tuple[str, str]]:
     marks = list(RESEARCH_BLOCK.finditer(message))
-    return [(m[1], message[m.start():(marks[i + 1].start() if i + 1 < len(marks) else len(message))].strip("\n"))
+    return [(m[1], cut_block(message[m.start():(marks[i + 1].start() if i + 1 < len(marks) else len(message))]))
             for i, m in enumerate(marks)]
 
 
 # 반증 보고의 첫 결과 블록 제목을 이번 회차 번호로 바꾼 본문이다. 블록 앞의 글은 버린다.
 def refute_block(message: str, n: int) -> str:
     found = REFUTE_BLOCK.search(message)
-    return f"### {n}회차 반증 결과" + message[found.end():].rstrip("\n") if found else message
+    return f"### {n}회차 반증 결과\n\n" + cut_block(message[found.end():]) if found else message
 
 
 # 반증 문서 양식의 `<회차>` 표 행을 지운다.
@@ -239,6 +256,23 @@ def write_claims(refute_doc: Path, message: str) -> None:
     strip_task_comments(refute_doc)
 
 
+# 저장할 문서를 PreToolUse 작업 문서 쓰기와 같은 검사(제목 구조, 한계 출처, 조사 문서의 출처 형식)로 확인한다.
+# 위반이면 문서 이름, 위반 행, 양식 이름을 담은 사유를, 통과하면 None을 반환한다.
+def document_reason(target: Path, text: str, refute: bool, blocks: list[str]) -> str | None:
+    from sub_docs import constraint_reason, structure_reason
+    from sub_document import bare
+    from sub_gate import R_SOURCE_FORMAT, bad_source
+    kind = "refute" if refute else "research"
+    reason = structure_reason(text, kind) or constraint_reason(text, kind)
+    if reason:
+        return f"{target.name}: {reason}"
+    if not refute:
+        bad = next((b for block in blocks for line in block.splitlines() if (b := bad_source(line))), None)
+        if bad is not None:
+            return f"{target.name}: " + R_SOURCE_FORMAT.format(value=bare(bad[:40]))
+    return None
+
+
 # target 문서에 결과를 쓴다. 반증이면 target은 반증 문서이고, 조사이면 조사 문서이며 주장 목록을 반증 문서에 쓴다.
 # 양식 칸이 비었거나 판정 형식이 어긋나면 문서를 바꾸지 않고 재제출 사유를 반환한다. 이미 기록한 반증 보고면 쓰지 않는다.
 def write_result(target: Path, prompt: str, message: str, refute: bool) -> str | None:
@@ -273,17 +307,45 @@ def write_result(target: Path, prompt: str, message: str, refute: bool) -> str |
         return str(error)
 
     # 반증은 회차 결과 블록과 루프 행을, 조사는 항목별 결과 블록을 갱신한다.
+    # 검사본은 이미 저장된 결과 블록을 가린 본문에 새 블록을 넣는다. 작성자가 고칠 수 없는 기존 블록으로 거부하지 않는다.
+    from sub_docs import mask_results
+    masked = mask_results(text)
     if refute:
         block = refute_block(message, loop_count(text) + 1)
         if without_heading(block) in text:  # 같은 보고로 다시 멈춘 경우는 이미 기록했다.
             return None
-        text = add_loop_row(insert_result(drop_placeholder_row(text), "refute", [("", block)]), message)
+        blocks = [block]
+        update = lambda body: add_loop_row(insert_result(drop_placeholder_row(body), "refute", [("", block)]), message)
     else:
-        text = insert_result(text, "research", research_blocks(message))
+        pairs = research_blocks(message)
+        update = lambda body: insert_result(body, "research", pairs)
+        blocks = [block for _, block in pairs]
+    text, checked = update(text), update(masked)
+
+    # 저장 전에 검사본을 검사하고 위반이면 문서를 바꾸지 않은 채 재제출 사유를 반환한다.
+    # 문서 행 번호만으로는 작성자가 보고의 어느 줄인지 알 수 없으므로 해당 줄 원문을 함께 알린다.
+    if reason := document_reason(target, checked, refute, blocks):
+        row = re.search(r"(\d+)행", reason)
+        lines = checked.splitlines()
+        if row and 0 < int(row[1]) <= len(lines) and lines[int(row[1]) - 1].strip():
+            reason += f" 보고의 해당 줄: `{lines[int(row[1]) - 1].strip()[:120]}` 이 줄을 고쳐 제출하십시오."
+        return reason
     target.write_text(text, encoding="utf-8")
     strip_task_comments(target)
     if not refute:
         write_claims(sibling(target, "refute"), message)
+    return None
+
+
+# 검증 보고의 실제 동작 PASS 항목 중 실행 커맨드 근거가 없는 항목의 거부 사유를 반환한다. 없으면 None이다.
+# 항목은 들여쓰기 없는 `- `, `N.`, 표 행, `###` 줄과 뒤따르는 들여쓴 줄이다. 근거는 코드 스팬 안의 실행 도구 이름이나 `커맨드:` 줄이며 결과 내용은 판정하지 않는다.
+def unexecuted_pass(report: str) -> str | None:
+    items = re.split(r"(?m)^(?=(?:[-*] |\d+\. |\||#{3,4} ))", report)
+    for item in items:
+        if "실제 동작" in item and re.search(r"\bPASS\b", item) and not EXEC_EVIDENCE.search(item):
+            head = next((l.strip() for l in item.splitlines() if l.strip()), "")[:80]
+            return (f"실제 동작 PASS 항목에 실행 커맨드 근거가 없어 저장하지 않습니다. 해당 항목: `{head}`\n"
+                    "hook 표준 입력 실행 커맨드와 실제 응답 문장을 항목에 적고, 실행하지 못했으면 `미측정`으로 판정해 다시 제출하십시오.")
     return None
 
 
@@ -307,7 +369,7 @@ def save(data: dict, runner: str) -> str | None:
     prompt = first_prompt(path) or "\n".join(str(v) for v in (data.get("tool_input") or {}).values())
     refute = role == "reviewer" and refute_mode(prompt)
     if role == "reviewer" and not refute:
-        return
+        return unexecuted_pass(message) if task_stage(prompt) in ("verify", "reverify") else None
     if not message:
         return "결과 보고가 비어 있습니다. 조사 또는 반증 결과를 제출하십시오."
     # Claude는 Handback 없이 끝난 응답을 하네스가 되돌려 다시 보고하게 한다. 그 응답을 저장하면 회차가 둘이 된다.

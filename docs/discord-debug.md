@@ -13,7 +13,7 @@ Discord 봇의 동작과 오류 원인을 확인하는 커맨드 목록이다.
 - `journalctl` 커맨드는 GCP VM의 systemd 서비스 `discord-bot` 기준이다.
 - 로컬에서 `python discord/bot/bot.py`로 실행하면 같은 로그가 실행한 터미널에 출력된다.
 - `journalctl` 시각은 VM의 시간대 설정을 따른다.
-  KST 시각을 UTC로 대조하려면 9시간을 빼고 `journalctl --utc`로 출력한다.
+  시각을 UTC로 대조하려면 9시간을 빼고 `journalctl --utc`로 출력한다.
 
 ## 실시간 로그
 

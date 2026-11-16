@@ -43,21 +43,21 @@ class Workflow(unittest.TestCase):
 
     # 사건 분석 단계가 director 지침과 네 줄 요청을 hook을 끈 CLI로 실행하는지 확인한다.
     def test_incident_disables_hooks_and_limits_tools(self):
-        (self.root / "log/incident").mkdir(parents=True)
-        (self.root / "log/incident/a.md").write_text("# a", encoding="utf-8")
+        (self.root / ".agent-logs/incident").mkdir(parents=True)
+        (self.root / ".agent-logs/incident/a.md").write_text("# a", encoding="utf-8")
         claude = subprocess.CompletedProcess([], 0, json.dumps({"result": "분석"}))
         codex = subprocess.CompletedProcess([], 0, json.dumps(
             {"type": "item.completed", "item": {"type": "agent_message", "text": "분석"}}))
         for name, result in (("claude", claude), ("codex", codex)):
             with patch.object(runner.subprocess, "run", return_value=result) as call:
-                self.assertEqual(runner.run_incident(self.root, "log/incident/a.md", name), "분석")
+                self.assertEqual(runner.run_incident(self.root, ".agent-logs/incident/a.md", name), "분석")
             command = call.call_args.args[0]
             request = call.call_args.kwargs["input"]
             self.assertNotIn(request, command)
             if name == "codex":
                 self.assertEqual(command[-1], "-")
             self.assertTrue(request.startswith("director 지침"))
-            self.assertRegex(request, r"task: incident\ninput: log/incident/a\.md\n"
+            self.assertRegex(request, r"task: incident\ninput: .agent-logs/incident/a\.md\n"
                                           r"현재 시각\(KST\): \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\nnestlab-log-incident 절차")
             if name == "claude":
                 self.assertEqual(command[command.index("--settings") + 1], '{"disableAllHooks": true}')
@@ -68,7 +68,7 @@ class Workflow(unittest.TestCase):
             else:
                 self.assertEqual(command[:4], ["codex", "exec", "--disable", "hooks"])
         with self.assertRaises(ValueError):
-            runner.run_incident(self.root, "log/incident/none.md", "claude")
+            runner.run_incident(self.root, ".agent-logs/incident/none.md", "claude")
 
     # invoke의 subprocess.run이 Windows에서 CREATE_NO_WINDOW를, 그 밖의 OS에서 0을 받는지 확인한다.
     def test_invoke_creationflags(self):

@@ -71,8 +71,8 @@ class DirectorBoundaries(unittest.TestCase):
         for runner, name in (("claude", "Agent"), ("codex", "spawn_agent")):
             data = self.event("director", runner, tool_name=name,
                               tool_input={"subagent_type": "jelly", "agent_type": "worker", "fork_turns": "none",
-                                          "prompt": "task: implement\ninput: log/task/t/spec.md",
-                                          "message": "task: implement\ninput: log/task/t/spec.md"})
+                                          "prompt": "task: implement\ninput: .agent-logs/task/t/spec.md",
+                                          "message": "task: implement\ninput: .agent-logs/task/t/spec.md"})
             self.assertIn("승인", check_tool_use.check(data, runner))
 
     # 승인된 director 턴의 기본 역할 배정은 호출 순서와 무관하게 두 runner에서 연속 허용된다.
@@ -87,7 +87,7 @@ class DirectorBoundaries(unittest.TestCase):
                               "content": [{"type": "input_text", "text": "승인"}]}}) + "\n", encoding="utf-8")
             with patch.object(check_tool_use, "call_reason", return_value=None):
                 for agent in ("jelly", "ricky"):
-                    prompt = f"task: {'implement' if agent == 'jelly' else 'verify'}\ninput: log/task/t/spec.md"
+                    prompt = f"task: {'implement' if agent == 'jelly' else 'verify'}\ninput: .agent-logs/task/t/spec.md"
                     inputs = {"subagent_type": agent, "agent_type": agent, "fork_turns": "none", "prompt": prompt, "message": prompt}
                     with self.subTest(runner=runner, agent=agent):
                         self.assertIsNone(check_tool_use.check({**data, "tool_input": inputs}, runner))
@@ -133,11 +133,11 @@ class DirectorBoundaries(unittest.TestCase):
             self.assertEqual(sub_role.director_assignment(data, str(child)), expected)
 
     def test_result_replacement_requires_saved_nonempty_body(self):
-        folder = self.root / "log" / "task" / "t"
+        folder = self.root / ".agent-logs" / "task" / "t"
         folder.mkdir(parents=True)
         document = folder / "research.md"
         data = self.event("director", "claude", tool_name="Agent",
-                          tool_input={"subagent_type": "nico", "prompt": "task: research\ninput: log/task/t/research.md"},
+                          tool_input={"subagent_type": "nico", "prompt": "task: research\ninput: .agent-logs/task/t/research.md"},
                           tool_response={"status": "completed", "content": "일반 응답"})
         with patch.object(sub_docs, "project_root", return_value=self.root):
             for body in ("", "### 조사 <번호>. <항목명> 결과\n\n- 결론: <내용>\n"):

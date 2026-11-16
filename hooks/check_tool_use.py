@@ -10,7 +10,9 @@
 - 승인 창을 띄우는 `ask`는 출력하지 않는다.
 - 통과하면 아무것도 출력하지 않는다.
 - check()는 사유 문자열 또는 None을 반환한다.
-한계: 검사 오류는 쓰기 도구(Edit, Write, NotebookEdit, apply_patch, 쓰기 Bash)만 deny하고 나머지는 통과한다.
+한계:
+- 검사 오류는 쓰기 도구(Edit, Write, NotebookEdit, apply_patch, 쓰기 Bash)만 deny하고 나머지는 통과한다.
+- 대기 메시지와 같은 턴 재실행 검사는 Claude 메인 세션만 판정한다. Codex Tab 대기 입력은 hook 입력에 정보가 없어 차단하지 못한다.
 """
 from __future__ import annotations
 
@@ -28,12 +30,12 @@ from allow_approved_request import in_allow_list, task_docs_command
 from sub_approval import WRITE_STAGES, approved, check_agent_call, check_codex_child, sync_stage, user_message
 from sub_call import is_followup, is_spawn
 from sub_docs import project_root
-from sub_input import check_input
-from sub_role import director_main, main_session, resolve_role
+from sub_input import check_input, research_retry_reason
+from sub_role import director_main, main_session, resolve_role, project_session
 from sub_path import check_paths, norm
 from sub_scope import check_write, log_bash_reason, write_bash_free
-from sub_question import check_question
-from sub_session import QUESTION_TOOLS, session_path
+from sub_question import WAITING_HEAD, check_question, waiting_messages
+from sub_session import QUESTION_TOOLS, denied_calls, read_session, session_path
 from sub_write import (APPROVAL_RETRY, REASON_CD, REASON_INLINE, RETRY, SHELLS, bash_command, bash_write_reason, command_parts, description_reason,
                        git_write_reason, interpreter_kind, is_write_bash, prompt_reason, targets)
 from sub_gate import call_reason
@@ -64,7 +66,6 @@ def main_write_reason(command: str) -> str | None:
 
 
 REASON_EDIT_GUIDE = "작업 문서는 Edit 도구로 수정하고, 구현은 담당에게 배정하십시오."
-
 
 # director 메인 세션의 쓰기 Bash 커맨드이면 모든 단계에서 사유를 반환한다. 허용 목록과 작업 문서 생성기, 전달 도구 커맨드는 통과한다.
 def director_write_reason(command: str, cwd: str | Path | None = None) -> str | None:
@@ -102,14 +103,56 @@ def workdir_reason(data: dict) -> str | None:
     return REASON_CD if norm(str(workdir), Path(cwd)) != norm(str(cwd), Path(cwd)) else None
 
 
-REASON_SUB_SPAWN = "서브에이전트는 다른 에이전트를 호출할 수 없습니다. " + RETRY
+REASON_TEST_RUN = "구현 배정 세션은 시험을 실행하지 않습니다. 시험 코드만 작성하고 실행은 검증 담당에게 남기십시오."
+TEST_RUN = re.compile(r"^(?:(?:python3?|py)(?:\.exe)?\s+-m\s+(?:unittest|pytest)|pytest|py\.test)(?=\s|$)")
+
+# implement와 reimplement 배정 서브에이전트의 Bash가 unittest나 pytest를 실행하면 REASON_TEST_RUN을 반환한다. 아니면 None이다.
+def run_test_reason(data: dict, command: str) -> str | None:
+    if main_session(data):
+        return None
+    from sub_role import first_prompt
+    from sub_session import agent_transcript
+    first = first_prompt(agent_transcript(data) or data.get("transcript_path")).strip().splitlines()[:1]
+    if not first or first[0].strip() not in ("task: implement", "task: reimplement"):
+        return None
+    return REASON_TEST_RUN if any(TEST_RUN.match(part) for part in command_parts(command)) else None
+
+
+REASON_SUB_SPAWN ="서브에이전트는 다른 에이전트를 호출할 수 없습니다. " + RETRY
 REASON_ASYNC = "경과 문서를 쓴 세션에서는 request_user_input_async의 답을 기록할 수 없습니다. request_user_input을 사용하십시오."
+REASON_REPEAT = "이번 턴에 hook이 거부한 호출과 도구 이름과 입력이 같습니다. 직전 거부 사유에 맞게 입력을 고쳐 다시 실행하십시오."
+
+
+# Claude 메인 세션에서 같은 턴 거부 호출의 재실행이면 사유를 반환한다. Codex와 서브에이전트는 None이다.
+def turn_reason(data: dict, runner: str) -> str | None:
+    path = data.get("transcript_path") or ""
+    if runner != "claude" or not path or not main_session(data):
+        return None
+    call = (data.get("tool_name"), data.get("tool_input") or {})
+    return REASON_REPEAT if call in denied_calls(read_session(path)) else None
+
+
+# Claude 메인 세션의 대기 사용자 메시지를 도구 결과와 함께 전달할 문장이다. 없으면 None이다.
+# 주입 기록(attachment)에 원문이 남으므로 다음 호출에서는 전달된 메시지로 본다.
+# Codex는 hook 입력과 app-server에 대기 입력 정보가 없어 판정하지 않는다.
+def waiting_context(data: dict, runner: str) -> str | None:
+    path = data.get("transcript_path") or ""
+    if runner != "claude" or not path or not main_session(data):
+        return None
+    messages = waiting_messages(path)
+    return (WAITING_HEAD + "\n\n".join(messages)) if messages else None
+
 
 # 위반 사유를 반환한다. 통과면 None이다.
 def check(data: dict, runner: str) -> str | None:
     # Codex는 기록 경로가 없으면 세션 id로 찾는다.
     if runner == "codex" and not data.get("transcript_path") and data.get("session_id"):
         data = {**data, "transcript_path": session_path(data, runner)}
+
+    # 같은 턴 거부 호출의 재실행은 모든 도구에서 가장 먼저 차단한다.
+    reason = turn_reason(data, runner)
+    if reason:
+        return reason
 
     # 서브에이전트 호출은 승인, fork, 입력 형식, 단계 선행 조건 순으로 검사한다.
     if is_spawn(data.get("tool_name")) or is_followup(data.get("tool_name")):
@@ -118,22 +161,22 @@ def check(data: dict, runner: str) -> str | None:
         if is_followup(data.get("tool_name")):
             return check_agent_call(data) or check_input(data, runner) or call_reason(data)
         reason = check_agent_call(data)
-        return reason or check_fork(data, runner) or check_input(data, runner) or call_reason(data)
+        return (reason or check_fork(data, runner) or check_input(data, runner) or research_retry_reason(data, runner)
+                or call_reason(data))
 
     # 경과 문서를 쓴 세션의 비동기 질문 도구는 답을 기록할 수 없으므로 차단된다.
     if re.match(r"^\w*request_user_input_async$", str(data.get("tool_name"))):
-        from check_workflow_response import written_status
-        return REASON_ASYNC if director_main(data) and written_status(data, runner) else None
+        return REASON_ASYNC if project_session(data, runner) else None
 
     # 질문 도구는 재질문과 안 비교 유무를 검사한다.
     if data.get("tool_name") in QUESTION_TOOLS:
-        return check_question(data, runner) if director_main(data) else None
+        return check_question(data, runner) if project_session(data, runner) else None
 
     # 셸 도구의 cd, git -c, workdir는 모든 세션과 승인 상태에서 가장 먼저 차단된다.
     shell = data.get("tool_name") in SHELLS
     command = bash_command(data) if shell else ""
     if shell:
-        reason = prompt_reason(command) or workdir_reason(data)
+        reason = prompt_reason(command) or workdir_reason(data) or run_test_reason(data, command)
         if reason:
             return reason
 
@@ -194,6 +237,16 @@ def main() -> int:
         return 0
     if reason:
         json.dump(deny(reason), sys.stdout, ensure_ascii=False)
+        return 0
+
+    # 대기 메시지는 호출을 막지 않고 도구 결과 옆에 전달한다.
+    try:
+        context = waiting_context(data, runner)
+    except Exception:
+        context = None
+    if context:
+        json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}},
+                  sys.stdout, ensure_ascii=False)
     return 0
 
 

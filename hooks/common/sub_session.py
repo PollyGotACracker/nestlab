@@ -12,6 +12,7 @@
 - answered_questions는 (질문 문장, 답 문자열) 목록, question_answers는 (질문 dict, 답 문자열) 목록
 - turn은 (마지막 사용자 메시지, 직전 assistant 텍스트, 현재 턴 항목) 튜플
 - user_messages는 세션 전체 사용자 메시지 문자열 목록
+- denied_calls는 현재 턴에서 hook이 거부한 (도구 이름, 입력) 목록
 - 차단 사유 문자열은 없음
 한계: 읽을 수 없는 기록 줄은 건너뛰고 빈 목록을 반환할 수 있다. Codex 질문 답은 출력 JSON의 answers를 질문 id로 나누고, JSON이 아니면 출력 문자열 전체이다.
 """
@@ -26,6 +27,8 @@ from pathlib import Path
 CODEX_SESSIONS = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "sessions"
 INJECTED = ("# AGENTS.md instructions", "<environment_context", "<user_instructions")
 QUESTION_TOOLS = ("AskUserQuestion", "request_user_input")
+# hook이 거부한 도구 호출의 오류 결과 문구이다.
+HOOK_DENIED = re.compile(r"PreToolUse:[\w.\-]+ hook (?:blocking )?error")
 HOOK_PROMPT = re.compile(r"<hook_prompt\b(?=[^>]*\bhook_run_id\s*=)[^>]*>.*?</hook_prompt\s*>", re.S)
 # Claude Code가 사용자 메시지 자리에 넣는 하네스 알림이다. 사용자 발화로 보지 않는다.
 HARNESS = ("<task-notification>", "<agent-message","<local-command-", "<command-name>", "<command-message>",
@@ -83,13 +86,15 @@ def _claude_entry(d: dict) -> dict | None:
         prompt = att.get("prompt")
         text = prompt if isinstance(prompt, str) else "\n".join(
             b.get("text", "") for b in prompt or [] if isinstance(b, dict) and b.get("type") == "text")
-        return {"role": "user", "text": text, "calls": [], "results": [], "ids": [], "replies": {}, "outcomes": {}}
+        return {"role": "user", "text": text, "calls": [], "results": [], "ids": [], "replies": {}, "outcomes": {},
+                "queued": True}
 
     # 메시지 본문을 꺼낸다.
     msg = d.get("message") or {}
     content = msg.get("content") or []
     # isMeta와 sourceToolUseID가 붙은 user 항목은 스킬 본문처럼 하네스가 넣은 내용이다.
-    if d.get("type") not in ("user", "assistant") or d.get("isMeta") or d.get("sourceToolUseID"):
+    # isCompactSummary가 붙은 user 항목은 맥락 압축 요약이라 사용자 메시지가 아니다.
+    if d.get("type") not in ("user", "assistant") or d.get("isMeta") or d.get("sourceToolUseID") or d.get("isCompactSummary"):
         return None
 
     # 내용 블록에서 도구 결과 문자열을 추출한다.
@@ -97,9 +102,15 @@ def _claude_entry(d: dict) -> dict | None:
     results = []
     replies = {}
     outcomes = {}
+    denied = set()
     for b in blocks:
         if b.get("type") == "tool_result":
             outcomes[b.get("tool_use_id")] = not b.get("is_error", False)
+            # hook이 거부한 호출의 오류 결과는 호출 id를 기록한다.
+            shown = b.get("content")
+            shown = shown if isinstance(shown, str) else "\n".join(x.get("text", "") for x in shown or [] if isinstance(x, dict))
+            if b.get("is_error") and HOOK_DENIED.search(shown):
+                denied.add(b.get("tool_use_id"))
             # 질문 도구 결과의 answers 값을 호출 id로 보관한다.
             meta = d.get("toolUseResult")
             answers = meta.get("answers") if isinstance(meta, dict) else None
@@ -113,7 +124,7 @@ def _claude_entry(d: dict) -> dict | None:
             "calls": [(b.get("name"), b.get("input") or {}) for b in blocks if b.get("type") == "tool_use"],
             "results": [r for r in results if r.strip()],
             "ids": [b.get("id") for b in blocks if b.get("type") == "tool_use"], "replies": replies, "outcomes": outcomes,
-            "phase": {"tool_use": "commentary", "end_turn": "final_answer"}.get(msg.get("stop_reason"))}
+            "denied": denied, "phase": {"tool_use": "commentary", "end_turn": "final_answer"}.get(msg.get("stop_reason"))}
 
 
 # Codex rollout 한 줄을 {role, text, calls, results, ids, replies} 항목으로 바꾼다. 대화와 관계없는 줄은 None이다.
@@ -191,7 +202,7 @@ def read_session(path: str) -> list[dict]:
     return entries
 
 
-# 실제 이벤트 timestamp만 KST로 변환한다. 없거나 잘못된 값은 빈 문자열이다.
+# 실제 이벤트 timestamp를 기록 시각으로 변환한다. 없거나 잘못된 값은 빈 문자열이다.
 def recorded_time(value) -> str:
     try:
         stamp = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
@@ -321,17 +332,29 @@ def handback_report(path: str) -> str:
     return str(calls[-1][1].get("message") or "").strip() if calls else ""
 
 
-# (마지막 사용자 메시지, 그 직전 assistant 텍스트, 그 뒤 현재 턴 항목)을 반환한다.
+# (턴을 시작한 사용자 메시지, 그 직전 assistant 텍스트, 그 뒤 현재 턴 항목)을 반환한다.
 def turn(entries: list[dict]) -> tuple[str, str, list[dict]]:
-    # 마지막 사용자 발화 위치를 찾는다.
+    # 턴을 시작한 마지막 사용자 발화 위치를 찾는다.
+    # 작업 중 받은 메시지(Claude queued 항목, Codex의 같은 turn_id 메시지)는 턴 시작으로 보지 않는다.
     said = lambda e: e["role"] == "user" and e["text"].strip() and not e["text"].lstrip().startswith(HARNESS)
-    last = max((i for i, e in enumerate(entries) if said(e)), default=-1)
+    last, turn_id = -1, None
+    for i, e in enumerate(entries):
+        if not said(e) or e.get("queued") or (turn_id is not None and e.get("turn_id") == turn_id):
+            continue
+        last, turn_id = i, e.get("turn_id")
 
     # 그 직전 턴의 assistant 텍스트를 결합한다.
     before = entries[:last]
     first = max((i for i, e in enumerate(before) if e["role"] == "user" and e["text"].strip()), default=-1)
     previous = "\n".join(e["text"] for e in before[first + 1:] if e["role"] == "assistant")
     return (entries[last]["text"] if last >= 0 else ""), previous, entries[last + 1:]
+
+
+# 현재 턴(마지막 사용자 메시지 뒤)에서 hook이 거부한 (도구 이름, 입력) 목록이다. 일반 도구 오류는 포함하지 않는다.
+def denied_calls(entries: list[dict]) -> list[tuple[str, dict]]:
+    current = turn(entries)[2]
+    ids = {i for e in current for i in e.get("denied") or ()}
+    return [call for e in current for call, i in zip(e["calls"], e.get("ids") or []) if i in ids]
 
 
 # 세션 기록 전체의 사용자 메시지 목록이다. 하네스 알림과 주입된 지침은 뺀다.

@@ -22,10 +22,13 @@ memory_approval.json*
 
 # --- Temporary files ---
 
+## Backup files
+*.bak
+
 ## Python cache files
 __pycache__/
 *.pyc
 
 ## Hook state files
-log/incident/*
-!log/incident/.gitkeep
+.agent-logs/incident/*
+!.agent-logs/incident/.gitkeep

@@ -9,7 +9,7 @@
 - parent_thread는 thread id 또는 None
 - main_session은 bool
 - 차단 사유 문자열은 없음
-한계: Codex rollout 첫 줄 형식은 설치 후 실측 전이라 부모 thread 판정은 단위 테스트의 가정을 따른다.
+한계: 부모 thread 정보가 없는 기록에서는 하위 세션을 식별할 수 없다.
 """
 from __future__ import annotations
 
@@ -42,7 +42,10 @@ def to_role(name: str | None) -> str | None:
 
 # hook 입력, rollout, 환경 변수, 폴더 설정 순으로 역할을 찾는다.
 def resolve_role(data: dict, default_role: str | None = None) -> str | None:
-    name = (data.get("agent_type") or first_line(data.get("transcript_path")).get("agent_role")
+    explicit = data.get("agent_type")
+    if explicit in ("default", "default_agent"):
+        explicit = None
+    name = (explicit or first_line(data.get("transcript_path")).get("agent_role")
             or os.environ.get("NESTLAB_AGENT") or read_folder_agent(Path(data.get("cwd") or os.getcwd())) or default_role)
     return to_role(name)
 
@@ -50,6 +53,20 @@ def resolve_role(data: dict, default_role: str | None = None) -> str | None:
 # 조정 절차는 역할이 확인된 director 메인에만 적용한다.
 def director_main(data: dict) -> bool:
     return resolve_role(data) == "director" and main_session(data)
+
+
+# director 메인 세션과, 이번 호출로 작업 문서를 쓰는 세션은 역할과 관계없이 문서 양식 검사를 적용한다.
+def project_session(data: dict, runner: str = "claude") -> bool:
+    if director_main(data):
+        return True
+    from sub_docs import doc_kind, project_root
+    from sub_write import targets
+    root = project_root(data.get("cwd"))
+    for path in targets(data) or []:
+        absolute = path if path.is_absolute() else root / path
+        if absolute.resolve().is_relative_to(root.resolve()) and doc_kind(absolute.resolve().relative_to(root.resolve()).as_posix()):
+            return True
+    return False
 
 
 # 하위 실행의 부모 역할이 director로 확인된 배정만 결과 저장 대상으로 삼는다.

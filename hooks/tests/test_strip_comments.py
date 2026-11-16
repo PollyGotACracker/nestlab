@@ -34,7 +34,7 @@ class StripComments(unittest.TestCase):
 
     def test_task_doc_rewritten(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "log" / "task" / "t1" / "status.md"
+            path = Path(tmp) / ".agent-logs" / "task" / "t1" / "status.md"
             path.parent.mkdir(parents=True)
             path.write_text("a <!-- b -->\n", encoding="utf-8")
             sub_docs.strip_task_comments(path)
@@ -43,7 +43,7 @@ class StripComments(unittest.TestCase):
 
     def test_incident_doc_rewritten(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "log" / "incident" / "20261110-abcdef12.md"
+            path = Path(tmp) / ".agent-logs" / "incident" / "20261110-abcdef12.md"
             path.parent.mkdir(parents=True)
             path.write_text("a <!-- b -->\n```\n<!-- c -->\n```\n", encoding="utf-8")
             sub_docs.strip_task_comments(path)

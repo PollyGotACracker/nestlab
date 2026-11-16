@@ -1,11 +1,9 @@
 """Stop hook: 메인 에이전트 응답에서 실수 및 위반을 인정하는 표현을 찾아 사건 문서 초안에 기록한다.
 
-호출자: Stop hook 설정(설정 원본)
-반환: 
-- 감지하면 사건 문서에 기록하고 분석 세션을 띄운 뒤 stdout에 `{"systemMessage": ...}` JSON을 출력한다. Stop을 차단하지 않고 응답 수정도 요구하지 않는다.
-- 사건 문서 링크는 다음 사용자 메시지 때 UserPromptSubmit hook(hooks/record_stage.py)이 에이전트에 주입한다.
-- record()는 사용자 경고 문자열 또는 None을 반환한다.
 입력: hook 입력 JSON을 stdin으로 받는다(last_assistant_message, transcript_path, session_id).
+반환: 감지하면 사건 문서에 기록하고 분석 세션을 띄운 뒤 사용자 경고를 systemMessage JSON으로 출력한다. Claude Stop은 차단하지 않는다.
+Codex는 systemMessage를 대화 기록에 표시하지 않아 경고를 block reason으로 출력하고, 모델은 확인 줄 한 줄만 쓴다.
+  에이전트에는 단계 기록 hook이 다음 사용자 메시지 때 사건 문서 링크를 주입한다.
 한계: 표현 목록 기반 감지라 목록 밖 표현은 놓치고, 목록 안 표현은 문맥을 오판할 수 있다.
 """
 from __future__ import annotations
@@ -28,10 +26,18 @@ from sub_role import first_line, main_session, resolve_role
 from sub_session import _claude_entry, _codex_entry, norm, read_session, session_path, turn
 from save_subagent_result import fence_for
 
-# 사건 문서는 세션 저장소와 무관하게 이 hook의 원본 저장소(nestlab)에 저장한다. 테스트가 교체한다.
+# 사건 문서는 세션 저장소와 무관하게 이 hook의 원본 저장소에 저장한다.
 INCIDENT_ROOT = Path(__file__).resolve().parents[1]
 
-# 표현 목록 기반 감지이다. 놓치는 표현이 쌓이면 해당 유형에 추가한다.
+NOTICE_USER = "직전 응답에서 문제 표현({hits})을 감지해 사건 문서 {link}에 기록했습니다."
+WORD_EDGE = "*`'\"([])"  # 어절 앞뒤에서 지울 Markdown과 인용 기호
+MAX_BLOCKS = 8  # Claude Code 연속 continuation 한도 기본값, Codex의 유일한 반복 한도
+WINDOWS_FLAGS = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW
+BREAKAWAY = 0x01000000  # CREATE_BREAKAWAY_FROM_JOB
+USER_LIMIT = 300  # 감지 기록에 남길 사용자 메시지 최대 글자 수
+
+# 유형별 인정 표현 정규식
+# 앞 글자 검사는 다른 단어의 일부로 나오는 패턴(실제 실수의 '제 실수', 시행착오의 '착오')에만 둔다.
 ADMIT_TYPES = {
     "직접 인정": (
         r"죄송|(?<![가-힣])(?:제|저의)(?: [가-힣]+(?<![엔에]))? (?:실수|잘못|착오)"
@@ -44,7 +50,7 @@ ADMIT_TYPES = {
         r"|위반(?:했|이었)|어(?:겼|긴)|부적절했|(?:절차|허락|근거|비교|확인|검토) 없이"
         r"|임의로|(?<![가-힣])제 판단으로|다르게 하시려면"
         r"|(?:절차|Skill|스킬|지침|규칙|양식|승인|기록|지시)들?(?:을|를|도|은|는)?"
-        r"\s[^.\n]{0,20}?(?:묻|입증되|입증하|적용하|따르|지키|받|작성하|읽|검토하)지 않"
+        r"\s[^.\n]{0,20}?(?:묻|입증되|입증하|적용하|따르|지키|받|작성하|읽|검토하)지 않(?!으면|도록|는|게|을)"
         r"|확인(?:하지 않고| 안 하고)"
         r"|확인한 사실이 아니|다만 이것이|사실과 다|(?:근거|이유|출처)가 없었|근거 없는"
         r"|놓(?:쳤|치고)|빠뜨|빼먹|누락(?:했|입니다|시켰)|건너뛰었(?!을 (?:수|가능성|지도))"
@@ -57,32 +63,34 @@ ADMIT_TYPES = {
         r"(?:이미|반복) 지적|제가 또|이번 턴(?:에도|도)|같은 실수|만 반복했"
     )
 }
-# 다른 단어의 일부로 나오는 패턴(실제 실수의 '제 실수', 시행착오의 '착오')만 앞 글자 검사를 둔다.
+
 ADMIT = re.compile("|".join(ADMIT_TYPES.values()))
 INLINE_CODE = re.compile(r"`+[^`\n]*`+|\"[^\"\n]*\"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’")
 FENCE = re.compile(r"^\s*(```|~~~)")
-TASK_REF = re.compile(rf"{TASK_REL}/[\w.\-]+/(?:status|spec|research|refute)\.md")
+TASK_REF = re.compile(rf"{re.escape(TASK_REL)}/[\w.\-]+/(?:status|spec|research|refute)\.md")
 PATH = re.compile(
     r"(?<![\w:/\\])(?:/?[A-Za-z]:[\\/]|\\\\|~[\\/]|\.{1,2}[\\/]|/)[^\s`<>\"'\[\](){}*,;]+"
     r"|(?<![\w:/\\])(?:[\w.@~-]+[\\/])+[^\s`<>\"'\[\](){}*,;]+"
     r"|(?<![\w.])\b[\w.-]+\.(?:md|py|jsonl?|ya?ml|toml|txt|csv|log|js|tsx?|jsx|html|css)\b(?::\d+)?")
-# 오탐으로 확인된 문맥이다(사건 20261024-13c433b9).
-META = re.compile(r"감지 표현|감지된|오탐|사건 판정")  # 사건 판정과 오탐 분석 문장
-DENIAL = re.compile(r"아니(?:에요|예요|다|ㅂ니다|합니다)|아닙니다|아닌(?:\s|$)")  # 표현 뒤의 부정 서술
-PASSIVE = re.compile(r"철회(?:된|되었|돼|됐)")  # 다른 주체의 결정을 전한 수동 서술
-# 이미 기록된 위반의 인용(표 행), 지침이 요구하는 미적용 보고, 고친 결과 보고는 새 인정이 아니다.
-# 1인칭 인정 표현(죄송, 제 실수, 제가)이 든 줄은 이 제외를 받지 않는다.
+
+# 오탐으로 확인된 문맥의 예외 처리
+# 사건 판정과 오탐 분석 문장
+META = re.compile(r"감지 표현|감지된|오탐|사건 판정") 
+# 표현 뒤의 부정 서술
+DENIAL = re.compile(r"아니(?:에요|예요|다|ㅂ니다|합니다)|아닙니다|아닌(?:\s|$)")
+# 서술어가 아니거나 수동 서술의 `철회`
+PASSIVE = re.compile(r"철회(?!했|합니다|하겠|할게|한다|하였|함\b)")
+# 이미 기록된 위반의 인용(표 행), 지침이 요구하는 미적용 보고, 고친 결과 보고
 REPORT = re.compile(r"(?:범위 밖|승인 (?:범위|전)|권한)[^.\n]*적용하지 않"
                     r"|(?:이미|모두|전부) (?:고쳤|수정했|반영했|바로잡았)")
 FIRST_PERSON = re.compile(r"죄송|제 (?:실수|잘못)|제가")
-# 인용과 설명 문장에도 흔한 표현이다. 1인칭 문맥이나 직전 사용자 지적이 있을 때만 감지한다.
+# 인용과 설명 문장의 조건부 표현
 CONDITIONAL = {"어긴", "지 않은 채", "확인 없이", "근거 없는"}
 SPEAKER = re.compile(r"죄송|제 (?:실수|잘못|판단)|제가|저는|저의|저도")
 POINTED = re.compile(r"지적|잘못|틀렸|틀린|어겼|어기|위반|않았|안 지|맞지 않|불만|왜 ")
-# 같은 문장 뒤쪽이 자기 행동을 과거형으로 인정하는 서술이면 문맥 없이도 감지한다. `못했습니다` 같은 부정은 뺀다.
+# 자기 행동을 과거형으로 인정하는 서술
 SELF_PAST = re.compile(r"(?:것|사건|문장)(?:이 원인)?입니다(?!만)|(?<!못)(?:냈|했|썼)었?습니다")
-# 도구와 코드가 주어인 문장은 코드 동작 설명이므로 자기 행동 인정으로 보지 않는다.
-# hook 차단 사유를 주어로 옮겨 적은 문장은 자기 행동 인정으로 보지 않는다.
+# 도구와 코드가 주어인 문장: 코드 동작 설명, hook 차단 사유를 옮겨 적은 문장
 HOOK_SUBJECT = re.compile(r"(?:차단 사유|hook 사유|Stop 사유|hook이|훅이)")
 CODE_SUBJECT = re.compile(r"(?:도구|hook|훅|코드|함수|스크립트|모듈|정규식)(?:는|은)\s")
 
@@ -113,7 +121,7 @@ def plain(text: str) -> str:
     return "\n".join(out)
 
 
-# 줄마다 인정 표현을 찾아 (줄, 표현)을 낸다. 제목 줄, 오탐 분석 줄, 표 행, 미적용 및 수정 결과 보고, 사용자 문장 인용, 뒤따르는 부정 서술, 수동 서술은 뺀다.
+# 줄마다 인정 표현을 찾아 (줄, 표현)을 낸다. user는 인용 대조에 쓸 사용자 메시지와 hook 사유이다.
 def scan(text: str, user: str = "", pattern: re.Pattern = ADMIT):
     # (줄, 일치 표현) 쌍을 차례로 낸다.
     for line in text.splitlines():
@@ -134,6 +142,9 @@ def scan(text: str, user: str = "", pattern: re.Pattern = ADMIT):
                 continue
             if HOOK_SUBJECT.search(line[:m.start()]) and not SPEAKER.search(line):
                 continue
+            # 도구와 코드가 주어인 서술은 조건부 여부와 관계없이 코드 동작 설명으로 본다.
+            if CODE_SUBJECT.search(line[:m.start()]) and not SPEAKER.search(line):
+                continue
             # 조건부 표현의 단어가 모두 사용자 메시지나 hook 사유에 있으면 그 문장을 옮겨 적은 것으로 본다.
             if (m.group(0) in CONDITIONAL and user and not SPEAKER.search(line)
                     and all(word in user for word in m.group(0).split())):
@@ -144,6 +155,11 @@ def scan(text: str, user: str = "", pattern: re.Pattern = ADMIT):
                         and not CODE_SUBJECT.search(line[:m.start()]))):
                 continue
             yield line, m.group(0)
+
+
+# 감지 표현 중 직접 인정 유형이 하나라도 있으면 True이다. 분석 세션은 이 유형에서만 실행한다.
+def has_direct(hits: list[str]) -> bool:
+    return any(re.fullmatch(ADMIT_TYPES["직접 인정"], hit) for hit in hits)
 
 
 # 인정 표현 목록을 정렬해 반환한다.
@@ -199,13 +215,6 @@ def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str
     return user, "미확인", "미확인", response_line
 
 
-NOTICE_INCIDENT = "직전 응답에서 문제 표현({hits})을 감지해 사건 문서 {link}에 기록했습니다."
-WORD_EDGE = "*`'\"([])"  # 어절 앞뒤에서 지울 Markdown과 인용 기호이다.
-MAX_BLOCKS = 8  # Claude Code 연속 continuation 한도 기본값. Codex는 한도가 없어 이 값이 유일한 반복 한도이다.
-WINDOWS_FLAGS = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW
-BREAKAWAY = 0x01000000  # CREATE_BREAKAWAY_FROM_JOB
-
-
 # 사건 분석 세션을 hook 종료 뒤에도 살아남는 분리 프로세스로 띄운다. 실행 실패는 무시한다.
 def launch_analysis(path: Path, runner: str) -> None:
     command = [sys.executable, str(INCIDENT_ROOT / RUN_WORKFLOW.relative_to(ROOT)),
@@ -254,9 +263,6 @@ def incident_link(path: Path, cwd: str | Path | None) -> str:
     return f"[{path.stem}]({target})"
 
 
-USER_LIMIT = 300
-
-
 # 응답에서 감지 표현이 든 줄만 반환한다. 해당 줄이 없으면 응답 전체이다.
 def hit_lines(message: str, hits: list[str]) -> str:
     lines = [line for line in message.splitlines() if any(hit in line for hit in hits)]
@@ -273,7 +279,7 @@ def hit_count(path: Path, user: str) -> int:
     return path.read_text(encoding="utf-8").count(block)
 
 
-# 감지 표현을 사건 문서에 기록하고 그 경로를 반환한다. 같은 사용자 메시지의 첫 감지에서만 분석 세션을 띄운다.
+# 감지 표현을 사건 문서에 기록하고 그 경로를 반환한다. 같은 사용자 메시지의 첫 감지가 직접 인정 유형일 때만 분석 세션을 띄운다.
 def record_hits(data: dict, runner: str, hits: list[str]) -> Path:
     # 대화 기록에서 사용자 메시지, 작업 근거, 응답 위치를 찾는다.
     transcript = transcript_of(data, runner)
@@ -328,13 +334,13 @@ def record_hits(data: dict, runner: str, hits: list[str]) -> Path:
         with open(path, "a", encoding="utf-8") as f:
             f.write(entry)
 
-    # 같은 사용자 메시지의 재감지에서는 기록만 하고 분석 세션을 띄우지 않는다.
-    if hit_count(path, user) == 1:
+    # 직접 인정 유형이 아니거나 같은 사용자 메시지의 재감지이면 기록만 하고 분석 세션을 띄우지 않는다.
+    if has_direct(hits) and hit_count(path, user) == 1:
         launch_analysis(path, runner)
     return path
 
 
-# 감지하면 기록하고 (None, 사용자 경고)를 반환한다. 감지가 없으면 None이다. 응답을 막거나 다시 쓰게 하지 않는다.
+# 감지하면 기록하고 (None, 사용자 경고)를 반환한다. 감지가 없으면 None이다.
 def detect(data: dict, runner: str = "claude") -> tuple[str | None, str] | None:
     # 대화 기록 경로를 정하고 서브에이전트 응답은 건너뛴다.
     data = {**data, "transcript_path": transcript_of(data, runner)}
@@ -354,11 +360,11 @@ def detect(data: dict, runner: str = "claude") -> tuple[str | None, str] | None:
     if not hits:
         return None
 
-    # 기록하고 분석 세션을 띄운 뒤, block 한도 안이면 재작성 지시를 반환한다.
+    # 기록하고 분석 세션을 띄운 뒤 사용자 경고를 반환한다.
     path = record_hits(data, runner, hits)
     link = incident_link(path, data.get("cwd"))
     words = hit_list(scan(text, quoted))
-    return None, NOTICE_INCIDENT.format(link=link, hits=words)
+    return None, NOTICE_USER.format(link=link, hits=words)
 
 
 # 감지 표현의 실제 어절을 중복 없이 쉼표로 연결한다.
@@ -378,7 +384,7 @@ def record(data: dict, runner: str = "claude") -> str | None:
     return result[1] if result else None
 
 
-# stdin의 hook 입력으로 사건을 기록하고 감지하면 block JSON을 출력한다. 항상 0을 반환한다.
+# stdin의 hook 입력으로 사건을 기록하고 감지하면 systemMessage JSON을 출력한다. 항상 0을 반환한다.
 def main() -> int:
     # 입출력 인코딩을 UTF-8로 맞추고 인자를 읽는다.
     sys.stdin.reconfigure(encoding="utf-8")
@@ -393,7 +399,11 @@ def main() -> int:
         _, notice = detect(json.load(sys.stdin), args.runner) or (None, "")
     except Exception:
         return 0
-    if notice:
+    # Codex는 systemMessage를 대화 기록에 표시하지 않으므로 사건 알림을 block reason(Hook feedback)에 담는다.
+    if notice and args.runner == "codex":
+        from sub_gate import shown_reason
+        json.dump({"decision": "block", "reason": shown_reason(notice)}, sys.stdout, ensure_ascii=False)
+    elif notice:
         json.dump({"systemMessage": notice}, sys.stdout, ensure_ascii=False)
     return 0
 

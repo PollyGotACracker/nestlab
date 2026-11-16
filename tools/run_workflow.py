@@ -9,7 +9,7 @@
 - 사건 분석은 hook을 끈 director 세션이며 Bash를 거부하고 문서 및 웹 도구만 허용한다.
 반환:
 - 성공하면 최종 메시지를 stdout에 출력하고 종료 코드 0을 반환한다.
-- 사건 문서 없음, 실행 실패는 사유 문장 뒤에 "단계를 실행하지 않았습니다."를 붙여 stderr에 출력하고 종료 코드 1을 반환한다.
+- 사건 문서 없음, 실행 실패는 사유와 수행할 행동을 stderr에 출력하고 종료 코드 1을 반환한다.
 한계: 외부 CLI 실행은 인증과 런타임 설치 상태에 영향을 받는다.
 """
 from __future__ import annotations
@@ -98,9 +98,9 @@ def run_incident(root: Path, incident: str, runner: str) -> str:
 
 
 ERR_PROCESS = "외부 CLI가 종료 코드 {code}로 끝났습니다."
-BLOCKED = "{error} 단계를 실행하지 않았습니다."
+BLOCKED = "사건 분석: {error} 사유를 해소한 뒤 같은 명령을 다시 실행하십시오."
 
-# 인자를 읽어 단계를 실행하고 결과를 출력한다. 실패하면 사유를 stderr에 쓰고 1을 반환한다.
+# 인자를 읽어 사건 분석을 실행하고 결과를 출력한다. 실패하면 사유와 수행할 행동을 stderr에 쓰고 1을 반환한다.
 def main() -> int:
     # 인자를 읽는다.
     parser = argparse.ArgumentParser(description=__doc__)

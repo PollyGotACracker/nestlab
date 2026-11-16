@@ -5,13 +5,14 @@
 - hooks/check_tool_use/sub_approval.py(LEAK, session_leak)
 입력: hook 입력 dict, 하위 요청 본문, runner 이름
 반환: 
-- check_input, session_leak은 deny 사유 문자열(session_leak은 해당 줄) 또는 통과 시 None
+- check_input, research_retry_reason, session_leak은 deny 사유 문자열(session_leak은 해당 줄) 또는 통과 시 None
 - format_reason은 배정 형식 위반 사유 문자열 또는 통과 시 None
 - is_format, is_main은 bool
 """
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import sub_docs
 from sub_paths import TASK_REL
@@ -19,8 +20,8 @@ from sub_call import AGENT_ROLES, CIPHER, DOCUMENTER, RESEARCHER, REVIEWER, ROLE
 from sub_role import resolve_role
 from sub_write import read
 
-DOC_LINE = re.compile(rf"^input: ({TASK_REL}/[\w.\-]+/(?:status|spec|research|refute)\.md)\s*$", re.M)
-DOCUMENT = re.compile(rf"^input: {TASK_REL}/[\w.\-]+/(research|refute|spec)\.md$")
+DOC_LINE = re.compile(rf"^input: ({re.escape(TASK_REL)}/[\w.\-]+/(?:status|spec|research|refute)\.md)\s*$", re.M)
+DOCUMENT = re.compile(rf"^input: {re.escape(TASK_REL)}/[\w.\-]+/(research|refute|spec)\.md$")
 ITEM_LINE = re.compile(r"^item: research \d+$")
 # 구현과 재구현 배정을 요구사항 단위로 나눠 병렬 배정하는 줄이다.
 REQ_LINE = re.compile(r"^item: requirement \d+(?:, \d+)*$")
@@ -64,7 +65,7 @@ def is_format(prompt: str, target: str = "") -> bool:
     return format_reason(prompt, target) is None
 
 
-LEAK = "서브에이전트 입력과 전달되는 문서에서 사건 문서 경로와 세션 기록 정보(경로 및 세션 id)를 제거하십시오. 해당 부분은 {leak}입니다."
+LEAK = "서브에이전트 입력과 전달되는 문서에서 사건 문서 경로와 세션 기록 정보(경로 및 세션 id)를 제거하십시오. 수정 대상: `{leak}`"
 
 # text와 text가 가리키는 작업 문서(조사 단계 원문 절 제외)에서 기록 정보 형식이나 주어진 세션 id(전체 및 앞 8자)가 든 첫 줄이다.
 def session_leak(text: str, cwd: str | None, *session_ids: str | None) -> str | None:
@@ -96,8 +97,53 @@ REASON_NO_SPAWN = "같은 세션 기록에서 이 task_name의 spawn_agent 호�
 REASON_CIPHER = ("Codex spawn_agent의 task_name은 `<단계>__<작업 ID의 -를 _로 바꾼 값>` 형식이어야 합니다. "
                  "단계: research, refute, implement, verify, reimplement, reverify.")
 
+REASON_RESEARCH_SAVED = ("조사 {number} 보고가 서브에이전트 기록에 있고 조사 문서의 `조사 {number}.` 결과 절이 비어 있습니다. "
+                         "같은 항목을 재배정하지 말고 보고 원문으로 조사 문서 조사 결과 절을 Edit로 복구하십시오.")
+# 조사 담당 보고와 조사 문서의 조사 결과 블록 제목이다. 양식 자리표시자 제목은 제외한다.
+REPORT_BLOCK = re.compile(r"(?m)^#{1,6} 조사 (\d+)\. [^<\n]+ 결과[ \t]*$")
+
+
+# Claude 메인 세션의 research 배정에서 같은 작업의 조사 보고가 서브에이전트 기록에 있는데 조사 문서 결과 절이 비어 있으면 사유를 반환한다.
+# item 줄이 없으면 조사 계획의 모든 항목을 본다. 기록이 아직 없거나 결과 절이 채워져 있으면 None이다.
+def research_retry_reason(data: dict, runner: str) -> str | None:
+    from sub_role import first_prompt
+    from sub_session import handback_report, read_session
+
+    # 메인 세션의 research 배정만 판정한다.
+    target, prompt = call_info(data)
+    lines = [ln.strip() for ln in prompt.splitlines() if ln.strip()]
+    doc = DOC_LINE.search(prompt)
+    if runner != "claude" or data.get("agent_id") or not lines or lines[0] != "task: research" or not doc:
+        return None
+    research = read(sub_docs.project_root(data.get("cwd")) / doc[1])
+    numbers = [ln.split()[-1] for ln in lines[2:] if ITEM_LINE.match(ln)]
+    numbers = numbers or re.findall(r"(?m)^#{3,} 조사 (\d+)\. ", sub_docs.section(research, "조사 계획"))
+    empty = [n for n in numbers if n not in set(REPORT_BLOCK.findall(sub_docs.section(research, "조사 결과")))]
+    if not empty or not data.get("transcript_path"):
+        return None
+
+    # 같은 조사 문서를 받은 research 서브에이전트의 마지막 보고에 빈 항목의 결과 블록이 있으면 차단한다.
+    for path in sorted((Path(data["transcript_path"]).with_suffix("") / "subagents").glob("agent-*.jsonl")):
+        first = first_prompt(str(path))
+        if not first.lstrip().startswith("task: research") or doc[1] not in first:
+            continue
+        report = handback_report(str(path)) or next(
+            (e["text"] for e in reversed(read_session(str(path))) if e["role"] == "assistant" and e["text"].strip()), "")
+        found = next((n for n in empty if n in REPORT_BLOCK.findall(report)), None)
+        if found:
+            return REASON_RESEARCH_SAVED.format(number=found)
+    return None
+
+
+REASON_MODEL = "Agent 호출에 model 인자를 지정할 수 없습니다. 서브에이전트는 역할 정의의 기본 모델로 실행하므로 model 인자를 빼고 다시 호출하십시오."
+
+
 # 위반 사유를 반환한다. 통과면 None이다.
 def check_input(data: dict, runner: str) -> str | None:
+    # Claude Agent 호출의 model 인자는 역할 정의의 기본 모델을 바꾸므로 차단한다.
+    if data.get("tool_name") == "Agent" and "model" in (data.get("tool_input") or {}):
+        return REASON_MODEL
+
     # 같은 세션 기록에서 담당을 찾지 못한 follow-up은 새 배정을 요구한다.
     target, prompt = call_info(data)
     if not target and is_followup(data.get("tool_name")):

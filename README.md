@@ -77,7 +77,7 @@ Discord 채널의 웹훅 봇 목록
 - [전역 설정 설치](docs/setup.md#전역-설정-설치)
 - [에이전트 연결](docs/setup.md#에이전트-연결)
 - [스킬 연결](docs/setup.md#스킬-연결)
-- [작업 단계 지정](docs/workflow.md)
+- [작업 선택과 단계 진행](docs/workflow.md)
 
 ## 환경별 연결
 
@@ -121,7 +121,8 @@ Discord 채널의 웹훅 봇 목록
 │   └── config.example.json        # config.json 예시
 ├── docs/                          # 환경별 연결 문서
 ├── hooks/                         # 훅 스크립트
-├── log/                           # 작업 관련 로그
+├── .agent-logs/                   # 작업 관련 로그
+│   ├── task/index.md              # 작업 색인
 │   ├── task/<작업-id>/            # 경과, 조사, 명세와 반증 문서
 │   └── incident/                  # 사건 로그
 ├── shared/

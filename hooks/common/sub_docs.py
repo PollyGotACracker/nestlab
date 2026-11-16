@@ -35,8 +35,8 @@ ROOT = Path(__file__).resolve().parents[2]
 # 문서 종류별 작업 폴더 안 파일 이름이다.
 FILE = {"state": "status", "input": "spec", "research": "research", "refute": "refute"}
 TASK_ID = re.compile(
-    rf"^input: {TASK_REL}/([\w.\-]+)/(?:status|spec|research|refute)\.md\s*$", re.M)
-DOC_PATH = re.compile(rf"^{TASK_REL}/[\w.\-]+/(status|spec|research|refute)\.md$")
+    rf"^input: {re.escape(TASK_REL)}/([\w.\-]+)/(?:status|spec|research|refute)\.md\s*$", re.M)
+DOC_PATH = re.compile(rf"^{re.escape(TASK_REL)}/[\w.\-]+/(status|spec|research|refute)\.md$")
 LOOP_ROW = re.compile(r"^\| *(\d+) *\|", re.M)
 HEADING = re.compile(r"^(#{1,6}) (.*)$")
 TOKEN = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'|[^\s;&|<>()=\"']+")
@@ -45,7 +45,7 @@ SESSION = re.compile(
     r"\.claude[\\/]+projects|\.codex[\\/]+sessions|\.jsonl\b|\brollout-\d|\bagent-[0-9a-f]{8,}\b"
     r"|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"  # 세션 및 thread UUID
     r"|\b\d{8}(?:-\d{4})?-(?:[0-9a-f]{8}|unknown)\b"  # 사건 ID: 날짜, 선택 시분, 세션 접두어
-    r"|\blog[\\/]+incident[\\/]+[\w.\-]+\.md\b", re.I)  # 사건 문서 파일 경로
+    r"|(?<!\w)\.agent-logs[\\/]+incident[\\/]+[\w.\-]+\.md\b", re.I)  # 사건 문서 파일 경로
 
 
 # text에서 사건 문서 파일 경로나 세션 기록 정보가 든 첫 줄이다. 없으면 None이다.
@@ -108,7 +108,7 @@ def task_id(text: str) -> str | None:
 
 SAVED_LINE = "조사 결과를 {path}의 `{slot}` 칸에 저장했습니다."
 SAVED_REPORT = re.compile(
-    rf"^조사 결과를 ({TASK_REL}/[\w.\-]+/(?:research|refute)\.md)"
+    rf"^조사 결과를 ({re.escape(TASK_REL)}/[\w.\-]+/(?:research|refute)\.md)"
     r"의 `([^`\n]+)` 칸에 저장했습니다\.$")
 
 
@@ -150,9 +150,9 @@ SKILLS = SKILL_DIR
 TEMPLATES = TEMPLATE_DIR
 TEMPLATE_NAMES = {"state": "log-status", "input": "log-spec", "research": "log-research", "refute": "log-refute",
                   "nestlab-log-incident": "log-incident", "nestlab-approval": "approval-implement",
-                  "nestlab-kickoff": "approval-research"}
+                  "nestlab-plan": "report-plan"}
 # 응답 양식 이름이다. 생성기의 `--print-template` 인자와 같다.
-RESPONSE_TEMPLATES = ("question-kickoff", "question-choice", "request-choice", "request-stop", "approval-complete",
+RESPONSE_TEMPLATES = ("question-plan", "question-choice", "question-task", "request-stop", "approval-complete", "report-plan",
                       "approval-research", "approval-implement", "approval-measure")
 FENCE_LINE = re.compile(r"^\s*(`{3,}|~{3,})")
 
@@ -179,6 +179,152 @@ def titles(text: str) -> list[str]:
 TEMPLATE_TITLE = "Template"
 
 
+# 템플릿의 제목 깊이, 부모, 순서와 반복 허용 범위를 검사해 첫 오류를 반환한다.
+def structure_reason(text: str, skill: str, label: str = "작업 문서") -> str | None:
+    from sub_document import Document
+    try:
+        actual = Document(text)
+        template = Document(template_text(skill))
+    except ValueError:
+        return f"{label}: {template_name(skill)} 양식을 따르십시오."
+    # 기존 절 파서가 읽지 않는 대체 제목 표기는 허용하지 않는다.
+    for index, line in enumerate(actual.lines):
+        indented = re.match(r"^ {1,3}#{1,6}[ \t]", line)
+        underline = re.fullmatch(r" {0,3}(?:=+|-+)\s*", line)
+        previous = actual.lines[index - 1].strip() if index else ""
+        if indented or underline and previous and not previous.startswith(("#", "-", "|")):
+            return f"{label} {index + 1}행: {template_name(skill)} 양식을 따르십시오."
+    rules, parents = [], []
+    for _, depth, title in template.headings:
+        while parents and rules[parents[-1]][0] >= depth:
+            parents.pop()
+        parts = re.split(r"(<[^<>]+>)", title)
+        pattern = "".join((r"(?:\d+|" + re.escape(part) + ")" if part in ("<번호>", "<n>") else r".+")
+                          if part.startswith("<") else re.escape(part) for part in parts)
+        rules.append((depth, re.compile(pattern), parents[-1] if parents else None, "<" in title))
+        parents.append(len(rules) - 1)
+    stack, seen, last = [], set(), {}
+    for line, depth, title in actual.headings:
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        parent = stack[-1][1] if stack else None
+        context = stack[-1][2] if stack else -1
+        matches = [i for i, (level, pattern, owner, _) in enumerate(rules)
+                   if level == depth and owner == parent and pattern.fullmatch(title)]
+        if not matches:
+            return f"{label} {line + 1}행: {template_name(skill)} 양식을 따르십시오."
+        index = next((i for i in matches if not rules[i][3]), matches[-1])
+        if index < last.get(context, -1) or ((context, index) in seen and not rules[index][3]):
+            return f"{label} {line + 1}행: {template_name(skill)} 양식을 따르십시오."
+        seen.add((context, index))
+        last[context] = index
+        stack.append((depth, index, line))
+    return None
+
+
+# 출처 값이다. URL이나 `.` 또는 `/`가 든 파일 경로의 `파일:행`이며, 슬래시와 점이 없는 검색 패턴과 백슬래시 이스케이프는 출처가 아니다.
+SOURCE_REF = re.compile(r"https?://[^\s<>`]+|(?<![\w./\\-])(?=[\w./-]*[./])[\w./-]+:\d+(?:-\d+)?(?!\w)")
+
+
+# 한계와 위험의 각 항목은 없음 또는 출처가 있는 설계 제약과 외부 이슈여야 하고, 원인 분석 항목은 출처가 있어야 한다.
+# `근거 출처` 표기와 한계, 위험 값의 진행 상태(미확인, 미검증 등)는 거부한다. 사후 실측 줄은 계획이므로 제외한다.
+# label은 사유의 대상 이름(작업 문서, 응답)이다.
+def constraint_reason(text: str, template: str | None = None, label: str = "작업 문서") -> str | None:
+    from sub_document import Document
+    form = template_name(template) if template else "해당"
+    try:
+        document = Document(text)
+    except ValueError:
+        return f"{label}: {form} 양식을 따르십시오."
+    lines = document.lines
+    reason = lambda index: f"{label} {index + 1}행: {form} 양식을 따르십시오."
+
+    # 출처 표기는 `출처`로 통일한다.
+    fence = ""
+    for index, line in enumerate(lines):
+        mark = FENCE_LINE.match(line)
+        if mark:
+            fence = "" if fence and mark[1][0] == fence[0] else (fence or mark[1])
+        elif not fence and "근거 출처:" in line:
+            return reason(index)
+
+    # 원인 분석 절의 최상위 항목은 하위 `출처:` 줄에 값이 있어야 한다.
+    for index, depth, title in document.headings:
+        if title != "원인 분석":
+            continue
+        end = next((i for i, level, _ in document.headings if i > index and level <= depth), len(lines))
+        starts = [i for i in range(index + 1, end) if lines[i].startswith("- ")]
+        for number, start in enumerate(starts):
+            item = lines[start:(starts[number + 1] if number + 1 < len(starts) else end)]
+            if lines[start].strip() == "- 없음" or re.search(r"<[^<>\n]+>", lines[start]):
+                continue
+            source = next((m[1].strip() for l in item[1:] if (m := re.match(r"^\s+- 출처:[ \t]*(.*)$", l))), "")
+            if not source or re.fullmatch(r"<[^<>]*>", source):
+                return reason(start)
+    placeholders = placeholders_of(template)
+    selected = set()
+    for index, depth, title in document.headings:
+        if "한계" in title or "위험" in title:
+            end = next((i for i, level, _ in document.headings if i > index and level <= depth), len(lines))
+            selected.update(range(index + 1, end))
+    for index, line in enumerate(lines):
+        match = re.match(r"^( *)(?:- )?(?:한계|위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):[ \t]*(.*)$", line)
+        if match:
+            selected.add(index)
+            for following in range(index + 1, len(lines)):
+                if lines[following].strip() and len(lines[following]) - len(lines[following].lstrip()) <= len(match[1]):
+                    break
+                selected.add(following)
+    for index in sorted(selected):
+        line = lines[index]
+        match = re.match(r"^( *)(?:- )?(\S.*)$", line)
+        # 한계와 위험 절 뒤에 이어진 문단(링크, 안내 문장)은 항목이 아니므로 목록 줄과 칸 이름 줄만 판정한다.
+        if not match or not re.match(r"^\s*(?:- |(?:한계|위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):)", line):
+            continue
+        value = re.sub(r"^(?:한계|위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):\s*", "", match[2]).strip()
+        if not value or value.split(" (출처")[0].strip() == "없음" or line.strip() in placeholders:
+            continue
+        if re.match(r"출처:|위험 확인 방법:|확인 방법:|해소 판단 조건:|사후 (?:모델 호출 )?실측:", value):
+            continue
+        block = [value]
+        for following in lines[index + 1:]:
+            if following.strip() and len(following) - len(following.lstrip()) <= len(match[1]):
+                break
+            block.append(following)
+        if re.search(PROGRESS, value):
+            return reason(index)
+        source = re.search(r"출처:\s*(.+)", "\n".join(block))
+        if not source or not SOURCE_REF.search(source[1]):
+            return reason(index)
+    return None
+
+
+# 결과 저장 hook만 쓰는 결과 절(`조사 결과`, `회차 결과`)의 저장된 `###` 블록 줄을 빈 줄로 바꾼 본문이다.
+# 작성자가 고칠 수 없는 줄을 작성자 쓰기와 배정 게이트의 검사에서 제외한다. 결과 블록은 저장 시점에 검사한다.
+# 양식 자리표시자 블록과 코드 블록 안의 제목 줄은 블록 경계로 보지 않는다. 줄 번호는 유지한다.
+def mask_results(text: str) -> str:
+    out, section, locked, fence = [], "", False, ""
+    for line in (text or "").split("\n"):
+        mark = FENCE_LINE.match(line)
+        if mark:
+            fence = "" if fence and mark[1][0] == fence[0] else (fence or mark[1])
+        elif not fence and re.match(r"## (?!#)", line):
+            section, locked = line[3:].strip(), False
+        elif not fence and line.startswith("### "):
+            locked = section in ("조사 결과", "회차 결과") and "<" not in line
+        out.append("" if locked else line)
+    return "\n".join(out)
+
+
+# 한계와 위험 값에 쓰지 않는 진행 상태 표현이다.
+PROGRESS = r"미확정|미검증|미확인|미완료|미측정|검증 대기|확인 필요|추후 확인"
+
+
+# 양식의 자리표시자 줄 집합이다. 양식 이름이 없으면 빈 집합이다.
+def placeholders_of(template: str | None) -> set[str]:
+    return {line.strip() for line in template_text(template).splitlines() if "<" in line} if template else set()
+
+
 # 본문 첫 코드 블록의 안쪽 줄이다. 코드 블록이 없으면 빈 문자열이다.
 def first_block(text: str) -> str:
     out, fence = [], ""
@@ -198,12 +344,16 @@ def template_titles(skill: str) -> list[str]:
     return [t for t in titles(template_text(skill)) if "<" not in t]
 
 
+# 문서 종류, 스킬 이름이나 양식 이름이 가리키는 양식 파일 이름(확장자 제외)을 반환한다.
+def template_name(skill: str) -> str:
+    name = TEMPLATE_NAMES.get(skill, skill)
+    return f"log-{name}" if f"log-{name}" in TEMPLATE_NAMES.values() else name
+
+
 # 독립 원본의 파일 전체 내용을 반환한다. 알 수 없는 양식은 오류로 보고한다.
 # 작업 문서 종류 이름(status, spec, research, refute, incident)은 `log-` 양식으로 연결한다.
 def template_text(skill: str) -> str:
-    name = TEMPLATE_NAMES.get(skill, skill)
-    if f"log-{name}" in TEMPLATE_NAMES.values():
-        name = f"log-{name}"
+    name = template_name(skill)
     if name not in (*TEMPLATE_NAMES.values(), *RESPONSE_TEMPLATES):
         raise ValueError(f"알 수 없는 양식: {skill}")
     return (TEMPLATES / f"{name}.md").read_text(encoding="utf-8").rstrip("\n")
@@ -313,8 +463,8 @@ def strip_comments(text: str) -> str:
 
 # 작업 폴더 아래 작업 문서나 사건 폴더 아래 사건 문서면 코드 블록 밖 HTML 주석을 지워 파일에 다시 쓴다. 문서가 아니거나 읽지 못하면 건너뛴다.
 def strip_task_comments(path: Path) -> None:
-    task_doc_path = path.parent.parent.name == "task" and path.parent.parent.parent.name == "log"
-    incident_doc_path = path.parent.name == "incident" and path.parent.parent.name == "log"
+    task_doc_path = path.parent.parent.name == "task" and path.parent.parent.parent.name == Path(TASK_REL).parts[0]
+    incident_doc_path = path.parent.name == "incident" and path.parent.parent.name == Path(TASK_REL).parts[0]
     if path.suffix != ".md" or not (task_doc_path or incident_doc_path):
         return
     try:
@@ -353,16 +503,17 @@ def review_done_numbers(text: str) -> set[str]:
     return {m[1] for line, done in review_entries(text) if done and (m := re.match(r"- 검토 (\d+)\.", line))}
 
 
-# 경과 문서 문제 정의 절의 {문제 번호: (확인 시각 기록 여부, 폐기 여부)}이다. 양식 자리표시 항목은 뺀다.
-# 확인 시각이 `기록 없음`이면 확인 시각이 없는 것으로 읽는다.
-def problem_entries(text: str) -> dict[int, tuple[bool, bool]]:
+# 명세 문서(spec) 통합 구조 요구사항 항목의 {문제 번호: (확인 시각 기록 여부, 폐기 여부)}이다. text는 호출 호환용 경과 문서 본문이다.
+def problem_entries(text: str, spec: str = "") -> dict[int, tuple[bool, bool]]:
+    from sub_document import integrated
     out = {}
-    for item in re.split(r"(?m)^(?=- )", strip_comments(section(text, "문제 정의"))):
-        m = re.match(r"- 문제 (\d+)\. (폐기: )?(.+)", item)
-        if not m or re.search(r"<[^<>\n]+>", item.splitlines()[0]):
-            continue
-        stamp = re.search(r"(?m)^\s+- 사용자 확인 시각:\s*(\S.*?)\s*$", item)
-        out[int(m[1])] = (bool(stamp and stamp[1] != "기록 없음" and not stamp[1].startswith("<")), bool(m[2]))
+    if integrated(spec):
+        for part in re.split(r"(?m)^(?=### )", strip_comments(section(spec, "요구사항 목록"))):
+            m = re.match(r"### (?:요구사항 )?(\d+)\. (.+)", part)
+            if not m:
+                continue
+            stamp = re.search(r"(?m)^#### 사용자 확인 시각\s*\n+\s*(?:- )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$", part)
+            out[int(m[1])] = (bool(stamp), m[2].strip() == "폐기")
     return out
 
 
@@ -381,7 +532,7 @@ def measure_pending(text: str, times: tuple[str, ...] = ("사전",), targets: se
     starts = list(re.finditer(r"(?m)^- (.+)$", body))
     out = []
     for i, m in enumerate(starts):
-        if re.fullmatch(r"<[^<>]*>", m[1].strip()):  # 양식 자리표시 항목은 실측 항목이 아니다.
+        if m[1].strip() == "없음" or re.fullmatch(r"<[^<>]*>", m[1].strip()):  # 없음과 양식 자리표시 항목은 실측 항목이 아니다.
             continue
         item = body[m.end():(starts[i + 1].start() if i + 1 < len(starts) else len(body))]
         when = re.search(r"^\s*- 시점:\s*(.+?)\s*$", item, re.M)

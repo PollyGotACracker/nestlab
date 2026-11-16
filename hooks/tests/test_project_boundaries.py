@@ -19,6 +19,7 @@ import sub_docs
 import sub_path
 import sub_role
 import sub_scope
+from test_save_subagent_result import RESEARCH, research_report
 
 
 
@@ -36,7 +37,7 @@ class ProjectBoundaries(unittest.TestCase):
         templates = self.root / "templates"
         templates.mkdir()
         for name in ("status", "spec", "research", "refute"):
-            (templates / f"log-{name}.md").write_text("", encoding="utf-8")
+            (templates / f"log-{name}.md").write_text("# <제목>\n", encoding="utf-8")
         skills = patch.object(sub_docs, "TEMPLATES", templates)
         skills.start()
         self.addCleanup(skills.stop)
@@ -81,7 +82,7 @@ class ProjectBoundaries(unittest.TestCase):
         nested = tree / "nested"
         nested.mkdir()
         self.assertEqual(sub_docs.project_root(nested), tree)
-        self.assertEqual(sub_docs.doc("same", "input", nested), tree / "log/task/same/spec.md")
+        self.assertEqual(sub_docs.doc("same", "input", nested), tree / ".agent-logs/task/same/spec.md")
 
     # 하위 역할은 설치된 스킬과 전역 설정을 읽고 외부 쓰기와 세션 기록 읽기는 차단한다.
     def test_child_reads_installed_skills_and_global_settings(self):
@@ -123,13 +124,13 @@ class ProjectBoundaries(unittest.TestCase):
                     for runner in ("claude", "codex"):
                         for tool in ("Read", "Write"):
                             data = {"cwd": cwd, "agent_type": "buddy", "tool_name": tool,
-                                    "tool_input": {"file_path": base + "/log/task/new/status.md", "content": "x"}}
+                                    "tool_input": {"file_path": base + "/.agent-logs/task/new/status.md", "content": "x"}}
                             self.assertIsNone(check_tool_use.check(data, runner), (cwd, base, runner, tool))
 
     # 프로젝트별 승인, 활성 작업, 결과, 사건 문서, director 범위가 저장소별로 분리되는지 확인한다.
     def test_project_approval_active_results_incidents_and_director_scope(self):
         task = "same"
-        research = "# 조사\n\n### 최종 조사 원문\n\n```\n기록 없음\n```\n"
+        research = RESEARCH
         for base in (self.project, self.other):
             sub_docs.doc(task, "state", base).parent.mkdir(parents=True)
             sub_docs.doc(task, "state", base).write_text(
@@ -137,40 +138,42 @@ class ProjectBoundaries(unittest.TestCase):
                 encoding="utf-8")
             sub_docs.doc(task, "research", base).write_text(research, encoding="utf-8")
             sub_docs.doc(task, "input", base).write_text("# same 입력\n", encoding="utf-8")  # 사건 hook이 작업 ID를 찾는 문서
-        rework = "task: reimplement\ninput: log/task/same/spec.md"
+        rework = "task: reimplement\ninput: .agent-logs/task/same/spec.md"
         self.assertIsNone(sub_approval.approval_reason("계획 수정", rework, str(self.child)))
         self.assertIsNotNone(sub_approval.approval_reason("계획 수정", rework, str(self.other)))
-        review = "task: verify\ninput: log/task/same/spec.md"
+        review = "task: verify\ninput: .agent-logs/task/same/spec.md"
         self.assertIsNotNone(sub_approval.approval_reason("계획 수정", review, str(self.child)))
-        reverify = "task: reverify\ninput: log/task/same/spec.md"
+        reverify = "task: reverify\ninput: .agent-logs/task/same/spec.md"
         self.assertIsNone(sub_approval.approval_reason("계획 수정", reverify, str(self.child)))
         self.assertIsNotNone(sub_approval.approval_reason("계획 수정", reverify, str(self.other)))
         for runner in ("claude", "codex"):
-            transcript = self.transcript(self.project, runner, "input: log/task/same/spec.md")
+            transcript = self.transcript(self.project, runner, "input: .agent-logs/task/same/spec.md")
             data = {"cwd": str(self.child), "session_id": runner, "transcript_path": transcript,
                     "agent_type": "rio", "last_assistant_message": "제 실수입니다."}
             # 사건 문서는 세션 저장소와 무관하게 hook 원본 저장소(여기서는 hub)에만 생긴다.
             with patch.object(check_invalid_response, "INCIDENT_ROOT", self.hub):
                 check_invalid_response.record(data, runner)
                 check_invalid_response.record({**data, "cwd": str(self.other), "session_id": runner + "x"}, runner)
-            files = list((self.hub / "log/incident").glob(f"*-{runner}.md"))
+            files = list((self.hub / ".agent-logs/incident").glob(f"*-{runner}.md"))
             self.assertEqual(len(files), 1)
             self.assertIn("관련 작업 ID: same", files[0].read_text(encoding="utf-8"))
             self.assertIn(f"실행 위치: {self.child}", files[0].read_text(encoding="utf-8"))
-            self.assertEqual(len(list((self.hub / "log/incident").glob(f"*-{runner}x.md"))), 1)
-            self.assertFalse((self.project / "log/incident").exists())
-            self.assertFalse((self.other / "log/incident").exists())
-            for path, denied in (("log/task/new/status.md", False), ("src/new.py", True)):
+            self.assertEqual(len(list((self.hub / ".agent-logs/incident").glob(f"*-{runner}x.md"))), 1)
+            self.assertFalse((self.project / ".agent-logs/incident").exists())
+            self.assertFalse((self.other / ".agent-logs/incident").exists())
+            for path, denied in ((".agent-logs/task/new/status.md", False), ("src/new.py", True)):
                 write = {**data, "tool_name": "Write", "tool_input": {
                     "file_path": str(self.project / path), "content": "# 기록"}}
                 self.assertEqual(check_tool_use.check(write, runner) is not None, denied)
-            request = "task: research\ninput: log/task/same/research.md"
-            child_transcript = self.transcript(self.project, runner, request, "조사 결과")
+            request = "task: research\ninput: .agent-logs/task/same/research.md"
+            child_transcript = self.transcript(self.project, runner, request, research_report())
             save_data = {**data, "agent_type": "nico", "agent_transcript_path": child_transcript,
                          "parent_agent_type": "director", "transcript_path": str(self.root / "parent.jsonl"),
-                         "last_assistant_message": "조사 결과"}
-            save_subagent_result.save(save_data, runner)
-            self.assertIn("조사 결과", sub_docs.doc(task, "research", self.child).read_text(encoding="utf-8"))
+                         "last_assistant_message": research_report()}
+            # 이 시험은 저장 대상 저장소만 보므로 양식 검사는 건너뛴다.
+            with patch.object(sub_docs, "structure_reason", return_value=None), patch.object(sub_docs, "constraint_reason", return_value=None):
+                save_subagent_result.save(save_data, runner)
+            self.assertIn("### 조사 1. 구조 결과", sub_docs.doc(task, "research", self.child).read_text(encoding="utf-8"))
             self.assertEqual(sub_docs.doc(task, "research", self.other).read_text(encoding="utf-8"), research)
         self.assertEqual(sub_role.ROOT, HOOKS.parent)
 
@@ -185,7 +188,7 @@ class ProjectBoundaries(unittest.TestCase):
     # 다른 저장소 세션이 nestlab 사건 문서 폴더에만 접근하는지 확인한다.
     def test_other_repo_session_reaches_only_hub_incident_folder(self):
         # 허브 사건 폴더를 만든다.
-        (self.hub / "log/incident").mkdir(parents=True)
+        (self.hub / ".agent-logs/incident").mkdir(parents=True)
         for runner in ("claude", "codex"):
             for role in ("buddy", "director"):
                 # 다른 저장소 세션에서 허브 저장소 경로에 도구를 호출하는 검사를 실행한다.
@@ -193,12 +196,12 @@ class ProjectBoundaries(unittest.TestCase):
                     return check_tool_use.check({"cwd": str(self.other), "agent_type": role,
                         "tool_name": tool, "tool_input": {"file_path": str(self.hub / path), "content": "x"}}, runner)
                 # 사건 폴더만 허용하고 나머지 허브 경로는 막는지 확인한다.
-                with patch.object(sub_path, "INCIDENT", self.hub / "log/incident"):
+                with patch.object(sub_path, "INCIDENT", self.hub / ".agent-logs/incident"):
                     for tool in ("Write", "Read"):
-                        self.assertIsNone(check("log/incident/x.md", tool), (runner, role, tool))
+                        self.assertIsNone(check(".agent-logs/incident/x.md", tool), (runner, role, tool))
                     self.assertIsNotNone(check("hooks/x.py", "Write"), (runner, role))
                     self.assertIsNotNone(check("hooks/x.py", "Read"), (runner, role))
-                    self.assertIsNotNone(check("log/task/x/status.md", "Write"), (runner, role))
+                    self.assertIsNotNone(check(".agent-logs/task/x/status.md", "Write"), (runner, role))
 
     # 스킬 링크, 내부 자료, 보안 문서, 외부 쓰기 경계를 확인한다.
     def test_skills_links_resources_secrets_and_external_writes(self):
@@ -242,7 +245,7 @@ class ProjectBoundaries(unittest.TestCase):
                 self.assertIsNone(check(settings))
                 with patch.object(sub_scope, "approved", return_value=True):  # 메인 세션 승인 검사는 통과시킨다.
                     self.assertIsNotNone(check(settings, True))  # 설정 파일 쓰기는 승인 턴에도 차단한다.
-                self.assertIsNone(check(self.project / "log/task/new/status.md"))
+                self.assertIsNone(check(self.project / ".agent-logs/task/new/status.md"))
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from sub_call import call_info
 from sub_input import LEAK, session_leak
-from sub_docs import doc, section, task_id
+from sub_docs import doc, section, task_id, project_root
 from sub_role import codex_rollout, first_line, first_prompt, parent_thread, resolve_role
 from sub_session import read_session, session_path, turn, user_messages
 from sub_task_docs import TASK_ID, create
@@ -28,7 +28,7 @@ APPROVAL = re.compile(r"(?:^|\s)\S*승인\s*[.!~]*\s*\Z")
 APPROVED = re.compile(r"^\s*-\s*(?:사용자 )?승인 상태:\s*승인\s*$")
 IN_SCOPE = ("task: reimplement", "task: reverify")
 RESTORED_WORK = ("task: implement",)
-# 조사 승인 뒤 조사와 반증은 사용자 대기 없이 이어진다(상태 문서 조사 승인 범위가 승인일 때).
+# 조사 승인 뒤 조사와 반증은 사용자 대기 없이 이어진다(경과 문서 조사 승인 범위가 승인일 때).
 RESEARCH_SCOPE = ("task: research", "task: refute")
 NEGATION = ("안", "못")
 
@@ -65,23 +65,15 @@ def executed_approved(task: str | None, cwd: str | None = None, title: str = "�
     return any(APPROVED.match(line) for line in body.splitlines())
 
 
-# 기존 단계 및 승인 판정이 인정한 현재 사용자 메시지의 기록 시각만 승인 절에 채운다.
+# 머리줄 단계가 경과 문서 단계와 같으면 현재 사용자 메시지의 기록 시각을 해당 단계의 승인 절에 채운다.
 def approval_record_times(data: dict, path, text: str) -> str:
     entries = read_session(data.get("transcript_path") or "")
     messages = [entry for entry in entries if user_messages([entry])]
     if not messages:
         return text
     entry = messages[-1]
-    user, stage = entry["text"], stage_of(text)
-    prefix = stage_prefix(user)
-    if stage:
-        title = {"조사": "조사 승인 범위", "구현": "구현 승인 범위"}.get(stage) if prefix == stage else None
-    else:
-        title = None
-        if approved(user):
-            # 종전 승인 판정의 승인 대상은 바로 앞 승인 보고 제목으로 구분한다.
-            shown = turn(entries)[1]
-            title = "조사 승인 범위" if "조사 승인 요청" in shown else "구현 승인 범위" if "구현 승인 요청" in shown or "작업 승인 필요" in shown else None
+    stage = stage_of(text)
+    title = {"계획": "조사 승인 범위", "구현": "구현 승인 범위"}.get(stage) if stage_prefix(entry["text"]) == stage else None
     if title is None:
         return text
     from check_workflow_response import splice
@@ -103,53 +95,58 @@ def reimplement_pending(task: str | None, cwd: str | None = None) -> bool:
     return False
 
 
-STAGES = ("착수", "조사", "구현", "완료")
+STAGES = ("계획", "구현", "완료")
 # 사용자 메시지 머리줄의 단계 키워드와 경과 문서 작업 단계 값의 대응이다.
-KEYWORDS = {"kickoff": "착수", "research": "조사", "implement": "구현", "complete": "완료"}
-HEAD = re.compile(r"^\[(kickoff|research|implement|complete)(?: (\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*))?\]")
+KEYWORDS = {"plan": "계획", "implement": "구현", "complete": "완료"}
+HEAD_TASK = r"\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*"
+HEAD = re.compile(rf"^\[(?:(plan|implement|complete)(?: (new|{HEAD_TASK}))?|({HEAD_TASK}))\]")
+# 신규 작업 계획 머리줄 `[plan new]`의 작업 ID 자리 값이다.
+NEW_TASK = "new"
 STAGE_LINE = re.compile(r"(?m)^- 작업 단계:[ \t]*(.*)$")
-# log/ 밖 쓰기를 허용하는 단계와 단계별 허용 task 값이다.
+# .agent-logs/ 밖 쓰기를 허용하는 단계와 단계별 허용 task 값이다.
 WRITE_STAGES = ("구현",)
-STAGE_CALLS = {"조사": ("task: research", "task: refute"),
+STAGE_CALLS = {"계획": ("task: research", "task: refute"),
                "구현": ("task: implement", "task: verify", "task: reimplement", "task: reverify")}
 REASON_STAGE_CALL = "경과 문서의 작업 단계 [{stage}]에서는 `{kind}` 배정을 할 수 없습니다. 허용: {allowed}."
 
 
-# 사용자 메시지 첫 줄 시작의 `[키워드]` 또는 `[키워드 작업ID]`를 (작업 단계 값, 작업 ID)로 읽는다.
+# 사용자 메시지 첫 줄 시작의 `[키워드]`, `[키워드 작업ID]`, `[plan new]`, `[작업ID]`를 (작업 단계 값, 작업 ID)로 읽는다.
+# `[작업ID]`는 단계 값이 빈 문자열이고 `[plan new]`는 작업 ID가 "new"이다.
 # 첫 줄이 대괄호로 시작하지 않으면 (None, None), 대괄호로 시작하지만 머리줄 형식이 아니면 ("보류", None)이다.
 def head_line(message: str) -> tuple[str | None, str | None]:
     first = (message or "").split("\n", 1)[0].rstrip()
     if not first.startswith("["):
         return None, None
     found = HEAD.match(first)
-    return (KEYWORDS[found[1]], found[2]) if found else ("보류", None)
+    if not found or (found[2] == NEW_TASK and found[1] != "plan"):
+        return "보류", None
+    return ("", found[3]) if found[3] else (KEYWORDS[found[1]], found[2])
 
 
-# 사용자 메시지 첫 줄의 단계 접두어이다. 접두어가 없으면 None, 머리줄 형식이 아니면 "보류"이다.
+# 사용자 메시지 첫 줄의 단계 접두어이다. 접두어가 없거나 `[plan new]`이면 None, 머리줄 형식이 아니면 "보류"이다.
+# `[작업ID]`는 단계를 바꾸지 않으므로 빈 문자열이다.
 def stage_prefix(message: str) -> str | None:
-    return head_line(message)[0]
+    stage, task = head_line(message)
+    return None if task == NEW_TASK else stage
 
 
-# 경과 문서의 `작업 단계` 값이다. 줄이 없거나 단계 이름이 아니면 None이다. 기존 기록의 `진행`은 `구현`으로 읽는다.
+# 경과 문서의 `작업 단계` 값이다. 이전 단계 이름은 현재 이름으로 읽고, 줄이 없거나 단계 이름이 아니면 None이다.
 def stage_of(text: str) -> str | None:
+    from sub_task_index import LEGACY_STAGES
     m = STAGE_LINE.search(text or "")
-    value = {"진행": "구현"}.get(m[1].strip(), m[1].strip()) if m else ""
+    value = m[1].strip() if m else ""
+    value = LEGACY_STAGES.get(value, value)
     return value if value in STAGES else None
 
 
-# 기존 상태 기록을 단계 한 줄로 변환하고 나머지 본문은 보존한다.
+# 경과 문서의 작업 단계 줄을 stage(없으면 기록된 단계)로 쓴 본문을 반환한다. 나머지 본문은 보존한다.
 def normalize_stage(text: str, stage: str | None = None) -> str:
-    legacy = re.search(r"(?m)^- 작업 상태:[ \t]*(.*)$", text)
-    previous = {"미개시": "착수", "진행": "구현", "구현": "구현", "완료": "완료", "중단": "구현"}
-    stage = stage or stage_of(text) or (previous.get(legacy[1].strip()) if legacy else None)
+    stage = stage or stage_of(text)
     if stage not in STAGES:
         return text
     line = f"- 작업 단계: {stage}"
     if STAGE_LINE.search(text):
-        text = STAGE_LINE.sub(line, text, count=1)
-        return re.sub(r"(?m)^- 작업 상태:.*\n?", "", text)
-    if legacy:
-        return re.sub(r"(?m)^- 작업 상태:.*$", line, text, count=1)
+        return STAGE_LINE.sub(line, text, count=1)
     header = re.search(r"(?m)^- 작업 ID:.*$", text) or re.search(r"(?m)^# .*$", text)
     if header:
         return text[:header.end()] + "\n" + line + text[header.end():]
@@ -165,31 +162,44 @@ def stage_completion_reason(status: Path, text: str | None = None) -> str | None
 
 
 # status 경과 문서에 단계 접두어(prefix)를 기록하고 현재 단계를 반환한다. 접두어가 없거나 잘못되면 기록된 단계를 유지한다.
-# 단계가 조사이면 빠진 research, refute, spec 문서만 생성하며 기존 본문은 보존한다.
+# 단계가 계획이면 빠진 research, refute, spec 문서만 생성하며 기존 본문은 보존한다.
 def apply_stage(status: Path, prefix: str | None) -> str | None:
     text = read(status)
+    if prefix == "구현":
+        from sub_document import Document
+        from sub_gate import check_causes
+        from sub_docs import structure_reason, constraint_reason
+        try:
+            check_causes(Document(text))
+        except ValueError:
+            return stage_of(text)
+        if structure_reason(text, "state") or constraint_reason(text, "state"):
+            return stage_of(text)
     if prefix == "완료" and stage_completion_reason(status, text):
         current = stage_of(normalize_stage(text))
         prefix = current if current and current != "완료" else "구현"
     updated = normalize_stage(text, prefix if prefix in STAGES else None)
+    from sub_task_index import stamp_status, refresh_index
+    updated = stamp_status(status, updated, stage_of(updated) == "완료")
     if updated != text:
         status.write_text(updated, encoding="utf-8")
     text = updated
     stage = stage_of(text)
-    if stage == "조사" and TASK_ID.fullmatch(status.parent.name):
+    if stage == "계획" and TASK_ID.fullmatch(status.parent.name):
         title = re.search(r"(?m)^# (.+)$", text)
         root = status.parents[3]
-        for kind in ("research", "refute", "review"):
-            create(root, status.parent.name, title[1] if title else status.parent.name, kind)
+        create(root, status.parent.name, title[1] if title else status.parent.name, "plan")
+    if TASK_ID.fullmatch(status.parent.name):
+        refresh_index(status.parents[3], status.parent.name)
     return stage
 
 
-# 이 세션이 쓴 경과 문서에 사용자 마지막 메시지의 단계 접두어를 기록하고 현재 단계를 반환한다.
+# 색인의 현재 진행 작업 경과 문서에 사용자 마지막 메시지의 단계 접두어를 기록하고 현재 단계를 반환한다.
 # 접두어가 없거나 잘못되면 기록된 단계를 유지한다. 경과 문서가 없으면 None이다.
 def sync_stage(data: dict, runner: str = "claude", user: str | None = None) -> str | None:
-    from check_workflow_response import written_status
     prefix = stage_prefix(user_message(data, runner) if user is None else user)
-    status = written_status({k: v for k, v in data.items() if k != "tool_name"}, runner)
+    from sub_task_index import selected_status
+    status = selected_status(project_root(data.get("cwd")))
     return None if status is None else apply_stage(status, prefix)
 
 

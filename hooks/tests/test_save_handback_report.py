@@ -19,10 +19,10 @@ from test_save_subagent_result import REFUTE_DOC, RESEARCH, refute_report, resea
 
 DOC = RESEARCH
 LOOP = REFUTE_DOC
-ASK = "task: research\ninput: log/task/t/research.md"
-REFUTE = "task: refute\ninput: log/task/t/refute.md"
-RESEARCH_PATH = "log/task/t/research.md"
-REFUTE_PATH = "log/task/t/refute.md"
+ASK = "task: research\ninput: .agent-logs/task/t/research.md"
+REFUTE = "task: refute\ninput: .agent-logs/task/t/refute.md"
+RESEARCH_PATH = ".agent-logs/task/t/research.md"
+REFUTE_PATH = ".agent-logs/task/t/refute.md"
 VERDICT = refute_report("- 주장 1: 지지 | 출처: https://example.com/a")
 
 
@@ -33,7 +33,7 @@ class Handback(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.parent = self.root / "parent.jsonl"
         self.parent.write_text(json.dumps({"payload": {"agent_role": "director"}}) + "\n", encoding="utf-8")
-        (self.root / "log" / "task" / "t").mkdir(parents=True)
+        (self.root / ".agent-logs" / "task" / "t").mkdir(parents=True)
         self.doc = self.root / RESEARCH_PATH
         self.doc.write_text(DOC, encoding="utf-8")
         self.refute = self.root / REFUTE_PATH

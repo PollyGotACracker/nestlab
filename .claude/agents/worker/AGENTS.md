@@ -3,6 +3,8 @@ name: jelly
 title: worker
 description: "프로젝트 코드 구현, 디버깅, 코드 설명 문서 작성"
 tools: Skill, Read, Edit, Write, Bash, Grep, Glob, AskUserQuestion
+skills:
+  - nestlab-implement-script
 model: sonnet
 effort: medium
 readonly: false
