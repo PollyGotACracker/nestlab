@@ -176,7 +176,7 @@ class AllowApprovedRequest(unittest.TestCase):
         status.write_text(status.read_text(encoding="utf-8").replace("- 작업 단계: 계획", "- 작업 단계: 계획"), encoding="utf-8")
         run("plan")
         spec = self.root / ".agent-logs" / "task" / "20261107-130000-example" / "spec.md"
-        self.assertIn("# 경과 문서: 외부 프로젝트", status.read_text(encoding="utf-8"))
+        self.assertIn("# 외부 프로젝트", status.read_text(encoding="utf-8"))
         self.assertIn("- 작업 ID: 20261107-130000-example", spec.read_text(encoding="utf-8"))
         self.assertIsNone(check_tool_use.check({"agent_type": "worker", "agent_id": "child", "cwd": str(self.root),
                                                 "tool_name": "Read", "tool_input": {"file_path": str(spec)}}, "claude"))

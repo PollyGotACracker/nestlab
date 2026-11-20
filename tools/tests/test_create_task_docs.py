@@ -38,7 +38,7 @@ class CreateTaskDocs(unittest.TestCase):
             self.assertEqual([p.name for p in paths], ["status.md", "research.md", "refute.md", "spec.md"])
             status, research, refute, spec = paths
             text = status.read_text(encoding="utf-8")
-            self.assertIn("# 경과 문서: 한글 제목\n", text)
+            self.assertIn("# 한글 제목\n", text)
             self.assertRegex(text, rf"- 작업 ID: {TASK}\n- 생성 시각: \d{{4}}\.\d\d\.\d\d \d\d:\d\d:\d\d\n- 완료 시각: 없음\n- 작업 단계: 계획")
             self.assertNotIn("- 작업 상태:", text)
             self.assertIn("# 조사 문서\n", research.read_text(encoding="utf-8"))
@@ -51,7 +51,7 @@ class CreateTaskDocs(unittest.TestCase):
             self.assertIn("### 1. 요구\n", body)
             self.assertNotIn("## 문제 정의", text)
             index = (self.root / ".agent-logs/task/index.md").read_text(encoding="utf-8")
-            self.assertIn(f"## 현재 진행 작업\n\n<!-- <작업 링크>, <작업 단계> -->\n\n- [경과 문서: 한글 제목]({TASK}/status.md), 계획", index)
+            self.assertIn(f"## 현재 진행 작업\n\n<!-- <작업 링크>, <작업 단계> -->\n\n- [한글 제목]({TASK}/status.md), 계획", index)
 
             # 다시 생성하면 기존 문서의 바이트를 보존하고, plan 밖 단계 이름은 거부한다.
             status.write_bytes(b"existing\r\nbytes")
@@ -76,7 +76,7 @@ class CreateTaskDocs(unittest.TestCase):
                    "--title", "외부 프로젝트", "--stage", "plan", "--root", str(self.root)]
         subprocess.run(command, cwd=self.root, check=True, capture_output=True, text=True, encoding="utf-8")
         status = self.root / ".agent-logs" / "task" / TASK / "status.md"
-        self.assertIn("# 경과 문서: 외부 프로젝트", status.read_text(encoding="utf-8"))
+        self.assertIn("# 외부 프로젝트", status.read_text(encoding="utf-8"))
         status.write_bytes(b"existing bytes\r\n")
         subprocess.run(command, cwd=self.root, check=True, capture_output=True)
         self.assertEqual(status.read_bytes(), b"existing bytes\r\n")

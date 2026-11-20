@@ -62,7 +62,7 @@ class PlanIndex(unittest.TestCase):
             refresh_index(root, old, current=False)
             _, sections = split_index(index.read_text(encoding='utf-8'))
             self.assertFalse([x for x in sections[CURRENT] if ITEM.match(x)])
-            self.assertEqual([x for x in sections[COMPLETE] if ITEM.match(x)], [f'- [경과 문서: 새 작업]({new}/status.md)'])
+            self.assertEqual([x for x in sections[COMPLETE] if ITEM.match(x)], [f'- [새 작업]({new}/status.md)'])
             self.assertEqual(other.read_bytes(), other_bytes)
             self.assertIsNone(selected_status(root))
             # 현재 진행 작업이 비어도 자동 선택하지 않고, current=True일 때만 선택한다.
@@ -81,16 +81,16 @@ class PlanIndex(unittest.TestCase):
             create(root, other, '나', 'plan')
             old = (root / '.agent-logs/task/index.md').read_text(encoding='utf-8')
             mark = '<!-- <작업 링크>, <작업 단계> -->'
-            chosen = old.replace(f'## 현재 진행 작업\n\n{mark}\n\n- [경과 문서: 나]({other}/status.md), 계획',
-                                 f'## 현재 진행 작업\n\n{mark}\n\n- [경과 문서: 가]({task}/status.md), 계획')
+            chosen = old.replace(f'## 현재 진행 작업\n\n{mark}\n\n- [나]({other}/status.md), 계획',
+                                 f'## 현재 진행 작업\n\n{mark}\n\n- [가]({task}/status.md), 계획')
             self.assertNotEqual(chosen, old)
             self.assertIsNone(index_edit_reason(root, old, chosen))
-            self.assertIsNone(index_edit_reason(root, old, old.replace(f'- [경과 문서: 나]({other}/status.md), 계획\n\n## 미완료', '## 미완료', 1)))
+            self.assertIsNone(index_edit_reason(root, old, old.replace(f'- [나]({other}/status.md), 계획\n\n## 미완료', '## 미완료', 1)))
             self.assertEqual(index_edit_reason(root, old, chosen.replace('## 완료 작업 목록\n', '## 완료 작업 목록\n\n- 임의 줄\n')), REASON_INDEX_SECTION)
-            self.assertEqual(index_edit_reason(root, old, chosen.replace(f'{mark}\n\n- [경과 문서: 가]', '- [경과 문서: 가]', 1)), REASON_INDEX_SECTION)
+            self.assertEqual(index_edit_reason(root, old, chosen.replace(f'{mark}\n\n- [가]', '- [가]', 1)), REASON_INDEX_SECTION)
             self.assertEqual(index_edit_reason(root, old, chosen.replace(f'({task}/status.md), 계획', f'({task}/status.md)', 1)), REASON_INDEX_LINE)
-            self.assertEqual(index_edit_reason(root, old, chosen.replace(f'- [경과 문서: 가]({task}/status.md), 계획',
-                             f'- [경과 문서: 가]({task}/status.md), 계획\n- [경과 문서: 나]({other}/status.md), 계획', 1)), REASON_INDEX_LINE)
+            self.assertEqual(index_edit_reason(root, old, chosen.replace(f'- [가]({task}/status.md), 계획',
+                             f'- [가]({task}/status.md), 계획\n- [나]({other}/status.md), 계획', 1)), REASON_INDEX_LINE)
             self.assertIn('20261103-010101-none', index_edit_reason(root, old, chosen.replace(task, '20261103-010101-none', 1)))
             self.assertIsNone(index_edit_reason(root, None, (sub_paths.INDEX_TEMPLATE).read_text(encoding='utf-8')))
 
