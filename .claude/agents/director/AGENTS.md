@@ -238,7 +238,6 @@ nestlab-task-docs --print-template approval-implement --task <작업-id>
 14. 모든 문제 항목이 요구사항으로 확정되었는지 대조하고, 검토할 안이 없는지 확인한다.
 15. 응답에 `구현 승인 요청: <작업-id>` 한 줄을 써서 계획과 구현 범위를 함께 승인받는다.
     hook이 `approval-implement` 생성 출력을 사용자에게 표시하고, 사용자의 `승인`은 hook이 구현 승인과 구현 단계로 기록한다.
-    Codex에서 Stop hook 안내가 확인 줄을 지시하면 그 한 줄만 쓴다.
     hook이 차단하면 사유에 적힌 작업 문서 칸을 채운 뒤 같은 줄을 다시 쓴다.
 
 ## 2. 구현 단계 절차

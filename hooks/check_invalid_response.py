@@ -2,7 +2,7 @@
 
 입력: hook 입력 JSON을 stdin으로 받는다(last_assistant_message, transcript_path, session_id).
 반환: 감지하면 사건 문서에 기록하고 분석 세션을 띄운 뒤 사용자 경고를 systemMessage JSON으로 출력한다. Claude Stop은 차단하지 않는다.
-Codex는 systemMessage를 대화 기록에 표시하지 않아 경고를 block reason으로 출력하고, 모델은 확인 줄 한 줄만 쓴다.
+Codex는 systemMessage를 대화 기록에 표시하지 않아 경고를 block reason으로 출력한다.
   에이전트에는 단계 기록 hook이 다음 사용자 메시지 때 사건 문서 링크를 주입한다.
 한계: 표현 목록 기반 감지라 목록 밖 표현은 놓치고, 목록 안 표현은 문맥을 오판할 수 있다.
 """
@@ -401,8 +401,7 @@ def main() -> int:
         return 0
     # Codex는 systemMessage를 대화 기록에 표시하지 않으므로 사건 알림을 block reason(Hook feedback)에 담는다.
     if notice and args.runner == "codex":
-        from sub_gate import shown_reason
-        json.dump({"decision": "block", "reason": shown_reason(notice)}, sys.stdout, ensure_ascii=False)
+        json.dump({"decision": "block", "reason": notice}, sys.stdout, ensure_ascii=False)
     elif notice:
         json.dump({"systemMessage": notice}, sys.stdout, ensure_ascii=False)
     return 0

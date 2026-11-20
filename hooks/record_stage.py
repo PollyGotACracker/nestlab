@@ -112,13 +112,12 @@ def decide(data: dict) -> str | None:
 def record_approval(data: dict) -> str | None:
     from datetime import datetime, timedelta, timezone
     from sub_approval import approved
-    from sub_gate import ACK_LINE, REQUEST_LINE, approval_request, approved_status, live_numbers
+    from sub_gate import REQUEST_LINE, approval_request, approved_status, live_numbers
     from sub_write import read
     if not approved(data.get("prompt") or ""):
         return None
-    # Codex는 요청 줄 뒤에 hook 안내 확인 줄을 쓰므로 확인 줄은 건너뛴다.
     shown = next((e["text"] for e in reversed(read_session(data.get("transcript_path") or ""))
-                  if e["role"] == "assistant" and e["text"].strip() and e["text"].strip() != ACK_LINE), "")
+                  if e["role"] == "assistant" and e["text"].strip()), "")
     request = REQUEST_LINE.search(shown)
     if not request:
         return None

@@ -237,7 +237,7 @@ class RecordIncident(unittest.TestCase):
         self.assertNotIn("판단 과정 요약", notice)
         self.assertIsNone(hook.record({"session_id": "abcdef123456", "last_assistant_message": "정상 응답입니다."}))
 
-    # claude runner는 decision 없이 systemMessage만, codex runner는 systemMessage를 표시하지 않으므로 알림과 확인 줄 지시를 담은 block reason만 출력한다.
+    # claude runner는 decision 없이 systemMessage만, codex runner는 알림을 담은 block reason만 출력한다.
     # 감지가 없으면 두 runner 모두 출력이 없다.
     def test_main_output_has_system_message(self):
         for runner in ("claude", "codex"):
@@ -254,11 +254,9 @@ class RecordIncident(unittest.TestCase):
                     continue
                 result = json.loads(out.getvalue())
                 if runner == "codex":
-                    import sub_gate
                     self.assertEqual(result["decision"], "block")
                     self.assertNotIn("systemMessage", result)
-                    self.assertIn(sub_gate.ACK_LINE, result["reason"])
-                    shown = result["reason"].split("\n\n")[0]
+                    shown = result["reason"]
                 else:
                     self.assertNotIn("decision", result)
                     self.assertNotIn("reason", result)

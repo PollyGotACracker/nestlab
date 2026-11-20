@@ -437,13 +437,6 @@ R_REQUEST_PENDING = ("구현 승인 요청: 경과 문서의 검토 필요 또�
                      "검토 필요 항목은 확정 답을, 모델 호출 실측 필요 항목은 상태 `모델 호출 실측 완료`를 기록하십시오.")
 R_REQUEST_PLAN = "구현 승인 요청: 명세 문서를 log-spec 양식대로 채우십시오. 사유: {reason}"
 R_REQUEST_TRANSITION = "구현 승인 요청: 경과 문서에 구현 승인을 기록하면 차단됩니다. 사유: {reason}"
-# Codex에서 hook 안내를 Hook feedback으로 표시한 뒤 모델이 작성할 확인 줄이다.
-ACK_LINE = "hook 안내를 사용자에게 표시했습니다."
-
-
-# Codex Stop block reason에 담아 사용자에게 표시할 안내와 확인 줄 지시를 반환한다.
-def shown_reason(notice: str) -> str:
-    return f"{notice}\n\n위 안내는 사용자에게 표시되었습니다. 응답에는 `{ACK_LINE}` 한 줄만 작성하십시오."
 
 
 # 명세 문서의 폐기되지 않은 요구사항 번호 목록이다.

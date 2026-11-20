@@ -398,23 +398,19 @@ class Workflow(unittest.TestCase):
         self.assertTrue(notice.startswith("# 구현 승인 요청"))
         self.assertIn("### 1. 기능", notice)
         self.assertIn(hook.NOTICE_REQUEST.strip(), notice)
-        # Codex 출력은 안내와 확인 줄 지시를 담은 block이고, 이어지는 확인 줄 응답은 통과한다.
         output = hook.stop_output(reason, notice, "codex")
         self.assertEqual(output["decision"], "block")
-        self.assertIn(sub_gate.ACK_LINE, output["reason"])
+        self.assertEqual(output["reason"], notice)
         self.assertNotIn("systemMessage", output)
-        ack = {**data, "last_assistant_message": sub_gate.ACK_LINE, "stop_hook_active": True}
-        self.assertEqual(hook.inspect(ack, "codex", record=False), (None, ""))
 
         # 원인의 출처가 빠진 작업은 전이 검사 사유로 block한다.
         (folder / "status.md").write_text(pending.replace("  - 출처: hooks/a.py:1" + chr(10), "", 1), encoding="utf-8")
         self.assertIn(sub_gate.R_REQUEST_TRANSITION.split("{")[0], self.run_check(line) or "")
 
-    # 요청 줄 뒤(Codex 확인 줄 포함) 사용자 `승인`은 구현 승인과 구현 단계를 기록하고, 승인이 아니거나 요청 줄이 없으면 기록하지 않는다.
+    # 요청 줄 뒤 사용자 `승인`은 구현 승인과 구현 단계를 기록하고, 승인이 아니거나 요청 줄이 없으면 기록하지 않는다.
     def test_record_approval_after_request_line(self):
         from hooks.tests.test_sub_workflow import TASK
         import record_stage
-        import sub_gate
         folder, pending = self.request_task()
         log = self.root / "session.jsonl"
         say = lambda *texts: log.write_text("".join(json.dumps({"type": "assistant", "message": {"role": "assistant",
@@ -423,7 +419,7 @@ class Workflow(unittest.TestCase):
         run = lambda prompt: record_stage.record_approval({"prompt": prompt, "cwd": str(self.root), "transcript_path": str(log)})
         say("보고만 했습니다.")
         self.assertIsNone(run("승인"))
-        say(f"구현 승인 요청: {TASK}", sub_gate.ACK_LINE)
+        say(f"구현 승인 요청: {TASK}")
         self.assertIsNone(run("다시 봐 줘"))
         self.assertEqual((folder / "status.md").read_text(encoding="utf-8"), pending)
         self.assertEqual(run("승인"), record_stage.RECORDED_APPROVAL.format(task=TASK))

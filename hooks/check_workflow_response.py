@@ -31,7 +31,7 @@ from sub_claim import REASON_SOURCE, unsourced_claims
 from sub_docs import doc, project_root, sibling, strip_task_comments
 from sub_role import director_main, project_session
 from sub_session import QUESTION_TOOLS, previous_stop_reason, read_session, response_answers, turn
-from sub_gate import ACK_LINE, REQUEST_LINE, approval_request, shown_reason
+from sub_gate import REQUEST_LINE, approval_request
 from sub_completion import STATE_REF, STOP_REQUEST, complete_refusal, completion_reason, linked_statuses, stopped_statuses, unfinished_reason
 from sub_form import APPROVAL_BLOCK, body_of, completed_response, form_gap, form_of, has_deliverable, source_gaps
 from sub_record import call_paths, call_status, record_answers, record_times, record_unresolved, splice
@@ -117,9 +117,6 @@ def inspect(data: dict, runner: str = "claude", record: bool = True) -> tuple[st
     if request:
         reason, output = approval_request(project_root(data.get("cwd")), request[1])
         return reason, ("" if reason or runner != "codex" else output + NOTICE_REQUEST)
-    # Codex에서 hook 안내를 표시한 뒤의 확인 한 줄은 통과한다.
-    if body.strip() == ACK_LINE and data.get("stop_hook_active"):
-        return None, ""
     user, _, entries = turn(read_session(transcript_of(data, runner)))
     # 백그라운드 작업이 남은 응답은 완료 판정을 건너뛰지만 다짐과 책임 회피 같은 응답 미흡 표현은 판정한다.
     if data.get("background_tasks") and form_of(body) != "approval-complete" and stage_prefix(user) != "완료":
@@ -278,7 +275,7 @@ def stop_output(reason: str | None, notice: str, runner: str) -> dict | None:
             return {"decision": "block", "reason": f"{notice}\n\n{reason}"}
         return {"decision": "block", "reason": reason, **({"systemMessage": notice} if notice else {})}
     if notice and runner == "codex":
-        return {"decision": "block", "reason": shown_reason(notice)}
+        return {"decision": "block", "reason": notice}
     return {"systemMessage": notice} if notice else None
 
 MAX_LEN = 300
