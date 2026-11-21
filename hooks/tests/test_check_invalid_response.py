@@ -261,7 +261,7 @@ class RecordIncident(unittest.TestCase):
                     self.assertNotIn("decision", result)
                     self.assertNotIn("reason", result)
                     shown = result["systemMessage"]
-                self.assertTrue(shown.startswith("직전 응답에서 문제 표현(놓쳤어요)을 감지해 사건 문서 ["))
+                self.assertTrue(shown.startswith("직전 응답에서 문제 표현(놓쳤어요)을 감지했습니다.\n사건 문서 ["))
                 self.assertEqual(len(shown.splitlines()), 1)
                 self.assertNotIn(": 놓쳤어요.", shown)
                 self.assertIn(".md", shown)

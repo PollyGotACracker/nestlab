@@ -29,7 +29,7 @@ from save_subagent_result import fence_for
 # 사건 문서는 세션 저장소와 무관하게 이 hook의 원본 저장소에 저장한다.
 INCIDENT_ROOT = Path(__file__).resolve().parents[1]
 
-NOTICE_USER = "직전 응답에서 문제 표현({hits})을 감지해 사건 문서 {link}에 기록했습니다."
+NOTICE_USER = "직전 응답에서 문제 표현({hits})을 감지했습니다.\n사건 문서 {link}에 해당 문제가 기록됩니다."
 WORD_EDGE = "*`'\"([])"  # 어절 앞뒤에서 지울 Markdown과 인용 기호
 MAX_BLOCKS = 8  # Claude Code 연속 continuation 한도 기본값, Codex의 유일한 반복 한도
 WINDOWS_FLAGS = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW
