@@ -22,7 +22,6 @@ from sub_call import refute_mode
 from sub_docs import SAVED_LINE, doc, loop_count, saved_report, task_id
 from sub_role import director_assignment, first_prompt, resolve_role
 from sub_session import agent_transcript
-from sub_worktree import pending_transfer
 
 
 # 출력할 JSON이다. 바꿀 것이 없으면 None이다.
@@ -31,11 +30,6 @@ def replace(data: dict) -> dict | None:
     tin = data.get("tool_input") or {}
     message = str(tin.get("message") or "").strip()
     role = resolve_role(data)
-    # 전달 기록이 남은 worktree의 worker와 documenter는 반영 전 보고하지 못하게 차단한다.
-    if data.get("tool_name") == "SubagentHandback" and role in ("worker", "documenter") and data.get("agent_id"):
-        reason = pending_transfer(data.get("cwd"))
-        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                       "permissionDecisionReason": reason}} if reason else None
     if data.get("tool_name") != "SubagentHandback" \
             or role not in ("researcher", "reviewer"):
         return None

@@ -9,6 +9,9 @@
   "sandbox": {
     "enabled": true
   },
+  "worktree": {
+    "baseRef": "head"
+  },
   "statusLine": {
     "type": "command",
     "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/show_statusline.py\"",

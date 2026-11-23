@@ -150,10 +150,10 @@ SKILLS = SKILL_DIR
 TEMPLATES = TEMPLATE_DIR
 TEMPLATE_NAMES = {"state": "log-status", "input": "log-spec", "research": "log-research", "refute": "log-refute",
                   "nestlab-log-incident": "log-incident", "nestlab-approval": "approval-implement",
-                  "nestlab-plan": "report-plan"}
+                  "nestlab-plan": "info-plan"}
 # 응답 양식 이름이다. 생성기의 `--print-template` 인자와 같다.
-RESPONSE_TEMPLATES = ("question-plan", "question-choice", "question-task", "request-stop", "approval-complete", "report-plan",
-                      "approval-research", "approval-implement", "approval-measure")
+RESPONSE_TEMPLATES = ("question-confirmed", "question-task", "request-stop", "approval-complete", "info-plan", "info-review",
+                      "info-confirmed", "approval-research", "approval-implement", "approval-measure")
 FENCE_LINE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
@@ -268,7 +268,7 @@ def constraint_reason(text: str, template: str | None = None, label: str = "작�
             end = next((i for i, level, _ in document.headings if i > index and level <= depth), len(lines))
             selected.update(range(index + 1, end))
     for index, line in enumerate(lines):
-        match = re.match(r"^( *)(?:- )?(?:한계|위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):[ \t]*(.*)$", line)
+        match = re.match(r"^( *)(?:- )?(?:한계|위험|잠재 위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):[ \t]*(.*)$", line)
         if match:
             selected.add(index)
             for following in range(index + 1, len(lines)):
@@ -279,9 +279,9 @@ def constraint_reason(text: str, template: str | None = None, label: str = "작�
         line = lines[index]
         match = re.match(r"^( *)(?:- )?(\S.*)$", line)
         # 한계와 위험 절 뒤에 이어진 문단(링크, 안내 문장)은 항목이 아니므로 목록 줄과 칸 이름 줄만 판정한다.
-        if not match or not re.match(r"^\s*(?:- |(?:한계|위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):)", line):
+        if not match or not re.match(r"^\s*(?:- |(?:한계|위험|잠재 위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):)", line):
             continue
-        value = re.sub(r"^(?:한계|위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):\s*", "", match[2]).strip()
+        value = re.sub(r"^(?:한계|위험|잠재 위험|설계 한계|확인 범위와 한계|잠재적 위험|잠재 위험과 한계|한계와 위험):\s*", "", match[2]).strip()
         if not value or value.split(" (출처")[0].strip() == "없음" or line.strip() in placeholders:
             continue
         if re.match(r"출처:|위험 확인 방법:|확인 방법:|해소 판단 조건:|사후 (?:모델 호출 )?실측:", value):
@@ -501,20 +501,6 @@ def review_pending(text: str) -> list[str]:
 # 경과 문서 검토 필요 절에서 확정 답이 있는 검토 번호 집합이다.
 def review_done_numbers(text: str) -> set[str]:
     return {m[1] for line, done in review_entries(text) if done and (m := re.match(r"- 검토 (\d+)\.", line))}
-
-
-# 명세 문서(spec) 통합 구조 요구사항 항목의 {문제 번호: (확인 시각 기록 여부, 폐기 여부)}이다. text는 호출 호환용 경과 문서 본문이다.
-def problem_entries(text: str, spec: str = "") -> dict[int, tuple[bool, bool]]:
-    from sub_document import integrated
-    out = {}
-    if integrated(spec):
-        for part in re.split(r"(?m)^(?=### )", strip_comments(section(spec, "요구사항 목록"))):
-            m = re.match(r"### (?:요구사항 )?(\d+)\. (.+)", part)
-            if not m:
-                continue
-            stamp = re.search(r"(?m)^#### 사용자 확인 시각\s*\n+\s*(?:- )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$", part)
-            out[int(m[1])] = (bool(stamp), m[2].strip() == "폐기")
-    return out
 
 
 # 경과 문서 구현 승인 범위의 연결 대상에 적힌 요구사항 번호 집합이다. 번호가 없으면 None이다.

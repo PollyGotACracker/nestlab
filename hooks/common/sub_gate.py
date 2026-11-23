@@ -460,6 +460,11 @@ def approved_status(text: str, stamp: str, numbers: list[str]) -> str:
     return text[:head.end()] + body + text[end:]
 
 
+# 본문에서 백틱 코드 span 밖에 꺾쇠괄호 자리표시자가 남은 줄 목록을 반환한다. 코드 span 안의 형식 예시는 빈 칸이 아니다.
+def blank_lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if re.search(r"<[^<>\n]+>", re.sub(r"`[^`\n]*`", "", line))]
+
+
 # 작업의 구현 승인 요청을 검사해 (차단 사유, 사용자에게 표시할 승인 요청 본문)을 반환한다. 통과하면 사유가 None이다.
 def approval_request(root: Path, task: str) -> tuple[str | None, str]:
     from sub_docs import strip_comments
@@ -482,7 +487,7 @@ def approval_request(root: Path, task: str) -> tuple[str | None, str]:
 
     # 생성 출력에 자리표시자가 남으면 명세 빈 칸부터 채우게 한다.
     output = approval_text(status)
-    blanks = [line.strip() for line in strip_comments(output).splitlines() if re.search(r"<[^<>\n]+>", line)]
+    blanks = blank_lines(strip_comments(output))
     if blanks:
         return R_REQUEST_BLANK.format(items=" / ".join(blanks[:3])), ""
 

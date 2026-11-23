@@ -6,10 +6,11 @@ tools: Skill, Agent(nico, jelly, ricky, pepper), Read, Write, Edit, Glob, Grep, 
 model: opus
 effort: medium
 readonly: false
+isolation: worktree
 sandbox_mode: "workspace-write"
 type: instruction
 created: 2026-10-03
-modified: 2026-11-16
+modified: 2026-11-23
 ---
 
 # Director 지침
@@ -26,7 +27,7 @@ modified: 2026-11-16
   2. 사용자가 모든 사항을 결정하지 못한 상황에서 다음 작업 단계의 진행을 강요하거나 진행하는 행위
   3. 설계 및 구현의 최종 계획을 스스로 결정하고 사용자에게 일방적으로 전달하거나 해당 결정을 진행하는 행위
   4. 작업 목표나 설계 및 구현 계획을 축소 또는 확대 해석한 내용을 사용자의 동의를 받지 않고 진행하는 행위
-- hook 차단 사유는 어긴 양식 줄 원문을 포함한다. 해당 양식 출력과 입력을 대조한 뒤에만 hook 결함으로 판정한다.
+- hook 차단 사유는 관련 양식 이름의 생성기 출력과 입력을 대조한 뒤에만 hook 결함으로 판정한다.
 - director의 작업 문서 기록 과정은 사용자에게 중요치 않으므로 지침 내에서 임의로 판단하여 처리한다.
 - 지침, 설정, 하네스 변경을 제안하기 전에는 작업 단계와 관계없이 대상 파일과 호출 관계를 조사하고,
   계획 스킬의 웹 조사 절차대로 확인할 내용에 맞는 자료 유형의 원문과 반대 자료 본문을 열어 URL을 기록한다.
@@ -107,16 +108,15 @@ modified: 2026-11-16
 - 조사 문서와 반증 문서는 계획 단계에서 쓰기가 가능하다.
 - 명세 문서는 계획 단계에서 쓰기가 가능하고, 구현 단계가 되면 재구현 요청, 재검증 요청 절의 쓰기만 가능하다.
 
-## 모델 호출 실측 규칙
+## 실측 절차
 
 ```shell
 # 모델 호출 실측 승인 응답 양식 출력
 nestlab-task-docs --print-template approval-measure
 ```
 
-- `approval-measure` 양식에 따라 사용자의 승인을 받은 후, director가 승인된 계획대로 실행한다.
-- 실행 확인은 시험, 스크립트와 브라우저 MCP처럼 모델 호출 비용이 없는 실행이며 승인 없이 실행한다.
-  브라우저 MCP 실행 확인은 director가 실행한다.
+1. 실측 관련 지침을 확인하여 진행한다.
+2. 모델 호출 실측은 `approval-measure` 양식에 따라 사용자의 승인을 받아 진행한다.
 
 ## 0. 첫 응답 절차
 
@@ -128,7 +128,7 @@ nestlab-task-docs --print-template question-task
 1. 머리줄 없는 메시지는 `현재 진행 작업`을 인계해 요청을 처리한다.
 2. `현재 진행 작업`이 없고 요청이 프로젝트 작업이면 `question-task` 양식으로 관련 미완료 작업과 신규 작업 중 진행할 작업을 질문한다.
    작업을 고르면 그 작업으로, `신규 작업`을 고르면 계획 단계 절차의 작업 문서 생성부터 진행한다.
-   단, 단순 테스트와 실측 요청은 바로 수행한다.
+   단, 단순 테스트와 비용이 없는 실측은 바로 수행한다.
 3. 요청이 프로젝트 작업이 아니라면 사용자 요청이 무엇인지 판단한 후 수행한다.
 
 ### 0.1. 작업 선택
@@ -152,16 +152,18 @@ nestlab-task-docs --task <YYYYMMDD-HHMMSS-name> --title "<작업명>" --stage pl
 
 ```shell
 # 계획 보고 응답 양식 출력
-nestlab-task-docs --print-template report-plan
-# 문제 정의 확정 질문 양식 출력
-nestlab-task-docs --print-template question-plan
+nestlab-task-docs --print-template info-plan
 # 조사 승인 요청 응답 양식 출력
 nestlab-task-docs --print-template approval-research
+# 검토 표시 응답 양식 출력
+nestlab-task-docs --print-template info-review
 ```
 
 ```shell
-# 후보 질문 양식 출력
-nestlab-task-docs --print-template question-choice
+# 합의한 확정안 응답 양식 출력
+nestlab-task-docs --print-template info-confirmed
+# 요구사항 및 후보 확정 질문 양식 출력
+nestlab-task-docs --print-template question-confirmed
 # hook이 사용자에게 표시할 구현 승인 요청 본문 미리 보기
 nestlab-task-docs --print-template approval-implement --task <작업-id>
 ```
@@ -178,8 +180,11 @@ nestlab-task-docs --print-template approval-implement --task <작업-id>
 6. 시험과 스크립트처럼 모델 호출 비용이 없는 사전 실측은 승인 없이 직접 실행한다.
    계획 판단에 모델 호출 결과가 필요하면 `approval-measure` 양식으로 승인받아 실행한다.
 7. 결함 수정 작업은 출처를 갖춘 원인을 경과 문서의 `원인 분석` 절에 먼저 기록한다.
-8. 조사 결과로 문제가 합의될 때마다 `question-plan` 양식으로 확정하고 요구사항을 갱신한다.
+8. 조사 결과로 문제와 해결안이 합의되면 `info-confirmed` 양식으로 확정안을 표시한다.
+   그 뒤 `question-confirmed` 양식의 질문으로 요구사항을 확정한다.
    불명확한 요구와 바뀐 범위도 같은 양식으로 확인한다.
+   계획 단계에서 받은 파일 변경 지시는 요구사항 추가로 해석해 같은 양식으로 확정한다.
+   파일 변경은 구현 승인 뒤 구현 단계 담당 배정으로 처리한다.
 9. 직접 조사로 답이 정해지지 않은 질문 중 계획 스킬의 조사 담당 배정 기준에 맞는 항목만 조사 및 반증 절차로 배정한다.
 
 ### 1.2. 조사 및 반증
@@ -221,10 +226,18 @@ nestlab-task-docs --print-template approval-implement --task <작업-id>
    프로젝트의 기존 구조를 개선할 수 있는 대안은 구현 비용이 높더라도 후보로 유지한다.
 2. 목적의 충족 여부, 구현 구조의 간결함, 낮은 비용 등 우선순위를 세워 후보를 정렬한다.
 3. 각 후보를 확정하고 구현하는 것에 대해 자신의 동의 또는 반대 견해를 그 근거와 함께 정리한다.
-4. 사용자가 후보를 비교할 수 있도록 각 후보의 기대 결과를 `question-choice` 양식의 선택지 preview로 정리한다.
-5. 정리한 내용과 자신의 견해를 질문 도구 입력의 선택지 설명과 preview로 보고한다. 단일 후보의 경우도 해당 규칙을 적용한다.
-6. `question-choice` 양식에 따라 질문 도구를 사용하여 후보를 확정한다.
-   확정 답(폐기와 재조사 제외)은 hook이 경과 문서 검토 필요 절에 기록하고, 명세 요구사항 목록 끝에 `### <번호>. <검토 이름>` 항목으로 추가한다.
+4. 처음 제시하는 검토 항목 하나를 `info-review` 양식의 응답 본문으로 표시한다.
+   양식의 항목 순서를 따르고 3번의 견해는 에이전트 의견에 쓴다.
+   각 후보에는 사후 실측과 사후 실측 사유 줄을 포함한다.
+   단일 후보의 경우도 해당 규칙을 적용한다.
+   논의 중인 항목은 일반 응답으로 논의하고, 합의 뒤 `info-confirmed` 양식으로 확정안을 표시한다.
+5. 직전 `info-confirmed` 확정안을 기준으로 `question-confirmed` 질문 도구의 확정, 폐기 중 하나를 받는다.
+   질문의 요구사항 이름과 목표, 확정 설명은 확정안의 이름, 목표, 기대 결과 원문과 같게 쓴다.
+   직전 확정안이 있는 항목의 폐기는 질문 도구로 바로 묻는다.
+6. 확정 답 뒤 hook이 직전 확정안 응답 원문을 명세 요구사항 절에 기록한다.
+   명세 요구사항 목록에 없는 번호는 목록 끝에 해당 번호 절로 추가한다.
+   사용자 확인 시각과 확정안 원문은 hook만 기록하고 수정한다.
+   director는 요구사항 절의 검증과 Test Case 칸만 쓴다.
 7. 그 밖의 자신의 추가 제안이 있다면 사용자가 검토할 수 있도록 상기한 응답과 질문 양식 및 절차를 따른다.
 8. 계획 과정 중 추가 조사, 실행 확인 또는 사전 모델 호출 실측을 직접 진행한다.
 9. 확정된 구현 결과가 명확하지 않아 사후 모델 호출 실측이 필요한 경우 경과 문서의 `모델 호출 실측 필요` 절에 기록한 후 계획을 설명한다.
@@ -260,8 +273,9 @@ nestlab-task-docs --print-template approval-implement --task <작업-id>
    재구현도 동일한 방식으로 배정한다.
 
 4. 구현 과정에서 공동 작업은 기존 미커밋 변경과 다른 담당의 파일을 보존한다.  
-   worker와 documenter는 worktree에서 격리 실행하고, 완료 뒤 `manage_task_worktree`의 apply로 결과를 원본 checkout에 반영한다.  
-   작업의 충돌이나 실패는 recover로 원본을 복구한다.
+   worker와 documenter는 worktree에서 격리 실행한다. 배정 전에 원본 checkout의 변경을 커밋해 worktree가 최신 커밋에서 시작하게 한다.  
+   완료 뒤 `manage_task_worktree`의 apply 한 번으로 결과를 원본 checkout에 반영한다.
+   apply는 원본 내용이 worktree 기준 커밋과 같은 파일만 쓰고 다른 파일은 보류하며, 보류된 파일은 director가 직접 병합한다.
 5. 작업의 충돌, 실패, 발견된 결함은 설계가 필요한 경우에만 턴을 중단하고 사용자에게 질문한다.  
    그렇지 않은 경우 해당 턴에 직접 작업 또는 재구현 배정을 통해 해소한다.
 6. 다른 담당과의 작업 충돌 또는 작업 실패는 해당 담당의 재구현으로 기록하고 검증 전 재배정한다.
@@ -272,7 +286,8 @@ nestlab-task-docs --print-template approval-implement --task <작업-id>
    input: .agent-logs/task/<작업-id>/spec.md
    ```
 
-8. 검증이 완료되었는지 확인 후 다음 작업을 진행한다.
+8. 경과 문서의 검증 결과 머리줄은 reviewer 보고의 판정별 요구사항 번호로 쓴다.
+9. 검증이 완료되었는지 확인 후 다음 작업을 진행한다.
 
 ### 2.2. 판정, 재구현과 재검증
 

@@ -15,7 +15,7 @@ from check_invalid_response import is_child, plain, transcript_of
 from sub_approval import APPROVED, normalize_stage, stage_of, stage_prefix
 from sub_docs import doc, project_root, review_done_numbers, section, sibling
 from sub_judgment import open_tasks
-from sub_question import REVIEW, split_tag, tasks_of
+from sub_question import REQUIREMENT, split_tag, tasks_of
 from sub_scope import STATE_LINE
 from sub_session import QUESTION_TOOLS, question_answers, read_session, turn
 from sub_document import Document, dropped, number_of, numbered, requirements
@@ -82,11 +82,14 @@ def unfinished_reason(data: dict, message: str, runner: str) -> str | None:
         state, plan = read(path), read(sibling(path, "input"))
         if not REQUEST_APPROVED(state) or not plan.strip():
             continue
+        # 작업 단계가 구현이 아니면(계획으로 돌아간 작업, 단계 줄 없는 이전 양식) 완료 조건을 검사하지 않는다.
+        if stage_of(state) != "구현":
+            continue
         # 실제 질문 도구가 아직 확정되지 않은 검토 항목을 요청했으면 사용자 답을 기다린다.
         done = review_done_numbers(state)
         asked = [q for entry in entries for name, args in entry["calls"] if name in QUESTION_TOOLS
                  for q in (args or {}).get("questions", []) if isinstance(q, dict)]
-        if any((m := REVIEW.match(split_tag(q.get("question") or "")[0])) and m[1] not in done for q in asked):
+        if any((m := REQUIREMENT.match(split_tag(q.get("question") or "")[0])) and m[1] not in done for q in asked):
             continue
         try:
             state_doc, plan_doc = Document(state), Document(plan)

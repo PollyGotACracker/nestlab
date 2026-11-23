@@ -9,6 +9,7 @@ skills:
 model: sonnet
 effort: medium
 readonly: true
+isolation: worktree
 sandbox_mode: "read-only"
 type: instruction
 created: 2026-10-07

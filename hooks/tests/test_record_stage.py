@@ -180,7 +180,7 @@ class IncidentLink(RecordStage):
         (folder / "20261112-99999999.md").write_text("# 다른 세션\n", encoding="utf-8")
         message = self.run_hook("머리줄 없는 메시지")
         self.assertIn("사건 문서 링크: [20261112-abcdef12](.agent-logs/incident/20261112-abcdef12.md)", message)
-        self.assertIn("분석 세션이 분석합니다", message)
+        self.assertIn("해당 문제를 분석하는 중입니다", message)
         self.assertNotIn("99999999", message)
         self.assertIn("사건 문서 링크", self.run_hook("[plan]", role="assistant"))
         with self.log.open("a", encoding="utf-8") as f:

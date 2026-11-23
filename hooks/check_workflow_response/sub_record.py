@@ -15,14 +15,13 @@ from pathlib import Path
 
 from check_invalid_response import transcript_of
 from sub_approval import APPROVED, approval_record_times, stage_of
-from sub_docs import FENCE_LINE, HEADING, legacy, project_root, review_entries, section, sibling, titles
+from sub_docs import project_root, section, sibling
 from sub_judgment import confirmed
 from sub_paths import TASK_REL
-from sub_question import DROP, RECOMMENDED, REVIEW, split_tag, tasks_of
-from sub_scope import PROBLEM_QUESTION, problem_spec
+from sub_display import find_confirmed, norm, session_confirmed
+from sub_question import RECOMMENDED, REIMPLEMENT, REQUIREMENT, description_of, split_tag, tasks_of
 from sub_session import question_answers, read_session, turn
-from sub_spec import apply as apply_spec, blocks as spec_blocks, text_of
-from sub_document import filled, integrated, values
+from sub_spec import apply as apply_spec
 from sub_write import PATCH_FILE, read, strings
 from sub_form import splice
 
@@ -148,38 +147,27 @@ def picked_labels(question: dict, answer: str) -> list[str]:
 # 질문 문장 끝 작업 식별자의 경과 문서에 기록하고, 식별자가 없으면 색인의 현재 진행 작업에 기록한다.
 def record_answers(data: dict, runner: str, answers: list | None = None) -> None:
     # 이번 턴 질문 답을 읽고 식별자 꼬리를 뗀 질문과 대상 경과 문서로 묶는다.
+    entries = read_session(transcript_of(data, runner))
     if answers is None:
-        answers = question_answers(turn(read_session(transcript_of(data, runner)))[2])
+        answers = question_answers(turn(entries)[2])
     groups: dict[Path, list] = {}
     for q, answer in answers:
-        # 문제 정의 확인 답은 질문 식별자 작업의 명세 문서 요구사항 목록에 기록한다. 문서 생성 전 답은 다음 기록 때 세션 기록에서 다시 읽는다.
-        if (problem := PROBLEM_QUESTION.fullmatch(" ".join(str(q.get("question") or "").split()))):
-            for target in tasks_of(data, runner, problem[6])[:1]:
-                if target.is_file() and sibling(target, "input").is_file():
-                    rewrite(sibling(target, "input"), lambda text, t=target, item=(q, answer): problem_spec(data, t, text, [item]))
-            continue
         text, tag = split_tag(q.get("question") or "")
         target = (tasks_of(data, runner, tag) or [None])[0]
         if target is not None:
             groups.setdefault(target, []).append(({**q, "question": text}, answer))
     if not answers and (path := call_status(data)) is not None:
         groups.setdefault(path, [])
+    confirmed = session_confirmed(entries)
     for path, items in groups.items():
-        record_to(path, items)
+        record_to(path, items, confirmed)
 
 
 # 현재 세션의 작업 문서에 실제 사용자 기록 시각을 반영하며 같은 입력의 재처리는 파일을 바꾸지 않는다.
 def record_times(data: dict, runner: str) -> str:
-    paths = set(target_statuses(data))
-    for question, _ in question_answers(read_session(transcript_of(data, runner))):
-        match = PROBLEM_QUESTION.fullmatch(" ".join(str(question.get("question") or "").split()))
-        if match and match[6]:
-            paths.update(target for target in tasks_of(data, runner, match[6]) if target.is_file())
     notices = []
-    for path in sorted(paths):
+    for path in sorted(target_statuses(data)):
         rewrite(path, lambda text: approval_record_times(data, path, text))
-        if sibling(path, "input").is_file():
-            rewrite(sibling(path, "input"), lambda text: problem_spec(data, path, text))
         probe = read(path).replace("기록 없음", "<자동 시각>")
         missing = ["사용자 승인 시각"] if re.search(r"(?m)^\s*- 사용자 승인 시각: 기록 없음\s*$",
                                                  approval_record_times(data, path, probe)) else []
@@ -188,20 +176,27 @@ def record_times(data: dict, runner: str) -> str:
     return "\n".join(notices)
 
 
-# 형식을 지킨 검토 질문의 선택지 답만 path 경과 문서 검토 필요 절에 한 줄로 기록하고, 확정 안(폐기와 재조사 제외)은 같은 작업 폴더 명세 문서 요구사항 목록 끝에 추가한다.
-# 직접 입력 답과 번호 접두가 없는 질문은 기록하지 않는다.
-def record_to(path: Path, answers: list) -> None:
-    # 질문마다 검토 필요 한 줄과 명세 문서 요구사항 추가 작업을 만든다.
+# 재구현 요청 절 본문에 항목 하나를 추가한다. 양식 자리표시 항목과 `없음` 항목은 지우고 같은 항목은 다시 추가하지 않는다.
+def put_reimplement(body: str, item: str) -> str:
+    starts = list(re.finditer(r"(?m)^- (.+)$", body))
+    items = [body[m.start():(starts[i + 1].start() if i + 1 < len(starts) else len(body))].strip("\n")
+             for i, m in enumerate(starts) if not re.search(r"<[^<>\n]+>", m.group(1)) and m.group(1).strip() != "없음"]
+    # 근거 시각이 달라도 수정 대상, 요구사항 번호와 기대 결과가 같으면 같은 항목이다.
+    key = lambda text: re.sub(r" \(근거: 사용자 [^)]*\)", "", text)
+    if key(item) not in map(key, items):
+        items.append(item)
+    head = body[:starts[0].start()] if starts else body.rstrip("\n") + "\n\n"
+    return head + "\n".join(items) + ("\n\n" if body.endswith("\n\n") else "\n")
+
+
+# 확정 질문의 선택지 답을 path 경과 문서 검토 필요 절에 한 줄로 기록한다. 확정 답은 직전 확정안(info-confirmed 응답)의 줄 원문을
+# 같은 작업 폴더 명세 문서 요구사항 절의 사용자 확인 시각, 문제, 목표, 기대 결과, 한계, 잠재 위험 칸에 기록하고, 폐기 답은 그 절을 폐기 절로 바꾼다.
+# 재구현 질문의 승인 답은 명세 문서 재구현 요청 절에 기록한다. 직접 입력 답과 양식 밖 질문은 기록하지 않는다.
+def record_to(path: Path, answers: list, confirmed: list | None = None) -> None:
     now = f"{datetime.now():%Y-%m-%d %H:%M:%S}"
-    reviews, ops, names = {}, [], {}
+    reviews, ops, names, requests = {}, [], {}, []
     flat = lambda text: " ".join(str(text).split())
-    known = {m[1]: m[2] for line, _ in review_entries(read(path)) if (m := re.match(r"- 검토 (\d+)\. ([^:\n]+)", line))}
     spec = path.with_name("spec.md")
-    listed = [(k, t) for k, t in spec_blocks(section(read(spec), "요구사항 목록")) if k is not None] if spec.is_file() else []
-    fresh = max((k for k, _ in listed), default=0) + 1
-    # 통합 구조 명세의 기대 결과 칸이 비었거나 자리표시 값인 항목 번호이다.
-    unified = spec.is_file() and integrated(read(spec))
-    empty = {k for k, t in listed if unified and not filled(text_of(t, "기대 결과"))}
     line = lambda number, name, label: f"- 검토 {number}. {name}: {label} (사용자 검토 시각: {now})"
     for q, answer in answers:
         # 선택지 답이 아니면 기록하지 않는다.
@@ -209,44 +204,41 @@ def record_to(path: Path, answers: list) -> None:
         picked = picked_labels(q, answer)
         if not picked:
             continue
-        drop, rev = DROP.match(question), REVIEW.match(question)
+        rev, redo = REQUIREMENT.match(question), REIMPLEMENT.match(question)
 
-        # 폐기 답은 확정 안 자리에 `폐기`를 기록하고 재조사 답은 기록하지 않는다.
-        if (rev and picked == ["폐기"]) or (drop and confirmed(answer)):
-            number = (rev or drop)[1]
-            reviews[f"검토 {number}"] = line(number, known.get(number) or (rev[2] if rev else "폐기"), "폐기")
-        elif rev and picked != ["재조사"]:
-            number, name = rev[1], rev[2]
-            label = ", ".join(picked)
-            reviews[f"검토 {number}"] = line(number, name, label)
+        # 폐기 답은 검토 필요 절에 `폐기`를 기록하고 명세 절을 폐기 절로 바꾼다.
+        if rev and picked == ["폐기"]:
+            reviews[f"검토 {rev[1]}"] = line(rev[1], rev[2].strip(), "폐기")
+            ops.append(("drop", int(rev[1]), ""))
+        elif rev and picked == ["확정"]:
+            # 확정안과 확정 설명이 같을 때만 확정안 원문을 명세 칸에 기록한다.
+            number, name = int(rev[1]), rev[2].strip()
+            found = find_confirmed(confirmed or [], number, name, rev[3].strip())
+            if found and norm(found["fields"]["기대 결과"]) == norm(description_of(q, "확정")):
+                cell = found["fields"]
+                reviews[f"검토 {number}"] = line(number, name, "확정")
+                names[number] = name
+                ops.append(("confirm", number, name, cell["목표"], cell["기대 결과"], cell["한계"], cell["잠재 위험"], now,
+                            cell["문제"]))
+        elif redo and picked == ["승인"]:
+            # 수정 대상, 수정 위치, 요구사항 번호, 기대 결과와 사용자 확인 시각을 한 항목으로 만든다.
+            requests.append(f"- {redo[2].strip()}: {redo[3].strip()} (요구사항 {redo[1]}) (근거: 사용자 {now})\n"
+                            f"  - 기대 결과: {description_of(q, '승인')}")
 
-            # 고른 선택지의 설명을 확정 안 라벨과 함께 기대 결과에 쓴다. 같은 이름의 요구사항이 있으면 그 항목을 갱신한다.
-            desc = " ".join(flat(o.get("description") or "") for o in q.get("options") or []
-                            if isinstance(o, dict) and RECOMMENDED.sub("", flat(o.get("label") or "")) in picked).strip()
-            same = next((k for k, t in listed if re.match(rf"### {k}\. {re.escape(name)}\s*$", t.splitlines()[0])), None)
-            target = same or fresh
-            fresh += 0 if same else 1
-            # 통합 구조 명세는 검토 질문의 첫 문제 번호 항목의 빈 결과 칸을 채우고, 결과가 이미 있으면 새 항목에 그 문제 칸을 복사한다.
-            problems = [int(n) for n in re.findall(r"\d+", rev[4])]
-            source = problems[0] if unified and not same and problems else None
-            if source in empty:
-                target, fresh, source = source, fresh - 1, None
-                empty.discard(target)
-            names[target] = name
-            ops.append(("req", target, label + (f": {desc}" if desc else ""),
-                        "문제 " + ", ".join(re.findall(r"\d+", rev[4])), source))
-
-    # 명세 문서가 있으면 요구사항 목록에 추가한다.
+    # 명세 문서가 있으면 확정안과 재구현 요청을 기록한다.
     spec_changed = False
-    if ops and spec.is_file():
+    if spec.is_file() and (ops or requests):
         try:
             before = read(spec)
-            rewrite(spec, lambda text: splice(text, "요구사항 목록", lambda b: apply_spec(b, ops, names)))
+            if ops:
+                rewrite(spec, lambda text: splice(text, "요구사항 목록", lambda b: apply_spec(b, ops, names)))
             spec_changed = read(spec) != before
+            for item in requests:
+                rewrite(spec, lambda text: splice(text, "재구현 요청", lambda b: put_reimplement(b, item)))
         except (OSError, ValueError):
             pass
 
-    # 검토 필요 한 줄과 구현 승인 및 작업 단계를 갱신한다. 명세가 바뀌었으면 구현 승인을 승인 대기로 되돌린다.
+    # 검토 필요 한 줄과 구현 승인 및 작업 단계를 갱신한다. 요구사항 목록이 바뀌었으면 구현 승인을 승인 대기로 되돌린다.
     def edit(text: str) -> str:
         if spec_changed:
             text = splice(text, "구현 승인 범위", lambda body: re.sub(

@@ -33,7 +33,7 @@ from sub_role import director_main, project_session
 from sub_session import QUESTION_TOOLS, previous_stop_reason, read_session, response_answers, turn
 from sub_gate import REQUEST_LINE, approval_request
 from sub_completion import STATE_REF, STOP_REQUEST, complete_refusal, completion_reason, linked_statuses, stopped_statuses, unfinished_reason
-from sub_form import APPROVAL_BLOCK, body_of, completed_response, form_gap, form_of, has_deliverable, source_gaps
+from sub_form import APPROVAL_BLOCK, body_of, completed_response, form_gap, form_of, source_gaps
 from sub_record import call_paths, call_status, record_answers, record_times, record_unresolved, splice
 
 
@@ -167,11 +167,10 @@ def response_reason(data: dict, runner: str, message: str, body: str, record: bo
         notice = f"사건 감지({', '.join(hits)}): {incident_link(path, data.get('cwd'))}"
         return (None if count > MAX_BLOCKS or data.get("stop_hook_active") else REASON_EMPTY), notice
 
-    # 결과물 없는 미흡 응답과 출처 없는 주장은 턴당 한 번만 block한다.
+    # 예고로 끝난 응답과 출처 없는 주장은 턴당 한 번만 block한다.
     if data.get("stop_hook_active") or background:
         return None, ""
-    if (not has_deliverable(message, body) and len(body.strip()) <= MAX_LEN
-            and (ANNOUNCE.search(body) or ADMIT.search(body))):
+    if ANNOUNCE.search(body):
         return REASON_EMPTY, ""
     claims = unsourced_claims(message, body)
     if claims:
@@ -259,18 +258,16 @@ def main() -> int:
     return 0
 
 
-# 차단 사유 뒤의 작성 지시. Claude 표시 hook(replace_blocked_response)은 응답 미흡 응답만 교체 문구로 바꾸고,
-# 그 밖의 차단 응답은 화면에 그대로 남으므로 같은 내용을 반복하지 않게 한다.
+# 차단 사유 뒤의 작성 지시. 차단 응답은 화면에 그대로 남으므로 같은 내용을 반복하지 않게 한다.
 CONTINUE = ("직전 응답은 사용자에게 그대로 표시되어 있습니다. 직전 응답의 내용을 반복하지 말고, "
             "위 사유가 지적한 누락 내용만 이어서 작성하십시오.")
-REWRITE = "직전 응답은 화면에서 교체 문구로 바뀌었습니다. 결과물을 포함한 응답 전체를 다시 작성하십시오."
 
 
 # 판정 결과를 Stop 출력 JSON으로 바꾼다. 출력할 내용이 없으면 None이다.
 # Codex는 systemMessage를 대화 기록에 표시하지 않으므로 사용자 안내를 block reason(Hook feedback)에 담는다.
 def stop_output(reason: str | None, notice: str, runner: str) -> dict | None:
     if reason:
-        reason = f"{reason}\n{REWRITE if reason == REASON_EMPTY and runner == 'claude' else CONTINUE}"
+        reason = f"{reason}\n{CONTINUE}"
         if notice and runner == "codex":
             return {"decision": "block", "reason": f"{notice}\n\n{reason}"}
         return {"decision": "block", "reason": reason, **({"systemMessage": notice} if notice else {})}
@@ -278,22 +275,19 @@ def stop_output(reason: str | None, notice: str, runner: str) -> dict | None:
         return {"decision": "block", "reason": notice}
     return {"systemMessage": notice} if notice else None
 
-MAX_LEN = 300
-# 예고: 미래형 약속과 미실행 선언
+# 예고: 미래형 약속, 당위형 종결과 미실행 선언
 ANNOUNCE = re.compile(
-    r"겠습니다|하겠어요|할게요|드릴게요|예정입니다|(?:아직|따로|별도로)[^.\n]{0,20}(?:변경|수정|실행|적용)하지 않았")
-# 인정과 자기 평가
-ADMIT = re.compile(
-    r"맞습니다[!.]?|죄송|제가 잘못|제 잘못|제 실수|해결하는 대신|못 했|못했")
+    r"겠습니다|하겠어요|할게요|드릴게요|예정입니다|해야 합니다|해야 하는 상황입니다"
+    r"|(?:아직|따로|별도로)[^.\n]{0,20}(?:변경|수정|실행|적용)하지 않았")
 # 위치 이동을 뜻하는 `앞으로 <이동 동사>`는 다짐이 아니므로 책임 회피에서 뺀다.
 MOVE = r"(?!\s*(?:옮|당기|당겨|두|둔|배치|이동))"
 # 응답 미흡: 후속 작업을 사용자에게 넘기거나 해결을 포기하는 표현, 다짐 문장, 확인하지 않은 내용을 담은 문장
 SHIFT = re.compile(
     r"하실 (?:일은 없|필요는 없|필요 없)|추가로 [^.\n]*?은 없"
     r"|해결됐다고 할 수 없|멈추겠|멈출게요|그만두겠|그만하겠|중단하겠|여기서 마치|이미 충분"
-    r"|앞으로" + MOVE + r"|앞으로는|이제부터|다음(?: \S+)?부터는? [^.\n]*?(?:겠습니다|게요)"
+    r"|앞으로" + MOVE + r"(?:는)?(?=[^.\n]*?(?:겠습니다|게요))|이제부터|다음(?: \S+)?부터는? [^.\n]*?(?:겠습니다|게요)"
     r"|(?:이후 처리|이후로는|다음 세션|재발하지 않|반복되지 않)[^.\n]*?(?:겠습니다|게요)"
-    r"|미확인|확인하지 않|확인되지 않")
+    r"|미확인(?!\s*(?:표기|표현|단어|문자열))|확인하지 않|확인되지 않")
 # 한도 표현과 작업 불가 표현이다. 한 줄에 둘이 함께 있으면 한도를 이유로 한 작업 불가 응답으로 판정한다.
 LIMIT_WORD = re.compile(r"한도|사용량 제한|rate limit|usage limit", re.I)
 LIMIT_REFUSE = re.compile(r"(?:할|될|있을|드릴) 수 없|불가능|불가합니다|못 합니다|못합니다|어렵습니다")
@@ -323,8 +317,7 @@ REASON_FORM = "응답: 관련 지침과 {form} 템플릿을 준수하십시오. 
 REASON_CHOICE = "후보 보고에서 누락된 안 블록 항목을 보완하십시오. {missing}"
 
 
-REASON_EMPTY = ("직전 응답에서 사용자 요청에 대한 결과물 없이 예고나 해명만 작성되었습니다.\n"
-                "결과물(코드, 표, 목록, 파일 경로, diff)을 작성하십시오.")
+REASON_EMPTY = "직전 응답이 예고나 해명으로 끝났습니다."
 
 
 if __name__ == "__main__":

@@ -281,6 +281,15 @@ def doc_access(data: dict, role: str | None) -> tuple[str | None, bool]:
     return (found.group(1) if found else None), role == "reviewer" and refute_mode(prompt)
 
 
+# project가 linked worktree이면 원본 checkout의 입력 문서 정규화 경로를 반환한다. 아니면 None이다.
+def source_doc(project: Path, doc: str, cwd: Path) -> str | None:
+    from sub_worktree import origin
+    try:
+        return norm(os.path.realpath(origin(project) / doc), cwd)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
 # 도구 입력의 경로가 보안 문서나 세션 경로 밖이면 deny 사유를 반환한다. 통과면 None이다.
 def check_paths(data: dict, runner: str) -> str | None:
     # 판정에 쓰는 기준 경로와 설정을 읽는다.
@@ -318,8 +327,7 @@ def check_paths(data: dict, runner: str) -> str | None:
         if director_main(data) and task_docs_command(command, cwd):
             return None
         from sub_worktree import transfer_command
-        if ((director_main(data) and transfer_command(command, project))
-                or (sub and role in ("worker", "documenter") and transfer_command(command, project, role))):
+        if director_main(data) and transfer_command(command, project):
             return None
 
         # git -C가 저장소 밖을 가리키면 차단한다.
@@ -370,6 +378,9 @@ def check_paths(data: dict, runner: str) -> str | None:
             if in_temp(real):
                 continue
             if not inside(real, project):
+                # worktree 서브에이전트는 원본 checkout의 입력 문서 하나만 읽을 수 있다.
+                if name == "Read" and allowed is not None and real == source_doc(project, allowed, cwd):
+                    continue
                 return REASON_SUB_OUTSIDE.format(token=token)
             # 입력 문서가 속한 작업 폴더에서는 입력 문서만 읽을 수 있고, Read, Grep, Glob은 그 작업 폴더를 포함하는 폴더도 대상으로 삼을 수 없다.
             if allowed is not None:
@@ -434,6 +445,9 @@ def source_leak(text: str, data: dict, root: Path) -> str | None:
         absolute = bool(DRIVE.match(ref)) or ref.startswith(("~", "/", "\\"))
         bare = "/" not in ref and "\\" not in ref
         if not ref or (bare and not (line and TASK_DOC_NAME.match(ref))):
+            continue
+        # 영문자나 숫자가 없는 기호 토큰(문장 속 단독 슬래시)은 경로 후보가 아니다.
+        if not re.search(r"[A-Za-z0-9]", ref):
             continue
         # 표 칸의 `\|`와 정규식 이스케이프는 경로가 아니다.
         if re.fullmatch(r"\\+", ref) or re.match(r"\\[^\\\w]", ref) or is_regex_text(ref):

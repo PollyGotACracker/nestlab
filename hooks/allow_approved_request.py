@@ -148,8 +148,32 @@ def decide(data: dict, runner: str) -> str | dict | None:
     if reason is not None:
         return {"behavior": "deny", "message": reason}
     if name in SHELLS and git_write_reason(bash_command(data)):
-        return None
+        return implementer_git(data)
     return "allow"
+
+
+REASON_GIT_ORIGIN = ("원본 checkout에서는 git rm, git checkout, git mv를 실행할 수 없습니다. "
+                     "삭제는 rm으로, 내용 변경은 Edit로 처리하고 linked worktree 안에서만 git 쓰기를 실행하십시오.")
+REASON_GIT_C = "구현 담당은 git -C로 다른 경로를 지정할 수 없습니다. linked worktree 안에서 git 인자 없이 실행하십시오."
+# 구현 담당에게 허용하는 단일 git 쓰기 커맨드와 -C 지정 형식
+GIT_IMPLEMENT = re.compile(r"^git\s+(?:rm|mv|checkout\s+--)(?=\s|$)")
+GIT_IMPLEMENT_C = re.compile(r"^git\s+-C\s+\S+\s+(?:rm|mv|checkout)(?=\s|$)")
+
+
+# 구현 담당(worker, documenter)의 단일 git rm, mv, checkout -- 커맨드는 cwd가 linked worktree이면 allow, 원본 checkout이면 deny이다.
+# 그 밖의 세션과 git 쓰기는 None으로 두어 승인 창을 유지한다.
+def implementer_git(data: dict) -> str | dict | None:
+    from sub_role import resolve_role
+    if main_session(data) or resolve_role(data) not in ("worker", "documenter"):
+        return None
+    parts = command_parts(bash_command(data))
+    if len(parts) != 1:
+        return None
+    if GIT_IMPLEMENT_C.match(parts[0]):
+        return {"behavior": "deny", "message": REASON_GIT_C}
+    if not GIT_IMPLEMENT.match(parts[0]):
+        return None
+    return "allow" if (project_root(data.get("cwd")) / ".git").is_file() else {"behavior": "deny", "message": REASON_GIT_ORIGIN}
 
 
 # stdin의 hook 입력을 판정하고 allow 또는 deny이면 JSON을 출력한다. 판정 중 예외는 검사 오류 사유의 deny이다. 항상 0을 반환한다.

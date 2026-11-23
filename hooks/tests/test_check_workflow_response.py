@@ -7,6 +7,7 @@ HOOKS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOOKS))
 
 import contextlib
+from datetime import datetime, timedelta
 import io
 import json
 import os
@@ -139,16 +140,25 @@ class Check(unittest.TestCase):
         role = unittest.mock.patch.dict(os.environ, {"NESTLAB_AGENT": "director"})
         role.start()
         self.addCleanup(role.stop)
-    # 예고와 해명만 있는 응답이 block되는지 확인한다.
-    def test_announce_and_excuse_blocked(self):
-        self.assertIsNotNone(block(ANNOUNCE))
-        self.assertIsNotNone(block(EXCUSE))
+    # 짧은 예고, 300자를 넘는 예고, 목록을 포함한 예고가 block되고 안내에 결과물 작성 요구가 없으며, 인정 표현만 있는 응답은 통과하는지 확인한다.
+    def test_announce_blocked_admission_passes(self):
+        for text in (ANNOUNCE, "설명입니다. " * 60 + "수정하겠습니다.", "- 항목 하나\n- 항목 둘\n\n수정하겠습니다."):
+            self.assertEqual(block(text), hook.REASON_EMPTY, text)
+        self.assertNotIn("결과물", hook.stop_output(hook.REASON_EMPTY, "", "claude")["reason"])
+        self.assertIsNone(block(EXCUSE))
+        self.assertIsNone(block("맞습니다."))
 
-    # 결과물이 있는 응답이 통과하는지 확인한다.
+    # 당위형 종결의 예고를 block하고 완료 결과와 인정 표현만 있는 응답은 통과시키는지 확인한다.
+    def test_obligation_announce_blocks(self):
+        for text in ("수정해야 합니다.", "수정해야 하는 상황입니다."):
+            self.assertEqual(block(text), hook.REASON_EMPTY, text)
+
+    # 완료 결과 응답은 통과하고, 경로가 있어도 예고로 끝나면 block되는지 확인한다.
     def test_deliverable_passes(self):
         self.assertIsNone(block(GOOD))
         self.assertIsNone(block(CODE))
-        self.assertIsNone(block("바꿀 파일은 hooks/load_agent.py 입니다. 수정하겠습니다."))
+        self.assertNotEqual(block("수정했고 테스트 3개가 통과했습니다."), hook.REASON_EMPTY)  # 예고 판정 사유가 없다.
+        self.assertEqual(block("바꿀 파일은 hooks/load_agent.py 입니다. 수정하겠습니다."), hook.REASON_EMPTY)
 
     # stop_hook_active이거나 서브에이전트 응답이면 통과하는지 확인한다.
     def test_stop_hook_active_and_child_pass(self):
@@ -182,6 +192,14 @@ class Check(unittest.TestCase):
     def test_move_direction_not_shift(self):
         self.assertEqual(hook.shift_hits({"last_assistant_message": "묶음 절 안에서 절차를 앞으로 옮겼습니다.", "cwd": PLAIN}, "claude"), [])
         self.assertTrue(hook.shift_hits({"last_assistant_message": "앞으로는 원문을 먼저 확인하겠습니다.", "cwd": PLAIN}, "claude"))
+
+    # `앞으로`, `앞으로는`은 `겠습니다`나 `게요`로 끝나는 다짐만, `미확인`은 표기 설명이 아닐 때만 책임 회피로 보고, `하실 일은 없`은 계속 책임 회피로 본다.
+    def test_shift_narrowed_expressions(self):
+        hits = lambda text: hook.shift_hits({"last_assistant_message": text, "cwd": PLAIN}, "claude")
+        for text in ("표를 앞으로 옮겼습니다.", "앞으로는 hook이 기록합니다.", "미확인 표기를 지웠습니다.", "확인하지 않으면 거부합니다."):
+            self.assertEqual(hits(text), [], text)
+        for text in ("앞으로는 확인하겠습니다.", "앞으로 확인할게요.", "하실 일은 없습니다.", "이 동작은 미확인입니다."):
+            self.assertTrue(hits(text), text)
 
     # `다음` 뒤 `부터(는)`와 같은 문장의 `하겠습니다`, `할게요`만 책임 회피로 보고 다른 `다음` 문장은 통과한다.
     def test_next_branch_narrowed(self):
@@ -574,7 +592,7 @@ class ResponseForms(unittest.TestCase):
     def test_form_gap_reads_sections_with_code_blocks(self):
         import re
         import sub_docs
-        form = "report-plan"
+        form = "info-plan"
         filled = re.sub(r"<[^<>\n]+>", "내용", sourced(re.sub(r"<!--.*?-->", "", sub_docs.template_text(form), flags=re.S)))
         flow = filled.replace("### 기존 흐름\n\n내용", "### 기존 흐름\n\n```text\nhooks/a.py:1 main -> check\n```")
         self.assertEqual(sub_form.form_gap(sub_form.body_of(flow), form, flow), [])
@@ -617,6 +635,89 @@ class ExecPatches(unittest.TestCase):
                                  [".agent-logs/task/t/status.md"])
 
 
+# 요구사항 2 항목의 문제 칸만 채워진 통합 구조 명세 본문이다.
+SPEC_2 = """# t 명세
+
+## 요구사항 목록
+
+### 2. 이름
+
+#### 사용자 확인 시각
+
+<YYYY-MM-DD HH:MM:SS>
+
+#### 문제
+
+문제 문장.
+
+#### 목표
+
+- <요구사항의 목표>
+
+#### 기대 결과
+
+- <목표를 달성했을 때 기대되는 결과>
+
+#### 한계
+
+- <설계 자체의 제약 | 없음> (출처: <파일:행 | URL>, 확인 방법: <방법>)
+
+#### 잠재 위험
+
+- <외부 이슈의 조건과 영향 | 없음> (출처: <파일:행 | URL>)
+
+#### 검증
+
+- <검증 내용> (<정적 | 실제 동작>)
+
+## 작업 계획
+"""
+# 질문 전 응답에 실린 확정안 본문이다. 기대 결과 줄이 확정 설명의 원문이다.
+CONFIRMED_2 = """## 확정안 2. 이름
+
+- 문제: 새 문제 문장.
+- 목표: 목표.
+- 기대 결과: A를 한다.
+- 한계: 설계 제약 (출처: hooks/a.py:2, 확인 방법: 열람)
+- 잠재 위험: 외부 이슈 (출처: https://example.com/a)
+- 사후 실측: 없음
+- 사후 실측 사유: 없음
+"""
+# 조사 내역 절 없이 나머지 절을 갖춘 검토 표시 응답이다.
+REVIEW_DISPLAY = """## 검토 표시
+
+- 항목 이름: 이름
+- 목표: 목표.
+- 문제: 문제 문장.
+
+### 제외한 안
+
+- 없음
+
+### 비교표
+
+| **항목** | **안 1. A** |
+| :------- | :---------- |
+| 기준     | 충족        |
+
+### 설계 후보
+
+#### 안 1. A
+
+- 기대 결과: A를 한다.
+- 장점: 단순하다. (출처: hooks/a.py:1)
+- 단점: 범위가 좁다. (출처: hooks/a.py:1)
+- 한계: 없음 (출처: hooks/a.py:1)
+- 잠재 위험: 없음 (출처: hooks/a.py:1)
+- 사후 실측: 없음
+- 사후 실측 사유: 없음
+
+### 에이전트 의견
+
+- 안 1을 권장한다.
+"""
+
+
 class RecordAnswers(unittest.TestCase):
     """Stop hook이 질문 도구 답을 경과 문서의 요구사항 목록과 검토 필요 절에 기록한다."""
 
@@ -639,19 +740,21 @@ class RecordAnswers(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     # Claude 기록 파일을 만든다. 경과 문서를 쓴 Write 호출과 질문 호출, 답 결과가 이어진다.
-    def claude(self, question, answer, options=None):
+    def claude(self, question, answer, options=None, shown=None):
         ask = {"type": "tool_use", "id": "q1", "name": "AskUserQuestion",
                "input": {"questions": [{"header": "결정", "question": question,
                                         "options": [{"label": answer}] if options is None else options}]}}
         write = {"type": "tool_use", "id": "w1", "name": "Write", "input": {"file_path": str(self.status), "content": "x"}}
         result = {"type": "tool_result", "tool_use_id": "q1", "content": "User has answered"}
-        lines = [{"type": "user", "message": {"content": "시작"}},
-                 {"type": "assistant", "message": {"content": [write, ask]}},
+        lines = [{"type": "user", "message": {"content": "시작"}}]
+        if shown:
+            lines.append({"type": "assistant", "message": {"content": [{"type": "text", "text": shown}]}})
+        lines += [{"type": "assistant", "message": {"content": [write, ask]}},
                  {"type": "user", "message": {"content": [result]}, "toolUseResult": {"answers": {question: answer}}}]
         return self.save(lines)
 
     # Codex rollout 파일을 만든다. 경과 문서를 고친 apply_patch 호출과 request_user_input 호출, answers 출력이 이어진다.
-    def codex(self, question, selected, options=None, via_exec=False):
+    def codex(self, question, selected, options=None, via_exec=False, shown=None):
         item = lambda p: {"type": "response_item", "payload": p}
         ask = {"questions": [{"id": "q1", "header": "결정", "question": question,
                               "options": [{"label": selected[0]}] if options is None else options}]}
@@ -659,7 +762,10 @@ class RecordAnswers(unittest.TestCase):
         write = (item({"type": "custom_tool_call", "name": "exec", "call_id": "c1",
                        "input": "text(await tools.apply_patch(" + json.dumps(patch) + "))"}) if via_exec else
                  item({"type": "custom_tool_call", "name": "apply_patch", "call_id": "c1", "input": patch}))
-        lines = [item({"type": "message", "role": "user", "content": [{"text": "시작"}]}), write,
+        lines = [item({"type": "message", "role": "user", "content": [{"text": "시작"}]})]
+        if shown:
+            lines.append(item({"type": "message", "role": "assistant", "content": [{"text": shown}]}))
+        lines += [write,
                  item({"type": "function_call", "name": "request_user_input", "call_id": "c2", "arguments": json.dumps(ask)}),
                  item({"type": "function_call_output", "call_id": "c2",
                        "output": json.dumps({"answers": {"q1": {"answers": selected}}}, ensure_ascii=False)})]
@@ -679,68 +785,81 @@ class RecordAnswers(unittest.TestCase):
     def text(self):
         return self.status.read_bytes().decode("utf-8")
 
-    # 검토 질문의 확정 답은 경과 문서 검토 필요 절에 한 줄로 기록하고, 근거 위치와 상태 줄 없이 검토 필요 절 밖 본문은 같은지 확인한다. (Claude, Codex)
-    def test_review_recorded(self):
-        options = [{"label": "안 1. A", "description": "A로 한다."}, {"label": "안 2. B", "description": "B를 한다."}]
-        question = "검토 3. X: 기록 방식을 정한다. (문제 1)"
-        line = r"(?m)^- 검토 3\. X: {label} \(사용자 검토 시각: \d{{4}}-\d{{2}}-\d{{2}} \d{{2}}:\d{{2}}:\d{{2}}\)$"
-        for runner, transcript in (("claude", self.claude(question, "안 1. A", options)),
-                                   ("codex", self.codex(question, ["안 1. A"], options))):
+    # 명세 문서 전문이다.
+    def spec_text(self):
+        return self.status.with_name("spec.md").read_text(encoding="utf-8")
+
+    # 확정 질문 답을 만든다. 기본은 확정 라벨과 직전 확정안의 기대 결과 줄을 설명으로 한 Claude 기록이다.
+    def confirm(self, answer="확정", description="A를 한다.", shown=CONFIRMED_2, runner="claude", question="요구사항 2. 이름: 목표."):
+        options = [{"label": "확정", "description": description}, {"label": "폐기"}]
+        if runner == "claude":
+            return self.claude(question, answer, options, shown)
+        return self.codex(question, [answer], options, shown=shown)
+
+    # 확정 질문의 확정 답은 명세 요구사항 항목의 사용자 확인 시각, 문제, 목표, 기대 결과 칸과 경과 문서 검토 필요 절에 기록한다. (Claude, Codex)
+    def test_requirement_answer_records(self):
+        stamp = r"#### 사용자 확인 시각\n\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\n"
+        for runner in ("claude", "codex"):
             with self.subTest(runner=runner):
+                self.status.with_name("spec.md").write_text(SPEC_2, encoding="utf-8")
                 self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
-                self.stop(transcript, runner)
-                text = self.text().replace("\r\n", "\n")
-                self.assertRegex(text, line.format(label=r"안 1\. A"))
-                self.assertNotIn("근거 위치", text)
-                self.assertNotIn("  - 상태", text)
-                self.assertNotIn("<번호>", __import__("re").sub(r"<!--.*?-->", "", text, flags=__import__("re").S))
-                self.assertEqual(sub_form.splice(text, "검토 필요", lambda b: ""), sub_form.splice(STATUS, "검토 필요", lambda b: ""))
+                self.stop(self.confirm(runner=runner), runner)
+                text = self.spec_text()
+                self.assertRegex(text, stamp)
+                self.assertIn("#### 문제\n\n새 문제 문장.\n", text)
+                self.assertIn("#### 목표\n\n- 목표.\n", text)
+                self.assertIn("#### 기대 결과\n\n- A를 한다.\n", text)
+                self.assertRegex(self.text().replace("\r\n", "\n"),
+                                 r"(?m)^- 검토 2\. 이름: 확정 \(사용자 검토 시각: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)$")
+                self.assertNotIn("<번호>", re.sub(r"<!--.*?-->", "", self.text().replace("\r\n", "\n"), flags=re.S))
 
-        # 같은 번호를 다시 물으면 항목이 바뀌고 하나만 남는다.
-        self.stop(self.claude("검토 3. X: 다시 정한다. (문제 1)", "안 2. B", options), "claude")
-        text = self.text().replace("\r\n", "\n")
-        self.assertEqual(text.count("- 검토 3."), 1)
-        self.assertRegex(text, line.format(label=r"안 2\. B"))
+    # 확정 답은 확정안의 한계와 잠재 위험 줄 원문을 칸에 기록하고, 같은 답의 재처리는 문서를 바꾸지 않는다.
+    def test_confirmed_answer_records(self):
+        self.status.with_name("spec.md").write_text(SPEC_2, encoding="utf-8")
+        transcript = self.confirm()
+        self.stop(transcript, "claude")
+        text = self.spec_text()
+        self.assertIn("#### 기대 결과\n\n- A를 한다.\n", text)
+        self.assertIn("#### 한계\n\n- 설계 제약 (출처: hooks/a.py:2, 확인 방법: 열람)\n", text)
+        self.assertIn("#### 잠재 위험\n\n- 외부 이슈 (출처: https://example.com/a)\n", text)
+        self.assertIn("#### 문제\n\n새 문제 문장.\n", text)
+        self.assertNotIn("<목표를 달성했을 때 기대되는 결과>", text)
+        status = self.text()
+        self.stop(transcript, "claude")
+        self.assertEqual((self.spec_text(), self.text()), (text, status))
 
-        # 직접 입력 답과 번호 접두가 없는 질문은 기록하지 않는다.
-        self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
-        self.stop(self.claude(question, "직접 입력한 답", options), "claude")
-        self.stop(self.claude("어느 안으로 할까요?", "안 1. A", options), "claude")
-        self.assertEqual(self.text(), STATUS.replace("\n", "\r\n"))
+    # 명세에 해당 번호 절이 없어도 확정 답 뒤 새 절의 문제, 목표, 기대 결과, 한계, 잠재 위험 칸이 확정안 원문으로 기록된다.
+    def test_confirmed_answer_creates_section(self):
+        self.status.with_name("spec.md").write_text("# t 명세\n\n## 요구사항 목록\n\n## 작업 계획\n", encoding="utf-8")
+        self.stop(self.confirm(), "claude")
+        text = self.spec_text()
+        self.assertIn("### 2. 이름", text)
+        for cell, value in (("문제", "새 문제 문장."), ("목표", "- 목표."), ("기대 결과", "- A를 한다."),
+                            ("한계", "- 설계 제약 (출처: hooks/a.py:2, 확인 방법: 열람)"),
+                            ("잠재 위험", "- 외부 이슈 (출처: https://example.com/a)")):
+            self.assertIn(f"#### {cell}\n\n{value}\n", text, cell)
 
-    # `요구사항 <번호>.` 질문은 폐지되어 답을 기록하지 않는다.
-    def test_requirement_question_not_recorded(self):
-        self.stop(self.claude("요구사항 2. 이름: 내용 한 문장", "확정"), "claude")
-        self.assertEqual(self.text(), STATUS.replace("\n", "\r\n"))
+    # 확정안과 다른 확정 설명, 확정안이 없는 기록, 직접 입력 답은 명세와 경과 문서를 바꾸지 않는다.
+    def test_unmatched_answers_not_recorded(self):
+        spec = self.status.with_name("spec.md")
+        spec.write_text(SPEC_2, encoding="utf-8")
+        before = self.text()
+        for transcript in (self.confirm(description="C를 한다."), self.confirm(shown=None), self.confirm(answer="직접 입력한 답"),
+                           self.confirm(answer="재조사"), self.confirm(question="요구사항 2. 이름: 다른 목표.")):
+            self.stop(transcript, "claude")
+            self.assertEqual((self.spec_text(), self.text()), (SPEC_2, before))
 
-    # 안 이름 답은 확정 안으로, `폐기` 답은 폐기로 기록하고 `재조사` 답은 기록하지 않는다.
-    def test_single_option_review_answers(self):
-        options = [{"label": "안 1. A"}, {"label": "폐기"}, {"label": "재조사"}]
-        question = "검토 3. X: 기록 방식을 정한다. (문제 1)"
-        self.stop(self.claude(question, "재조사", options), "claude")
-        self.assertEqual(self.text(), STATUS.replace("\n", "\r\n"))
-        self.stop(self.claude(question, "안 1. A", options), "claude")
-        self.assertIn("- 검토 3. X: 안 1. A (사용자 검토 시각: ", self.text())
-        self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
-        self.stop(self.claude(question, "폐기", options), "claude")
-        self.assertIn("- 검토 3. X: 폐기 (사용자 검토 시각: ", self.text())
-
-    # 확정 어휘가 섞인 자유 입력(Desktop 형식)과 `user_note:` 메모(CLI 형식)는 선택 답이 아니므로 기록하지 않는다.
-    def test_free_input_not_recorded(self):
-        options = [{"label": "확정"}, {"label": "보류"}]
-        question = "검토 2. 이름: 내용을 정한다. (문제 1)"
-        for selected in (["확정하지 말고 다시 봐"], ["None of the above", "user_note: 확정 보류"]):
-            self.stop(self.codex(question, selected, options), "codex")
-            self.assertEqual(self.text(), STATUS.replace("\n", "\r\n"), selected)
-
-    # 폐기 질문의 확정 답은 알려진 검토 이름으로 폐기를 기록한다.
-    def test_review_dropped(self):
-        self.status.write_text(STATUS.replace("- 검토 <번호>. <이름>: <확정 안 | 폐기> (사용자 검토 시각: <YYYY-MM-DD HH:MM:SS>)",
-                                              "- 검토 5. X: 안 1. A (사용자 검토 시각: 2026-11-12 03:00:00)"), encoding="utf-8")
-        self.stop(self.claude("검토 5 폐기: 사유", "확정"), "claude")
-        text = self.text().replace("\r\n", "\n")
-        self.assertIn("- 검토 5. X: 폐기 (사용자 검토 시각: ", text)
-        self.assertEqual(text.count("- 검토 5."), 1)
+    # 폐기 답은 경과 문서에 폐기를 기록하고 명세의 같은 번호 절 제목을 폐기 절로 바꾸며, 앞선 확정 답의 기록은 그대로 둔다.
+    def test_discard_answer_drops_section(self):
+        spec = self.status.with_name("spec.md")
+        spec.write_text(SPEC_2, encoding="utf-8")
+        self.stop(self.confirm(), "claude")
+        self.assertIn("### 2. 이름", self.spec_text())
+        self.assertIn("#### 기대 결과\n\n- A를 한다.\n", self.spec_text())
+        self.stop(self.confirm(answer="폐기"), "claude")
+        self.assertIn("### 2. 폐기", self.spec_text())
+        self.assertNotIn("### 2. 이름", self.spec_text())
+        self.assertIn("- 검토 2. 이름: 폐기 (사용자 검토 시각: ", self.text())
 
     # 확정 답이 없는 검토 항목이 있는 경과 문서의 승인 요청은 block하고, 폐기 답이 기록되면 통과한다.
     def test_unfinished_review_blocks_approval(self):
@@ -749,7 +868,7 @@ class RecordAnswers(unittest.TestCase):
         message = "구현 승인 요청: 20261110-100000-t"
         check = lambda: hook.check({"last_assistant_message": message, "cwd": str(self.root), "agent_type": "director"}, "claude")
         self.assertIn("검토 4. X", check() or "")
-        self.stop(self.claude("검토 4 폐기: 사유", "확정"), "claude")
+        self.stop(self.confirm(answer="폐기", question="요구사항 4. X: 목표."), "claude")
         self.assertNotIn("검토 4. X", check() or "")
 
     # Codex 질문 답 형식에서 답을 얻고, 답 dict가 아닌 출력은 빈 답이다.
@@ -768,14 +887,15 @@ class RecordAnswers(unittest.TestCase):
 
     # --record는 답을 한 번 기록하고 작업이 하나면 문서를 쓰지 않은 세션에서도 그 작업을 고른다.
     def test_record_mode(self):
-        question = "검토 2. 이름: 내용을 정한다. (문제 1)"
+        question = "요구사항 2. 이름: 목표."
+        options = [{"label": "확정", "description": "A를 한다."}, {"label": "폐기"}]
         for runner, transcript, response in (
-                ("claude", self.claude(question, "확정"), {"answers": {question: "확정"}}),
-                ("codex", self.codex(question, ["확정"]), json.dumps({"answers": {"q1": {"answers": ["확정"]}}}))):
+                ("claude", self.confirm(), {"answers": {question: "확정"}}),
+                ("codex", self.confirm(runner="codex"), json.dumps({"answers": {"q1": {"answers": ["확정"]}}}))):
             with self.subTest(runner=runner):
                 self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
                 name = "AskUserQuestion" if runner == "claude" else "request_user_input"
-                tin = {"questions": [{"id": "q1", "question": question, "options": [{"label": "확정"}]}]}
+                tin = {"questions": [{"id": "q1", "question": question, "options": options}]}
                 data = {"tool_name": name, "tool_input": tin, "tool_response": response, "cwd": str(self.root), "transcript_path": transcript}
                 out = Stream()
                 with unittest.mock.patch.object(sys, "argv", ["check_workflow_response.py", "--runner", runner, "--record"]), \
@@ -788,15 +908,15 @@ class RecordAnswers(unittest.TestCase):
                 self.stop(transcript, runner)
                 self.assertEqual(self.text(), first)
         self.status.write_bytes(STATUS.replace("\n", "\r\n").encode("utf-8"))
-        empty = self.save([{"type": "user", "message": {"content": "시작"}}])
-        hook.record_tool({"agent_type": "director", "tool_name": "AskUserQuestion", "tool_input": {"questions": [{"question": question, "options": [{"label": "확정"}]}]},
+        empty = self.save([{"type": "user", "message": {"content": "시작"}},
+                           {"type": "assistant", "message": {"content": [{"type": "text", "text": CONFIRMED_2}]}}])
+        hook.record_tool({"agent_type": "director", "tool_name": "AskUserQuestion", "tool_input": {"questions": [{"question": question, "options": options}]},
                           "tool_response": {"answers": {question: "확정"}}, "cwd": str(self.root), "transcript_path": empty}, "claude")
         self.assertIn("- 검토 2. 이름: 확정 (사용자 검토 시각: ", self.text())
 
     # background_tasks가 남은 Stop에서도 답을 기록하고 block이 없으며, 서브에이전트 Stop은 기록하지 않는다.
     def test_background_tasks_records(self):
-        question = "검토 2. 이름: 내용을 정한다. (문제 1)"
-        transcript = self.claude(question, "확정")
+        transcript = self.confirm()
         data = {"last_assistant_message": GOOD, "cwd": str(self.root), "transcript_path": transcript}
         self.assertIsNone(hook.check({**data, "agent_id": "a1", "background_tasks": [{"id": "t1"}]}))
         self.assertEqual(self.text(), STATUS.replace("\n", "\r\n"))
@@ -825,67 +945,67 @@ class RecordAnswers(unittest.TestCase):
     # 명세 문서가 바뀌는 확정 답은 승인을 승인 대기로 바꾸고, 같은 답 재처리는 승인을 유지한다.
     def test_spec_change_resets_approval(self):
         approved = STATUS.replace("## 작업 경과", "## 승인\n\n### 실행 승인 범위\n\n- 사용자 승인 상태: 승인\n\n## 작업 경과")
-        self.status.with_name("spec.md").write_text("# t 명세\n\n## 요구사항 목록\n\n### 1. 하나\n\n- 기대 결과:\n  - 기존\n\n## 작업 계획\n", encoding="utf-8")
+        self.status.with_name("spec.md").write_text(SPEC_2, encoding="utf-8")
         self.status.write_text(approved, encoding="utf-8")
-        options = [{"label": "안 1. A", "description": "A를 한다."}]
-        data = {"cwd": str(self.root), "transcript_path": self.claude("검토 2. 이름: 내용을 정한다. (문제 1)", "안 1. A", options)}
+        data = {"cwd": str(self.root), "transcript_path": self.confirm()}
         sub_record.record_answers(data, "claude")
         self.assertIn("- 사용자 승인 상태: 승인 대기", self.text())
         self.status.write_text(self.text().replace("승인 대기", "승인"), encoding="utf-8")
         sub_record.record_answers(data, "claude")
         self.assertNotIn("승인 대기", self.text())
 
-    # 검토 확정 답은 명세 요구사항 목록 끝에 다음 번호 항목과 기대 결과로 추가하고, 폐기와 재조사는 요구사항 목록을 바꾸지 않는다.
-    def test_spec_requirement_appended(self):
-        spec = self.status.with_name("spec.md")
-        cell = "- 목표:\n  - 기존 목표\n- 기대 결과:\n  - 기존 결과\n"
-        spec.write_text(f"# t 명세\n\n## 요구사항 목록\n\n### 1. 하나\n\n{cell}\n### 2. 둘\n\n{cell}\n## 작업 계획\n", encoding="utf-8")
-        text = lambda: spec.read_text(encoding="utf-8")
-        options = [{"label": "안 1. A", "description": "B를 한다."}, {"label": "안 2. C", "description": "D를 한다."}, {"label": "폐기"}, {"label": "재조사"}]
-        record = lambda q, a: self.stop(self.claude(q, a, options), "claude")
-
-        # 확정 안은 다음 번호 `### 3. X` 항목에 라벨과 선택지 설명으로 추가한다.
-        record("검토 3. X: 방식을 정한다. (문제 1)", "안 1. A")
-        self.assertIn("### 3. X\n", text())
-        self.assertIn("- 기대 결과:\n  - 안 1. A: B를 한다.\n", text())
-        self.assertEqual(text().count("- 목표:\n  - 기존 목표\n"), 2)
-        # 새 항목의 결과 칸은 양식 자리표시 대신 선택지 설명으로 채운다.
-        self.assertIn("- 결과:\n  - B를 한다.\n", text())
-        self.assertNotIn("<목표를 달성했을 때 기대되는 결과>", text())
-        # 질문의 문제 번호는 새 항목의 문제 칸에 쓴다.
-        self.assertIn("### 3. X\n\n- 문제: 문제 1\n", text())
-
-        # 같은 답 재처리는 문서를 바꾸지 않고, 같은 항목을 다른 안으로 재확정하면 그 항목의 기대 결과만 바꾼다.
-        before = text()
-        record("검토 3. X: 방식을 정한다. (문제 1)", "안 1. A")
-        self.assertEqual(text(), before)
-        record("검토 3. X: 방식을 정한다. (문제 1)", "안 2. C")
-        self.assertEqual(text().count("### 3. X"), 1)
-        self.assertIn("  - 안 2. C: D를 한다.\n", text())
-        self.assertNotIn("B를 한다.", text())
-
-        # 폐기와 재조사 답은 요구사항 목록을 바꾸지 않는다.
-        before = text()
-        record("검토 4. Y: 방식을 정한다. (문제 1)", "폐기")
-        record("검토 5. Z: 방식을 정한다. (문제 1)", "재조사")
-        self.assertEqual(text(), before)
-        self.assertIn("- 검토 4. Y: 폐기 (사용자 검토 시각: ", self.text())
-
-    # 문장이 세 개인 선택지 설명은 결과 칸에 세 줄 목록으로 기록하고, 여러 문제 번호는 문제 칸에 함께 쓴다.
+    # 안 설명의 목록 표식은 한 번만 남기고, 따옴표 안의 문장은 나누지 않으며, 문장이 세 개인 설명은 세 줄 목록으로 기록한다.
     def test_spec_result_cell_sentences(self):
         spec = self.status.with_name("spec.md")
-        spec.write_text("# t 명세\n\n## 요구사항 목록\n\n### 1. 하나\n\n- 목표:\n  - 기존\n- 기대 결과:\n  - 기존\n\n## 작업 계획\n", encoding="utf-8")
-        options = [{"label": "안 1. A", "description": "첫째를 한다. 둘째를 한다. 셋째를 한다."}]
-        self.stop(self.claude("검토 2. Y: 방식을 정한다. (문제 1, 2)", "안 1. A", options), "claude")
-        text = spec.read_text(encoding="utf-8")
-        self.assertIn("- 문제: 문제 1, 2\n", text)
-        self.assertIn("- 결과:\n  - 첫째를 한다.\n  - 둘째를 한다.\n  - 셋째를 한다.\n", text)
+        for expected, lines in (("- A를 한다.", "- A를 한다.\n"), ("X에 'B한다. C한다.'가 추가된다.", "- X에 'B한다. C한다.'가 추가된다.\n"),
+                                ("첫째를 한다. 둘째를 한다. 셋째를 한다.", "- 첫째를 한다.\n- 둘째를 한다.\n- 셋째를 한다.\n")):
+            with self.subTest(expected=expected):
+                spec.write_text(SPEC_2, encoding="utf-8")
+                shown = CONFIRMED_2.replace("A를 한다.", expected)
+                self.stop(self.confirm(description=expected, shown=shown), "claude")
+                self.assertIn(f"#### 기대 결과\n\n{lines}\n#### 한계", self.spec_text())
 
     # 명세 문서가 없으면 질문 답은 경과 문서에만 기록된다.
     def test_spec_missing_skipped(self):
-        self.stop(self.claude("검토 2. 이름: 내용을 정한다. (문제 1)", "확정"), "claude")
+        self.stop(self.confirm(), "claude")
         self.assertFalse(self.status.with_name("spec.md").exists())
         self.assertIn("- 검토 2. 이름: 확정 (사용자 검토 시각: ", self.text())
+
+    # 재구현 질문의 승인 답은 재구현 요청 절에 수정 대상, 요구사항 번호, 기대 결과와 사용자 확인 시각으로 기록하고 구현 승인은 유지한다.
+    def test_reimplement_answer_records(self):
+        approved = STATUS.replace("## 작업 경과", "## 승인\n\n### 실행 승인 범위\n\n- 사용자 승인 상태: 승인\n\n## 작업 경과")
+        self.status.write_text(approved, encoding="utf-8")
+        spec = self.status.with_name("spec.md")
+        spec.write_text(SPEC_2 + "\n## 재구현 요청\n\n<!-- 설명 -->\n\n- <수정 대상 경로>: <수정 위치> (요구사항 <번호>)\n  - 기대 결과: <수정 후 관측할 동작>\n",
+                        encoding="utf-8")
+        question = "재구현 요청 2. hooks/a.py: 입력 검사 함수"
+        options = [{"label": "승인", "description": "빈 입력을 거부한다."}, {"label": "보류"}]
+        self.stop(self.claude(question, "보류", options), "claude")
+        self.assertNotIn("(근거: 사용자", self.spec_text())
+        transcript = self.claude(question, "승인", options)
+        self.stop(transcript, "claude")
+        text = self.spec_text()
+        self.assertRegex(text, r"- hooks/a\.py: 입력 검사 함수 \(요구사항 2\) \(근거: 사용자 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)\n  - 기대 결과: 빈 입력을 거부한다\.\n")
+        self.assertNotIn("<수정 대상 경로>", text)
+        self.assertIn("- 사용자 승인 상태: 승인\n", self.text().replace("\r\n", "\n"))
+        self.stop(transcript, "claude")
+        self.assertEqual(self.spec_text(), text)
+        self.assertEqual(text.count("(근거: 사용자"), 1)
+        # 두 Stop 사이 시각이 달라져도 같은 답은 한 번만 기록된다.
+        class Later(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return super().now() + timedelta(seconds=5)
+        with unittest.mock.patch.object(sub_record, "datetime", Later):
+            self.stop(transcript, "claude")
+        self.assertEqual(self.spec_text(), text)
+
+    # 조사 내역 절이 없고 나머지 절을 갖춘 검토 표시는 Stop에서 통과하고, 설계 후보 절이 빠진 검토 표시는 설계 후보 누락 사유로 block한다.
+    def test_review_display_allowed(self):
+        stop = lambda message: hook.check({"last_assistant_message": message, "cwd": str(self.root), "agent_type": "director"}, "claude")
+        self.assertIsNone(stop(REVIEW_DISPLAY))
+        missing = stop(REVIEW_DISPLAY.split("### 설계 후보")[0] + "### 에이전트 의견\n\n- 안 1을 권장한다.\n")
+        self.assertTrue(missing and missing.startswith("응답: ") and "설계 후보" in missing and "info-review" in missing, missing)
 
     # 중단 사유 절 끝에 미해결 줄을 덧붙이는지 확인한다.
     def test_unresolved_line_appended(self):
@@ -1259,6 +1379,16 @@ class UnfinishedStop(unittest.TestCase):
             self.spec.write_text(self.plan.replace(f"## {title}\n없음\n", f"## {title}\n- hooks/a.py: 수정 (요구사항 1)\n"), encoding="utf-8")
             self.assertIn(title, sub_completion.unfinished_reason(self.data("codex", GOOD), GOOD, "codex"))
 
+    # 작업 단계가 계획으로 돌아간 승인 작업은 미완료로 차단하지 않고 구현 단계 작업은 차단한다.
+    def test_unfinished_only_in_implement_stage(self):
+        for runner in ("claude", "codex"):
+            text = self.status.read_text(encoding="utf-8")
+            self.assertIn("작업 단계: 구현", text)
+            self.assertIsNotNone(sub_completion.unfinished_reason(self.data(runner, GOOD), GOOD, runner))
+            self.status.write_text(text.replace("작업 단계: 구현", "작업 단계: 계획", 1), encoding="utf-8")
+            self.assertIsNone(sub_completion.unfinished_reason(self.data(runner, GOOD), GOOD, runner))
+            self.status.write_text(text, encoding="utf-8")
+
     # 정식 완료 보고와 실제 완료 접두어는 남은 문제의 고정값을 포함한 기존 완료 검사를 먼저 통과한다.
     def test_completion_report_and_prefix_require_complete_record(self):
         report = (f"## 완료 승인 요청\n- 경과 문서: {self.status.as_posix()}\n"
@@ -1296,9 +1426,9 @@ class UnfinishedStop(unittest.TestCase):
         for runner in ("claude", "codex"):
             from hooks.tests.test_sub_workflow import REVIEW_ITEM
             self.status.write_text(self.complete_state.replace("PASS:", "미측정:").replace(REVIEW_ITEM, "- 검토 1. 도구"+chr(10)), encoding="utf-8")
-            question = {"id": "review", "question": "검토 1. 도구: 방법을 정한다. (문제 1)", "options": [{"label": "안 1. A"}]}
+            question = {"id": "review", "question": "요구사항 1. 도구: 방법을 정한다.", "options": [{"label": "확정"}, {"label": "폐기"}]}
             self.assertIsNone(self.stop(self.data(runner, GOOD, question=question), runner))
-            message = "권한 거부로 차단됐습니다. 영향: 검증 불가. 사용자 조작: 직접 접근 권한을 설정해야 합니다. 근거: hooks/a.py:1"
+            message = "권한 거부로 차단됐습니다. 영향: 검증 불가. 사용자 조작: 직접 접근 권한을 설정하십시오. 근거: hooks/a.py:1"
             self.assertIsNone(self.stop(self.data(runner, message, denied=True), runner))
             self.assertIsNotNone(sub_completion.unfinished_reason(self.data(runner, message), message, runner))
             self.assertIsNotNone(sub_completion.unfinished_reason(self.data(runner, GOOD, denied=True), GOOD, runner))

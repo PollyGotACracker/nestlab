@@ -41,10 +41,13 @@ from sub_write import (APPROVAL_RETRY, REASON_CD, REASON_INLINE, RETRY, SHELLS, 
 from sub_gate import call_reason
 
 
-# 사유를 PreToolUse deny 출력 dict로 만든다.
+NO_DETOUR = "막힌 결과물을 다른 도구, 문서나 응답 본문으로 대신 만들지 말고 사유에 맞게 호출을 고쳐 다시 실행하십시오."
+
+
+# 사유 뒤에 대체 경로 금지 문장을 덧붙여 PreToolUse deny 출력 dict로 만든다.
 def deny(reason: str) -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                   "permissionDecisionReason": reason}}
+                                   "permissionDecisionReason": f"{reason} {NO_DETOUR}"}}
 
 
 REASON_FORK = 'fork_turns를 "none"으로 지정하지 않은 spawn_agent는 대화 맥락을 복제하므로 허용하지 않습니다. ' + RETRY
@@ -101,21 +104,6 @@ def workdir_reason(data: dict) -> str | None:
     if not workdir or not cwd:
         return None
     return REASON_CD if norm(str(workdir), Path(cwd)) != norm(str(cwd), Path(cwd)) else None
-
-
-REASON_TEST_RUN = "구현 배정 세션은 시험을 실행하지 않습니다. 시험 코드만 작성하고 실행은 검증 담당에게 남기십시오."
-TEST_RUN = re.compile(r"^(?:(?:python3?|py)(?:\.exe)?\s+-m\s+(?:unittest|pytest)|pytest|py\.test)(?=\s|$)")
-
-# implement와 reimplement 배정 서브에이전트의 Bash가 unittest나 pytest를 실행하면 REASON_TEST_RUN을 반환한다. 아니면 None이다.
-def run_test_reason(data: dict, command: str) -> str | None:
-    if main_session(data):
-        return None
-    from sub_role import first_prompt
-    from sub_session import agent_transcript
-    first = first_prompt(agent_transcript(data) or data.get("transcript_path")).strip().splitlines()[:1]
-    if not first or first[0].strip() not in ("task: implement", "task: reimplement"):
-        return None
-    return REASON_TEST_RUN if any(TEST_RUN.match(part) for part in command_parts(command)) else None
 
 
 REASON_SUB_SPAWN ="서브에이전트는 다른 에이전트를 호출할 수 없습니다. " + RETRY
@@ -176,7 +164,7 @@ def check(data: dict, runner: str) -> str | None:
     shell = data.get("tool_name") in SHELLS
     command = bash_command(data) if shell else ""
     if shell:
-        reason = prompt_reason(command) or workdir_reason(data) or run_test_reason(data, command)
+        reason = prompt_reason(command) or workdir_reason(data)
         if reason:
             return reason
 

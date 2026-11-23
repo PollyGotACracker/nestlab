@@ -177,7 +177,7 @@ class RecordIncident(unittest.TestCase):
     def test_block_reason_rewrite_only_and_analysis_launched(self):
         notice = hook.record({"session_id": "abcdef123456", "last_assistant_message": "죄송합니다."})
         self.assertIn("문제 표현(죄송합니다)", notice)
-        self.assertEqual(len(notice.splitlines()), 1)
+        self.assertEqual(len(notice.splitlines()), 2)
         self.assertIn("사건 문서 [", notice)
         self.assertNotIn("한 줄", notice)
         self.assertNotIn("스킬", notice)
@@ -200,7 +200,7 @@ class RecordIncident(unittest.TestCase):
     def test_withdraw_recorded_and_blocked(self):
         reason = hook.record({"session_id": "abcdef123456", "last_assistant_message": "이 안은 철회합니다."})
         self.assertIn("문제 표현(철회합니다)", reason)
-        self.assertEqual(len(reason.splitlines()), 1)
+        self.assertEqual(len(reason.splitlines()), 2)
         self.assertNotIn("이 안은 철회합니다.", reason)
         self.assertEqual(hook.ADMIT.groups, 0)
 
@@ -262,11 +262,19 @@ class RecordIncident(unittest.TestCase):
                     self.assertNotIn("reason", result)
                     shown = result["systemMessage"]
                 self.assertTrue(shown.startswith("직전 응답에서 문제 표현(놓쳤어요)을 감지했습니다.\n사건 문서 ["))
-                self.assertEqual(len(shown.splitlines()), 1)
+                self.assertEqual(len(shown.splitlines()), 2)
                 self.assertNotIn(": 놓쳤어요.", shown)
                 self.assertIn(".md", shown)
                 link = hook.incident_link(next(self.dir.glob("*.md")), None)
                 self.assertIn(link, shown)
+
+    # 조건 어미와 조건절, 설명 표현, 차단 결과를 주어로 한 문장은 감지하지 않고, 자기 행동을 인정하는 문장은 감지한다.
+    def test_conditional_and_explained_expressions(self):
+        for text in ("비교 없이 고르면 안 됩니다.", "임의로 바꾸는 것은 금지입니다.", "차단되어 다시 해야 했습니다.",
+                     "근거를 확인하지 않으면 틀릴 수 있습니다."):
+            self.assertEqual(hook.admissions(text), [], text)
+        for text in ("제가 확인하지 않고 진행했습니다.", "제가 임의로 바꿨습니다."):
+            self.assertTrue(hook.admissions(text), text)
 
     # 감지 목록이 정규식 조각 대신 응답 어절을 보이고 같은 줄을 한 번만 쓰는지 확인한다.
     def test_hit_list_shows_words_once_per_line(self):

@@ -72,6 +72,34 @@ class AllowApprovedRequest(unittest.TestCase):
         return verdict({"tool_name": tool, "tool_input": {"command": command, "description": "커맨드 실행"},
                             "transcript_path": str(path), "cwd": str(self.root), **extra}, "claude")
 
+    # 구현 담당의 git rm, checkout --, mv는 linked worktree에서 allow, 원본 checkout과 git -C 지정은 deny이고 director는 승인 창을 유지한다.
+    def test_implementer_git_write_by_checkout(self):
+        origin, tree = self.root / "origin", self.root / "tree"
+        origin.mkdir()
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e.com",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@e.com"}
+        (origin / "a.md").write_text("a\n", encoding="utf-8")
+        for args in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "init"], ["worktree", "add", "-q", str(tree)]):
+            subprocess.run(["git", "-C", str(origin), *args], check=True, capture_output=True, env=env)
+        path = self.root / "t.jsonl"
+        path.write_text(claude_line("user", "구현해 주세요") + "\n", encoding="utf-8")
+
+        def run(cwd, command, **extra):
+            return verdict({"tool_name": "Bash", "tool_input": {"command": command, "description": "git 쓰기"},
+                            "transcript_path": str(path), "cwd": str(cwd), **extra}, "claude")
+
+        worker = {"agent_type": "worker", "agent_id": "child"}
+        with patch.dict(os.environ, {"NESTLAB_AGENT": ""}):
+            for command in ("git rm -q a.md", "git checkout -- a.py", "git mv a.md b.md"):
+                self.assertEqual(run(tree, command, **worker), "allow", command)
+            self.assertEqual(run(origin, "git rm -q a.md", **worker), "deny")
+            self.assertEqual(run(tree, f"git -C {origin} rm a.md", **worker), "deny")
+            reason = hook.implementer_git({"cwd": str(origin), "agent_type": "worker", "agent_id": "child",
+                                           "tool_input": {"command": "git rm -q a.md"}})["message"]
+            self.assertIn("rm", reason)
+            self.assertIn("Edit", reason)
+        self.assertIsNone(self.claude("승인", "git commit -m x"))
+
     # 승인 턴에 PreToolUse를 통과한 스크립트는 allow이고 git 비가역 작업은 출력 없이 승인 창을 유지한다.
     def test_permission_request_approval_turn(self):
         self.assertEqual(self.claude("승인", "python a.py"), "allow")
@@ -192,7 +220,7 @@ class AllowApprovedRequest(unittest.TestCase):
             for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
                 generator = 'nestlab-task-docs --task 20261107-130000-example --title "example title; value" --stage plan'
                 for command in (output + "; git status --short", "git status --short; " + output,
-                                generator + "; git status", generator + " && nestlab-task-docs --print-template question-plan"):
+                                generator + "; git status", generator + " && nestlab-task-docs --print-template question-confirmed"):
                     event = {"agent_type": "director", "cwd": str(self.root), "transcript_path": str(transcript),
                              "tool_name": shell, "tool_input": {"command": command, "description": "양식 출력과 상태 확인"}}
                     with self.subTest(runner=runner, command=command):

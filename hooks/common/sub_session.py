@@ -185,21 +185,32 @@ def _codex_entry(d: dict) -> dict | None:
     return None
 
 
-# 대화 기록 파일을 항목 목록으로 읽는다. 읽을 수 없으면 빈 목록이다.
-def read_session(path: str) -> list[dict]:
-    # 기록 파일을 줄마다 읽어 항목으로 바꾼다.
-    entries = []
+# 대화 기록 파일을 줄 순서대로 항목으로 바꿔 내보내는 반복자이다. 읽을 수 없으면 아무것도 내보내지 않는다.
+# 해석할 수 없는 줄은 role이 "broken"인 빈 항목으로 내보내고 원래 내용은 복원하지 않는다. 빈 줄은 건너뛴다.
+def iter_session(path: str):
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
-                d = json.loads(line)
+                if not line.strip():
+                    continue
+                try:
+                    d = json.loads(line)
+                    if not isinstance(d, dict):
+                        raise ValueError
+                except ValueError:
+                    yield {"role": "broken", "text": "", "calls": [], "results": [], "ids": [], "replies": {}, "broken": True}
+                    continue
                 entry = (_codex_entry if "payload" in d else _claude_entry)(d)
                 if entry and (entry["text"].strip() or entry["calls"] or entry.get("results") or entry.get("outcomes") or entry.get("stop")):
                     entry["timestamp"] = recorded_time(d.get("timestamp"))
-                    entries.append(entry)
-    except (OSError, ValueError):
-        pass
-    return entries
+                    yield entry
+    except OSError:
+        return
+
+
+# 대화 기록 파일을 항목 목록으로 읽는다. 읽을 수 없으면 빈 목록이다.
+def read_session(path: str) -> list[dict]:
+    return list(iter_session(path))
 
 
 # 실제 이벤트 timestamp를 기록 시각으로 변환한다. 없거나 잘못된 값은 빈 문자열이다.

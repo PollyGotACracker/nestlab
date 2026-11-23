@@ -46,9 +46,12 @@ class CreateTaskDocs(unittest.TestCase):
             self.assertIn("# 명세 문서", spec.read_text(encoding="utf-8"))
             self.assertEqual(sub_docs.missing_titles(spec.read_text(encoding="utf-8"), "spec"), [])
             body = sub_spec.apply(sub_docs.section(spec.read_text(encoding="utf-8"), "요구사항 목록"),
-                                  [("problem", 1, "- 문제 1. 확정 문제", "2026-11-16 10:00:00"), ("req", 1, "확정 결과")], {1: "요구"})
-            self.assertEqual(sub_spec.cells(body)[1], "2026-11-16 10:00:00\n--\n확정 문제\n--\n- 확정 결과\n--\n")
+                                  [("confirm", 1, "요구", "확정 목표.", "확정 결과.", "없음 (출처: https://example.com/a)",
+                                    "없음 (출처: https://example.com/a)", "2026-11-16 10:00:00")], {1: "요구"})
+            self.assertTrue(sub_spec.cells(body)[1].startswith("2026-11-16 10:00:00\n--\n- 확정 결과.\n--\n"))
             self.assertIn("### 1. 요구\n", body)
+            for cell in ("#### 목표\n\n- 확정 목표.\n", "#### 기대 결과\n\n- 확정 결과.\n", "#### 한계\n\n- 없음 (출처: https://example.com/a)\n"):
+                self.assertIn(cell, body)
             self.assertNotIn("## 문제 정의", text)
             index = (self.root / ".agent-logs/task/index.md").read_text(encoding="utf-8")
             self.assertIn(f"## 현재 진행 작업\n\n<!-- <작업 링크>, <작업 단계> -->\n\n- [한글 제목]({TASK}/status.md), 계획", index)
@@ -108,7 +111,7 @@ class CreateTaskDocs(unittest.TestCase):
             f"- [작업 명세 문서](.agent-logs/task/{TASK}/spec.md)", "", "## 요구사항", "", "### 1. 첫 요구", "",
             "#### 목표", "", "- 목표 원문이다.", "", "#### 기대 결과", "", "- 결과 원문이다.", "  - 하위 결과이다.", "",
             "#### 한계", "", "- 없음", "", "#### 잠재 위험", "", "- 위험 원문이다. (출처: https://example.com/a)"]))
-        self.assertNotEqual(run("question-choice").returncode, 0)
+        self.assertNotEqual(run("question-confirmed").returncode, 0)
 
     # 기존 구조(`- 칸:` 줄) 명세도 같은 표시 칸을 내어 쓰고, 없는 칸은 기록 없음으로 출력한다.
     def test_render_approval_from_legacy_spec(self):

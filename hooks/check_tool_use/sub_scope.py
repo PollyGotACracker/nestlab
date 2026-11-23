@@ -2,10 +2,9 @@
 
 호출자: hooks/check_tool_use.py(check_write)
 입력: hook 입력 dict, 역할 이름, 쓰기 대상 경로 목록, 메인 세션 여부
-반환: check_write, check_doc, judgment_drop_reason은 deny 사유 문자열 또는 통과 시 None
+반환: check_write, check_doc은 deny 사유 문자열 또는 통과 시 None
 한계:
 - Bash로 실행한 스크립트가 직접 여는 파일은 판정하지 못한다.
-- 판정 줄 삭제 검사는 Edit만 보고, 명세 결과에 함수 이름이 있으면 삭제 의도와 무관하게 허용한다.
 """
 from __future__ import annotations
 
@@ -66,7 +65,7 @@ def state_locked(data: dict, path: Path, new: str | None, old: str) -> bool:
         return True
     return any(section(new, t).strip() != strip_comments(section(old, t) if old else template_section(TEMPLATE_OF["state"], t)).strip()
                for t in LOCKED)
-REASON_SPEC_LOCKED = ("spec.md 요구사항 절의 `결과` 칸과 `기대 결과` 칸은 hook만 바꿀 수 있습니다. "
+REASON_SPEC_LOCKED = ("spec.md 요구사항 절의 `사용자 확인 시각`, `결과`, `기대 결과` 칸과 확정된 절의 `문제`, `목표`, `한계`, `잠재 위험` 칸은 hook만 바꿀 수 있습니다. "
                       "log-spec 양식을 따르고 변경은 질문 도구로 확정받으십시오.")
 
 
@@ -76,11 +75,9 @@ def spec_locked(data: dict, path: Path, new: str | None, old: str) -> bool:
     if new is None:
         return True
 
-    # 번호별 기대 결과 칸 값을 비교한다. 지워진 절은 바뀐 것으로 본다.
-    # 통합 구조는 사용자 확인 시각, 문제와 결과 칸이고, 아직 기록되지 않은 문제 정의 확정 답을 기록한 값도 기존 값으로 본다.
+    # 번호별 hook 관리 칸 값을 비교한다. 지워진 절은 바뀐 것으로 본다.
+    # 통합 구조는 사용자 확인 시각과 기대 결과 칸이고, 사용자 확인 시각이 기록된 절은 문제, 목표, 한계, 잠재 위험 칸도 비교한다.
     got, was, blank = cells(section(new, "요구사항 목록")), cells(section(old, "요구사항 목록")), blank_cells(not integrated(new))
-    hooked = cells(section(problem_spec(data, sibling(path, "state"), old), "요구사항 목록")) if old else {}
-    was = {**was, **{n: value for n, value in hooked.items() if got.get(n) == value}}
     if any(got.get(n) != (was.get(n) or blank) for n in got.keys() | was.keys()):
         return True
     return False
@@ -167,9 +164,10 @@ def placeholder_fill(old: str, new: str) -> bool:
 
 EVIDENCE = re.compile(r"\(근거: (검증|사용자) (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\)")
 CONFIRMED_TIME = re.compile(r"사용자 (?:검토|확인) 시각:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
-REASON_EVIDENCE_REQUIRED = "명세 문서 `재구현 요청` 절의 새 항목에 `(근거: 검증 시각)` 또는 `(근거: 사용자 시각)` 표시가 없습니다. log-spec 양식을 따르십시오."
-REASON_EVIDENCE_TIME = ("재구현 요청의 근거 시각 `{kind} {stamp}`이 경과 문서 검증 결과의 FAIL 시각이나 질문으로 확정한 답의 시각"
-                        "(경과 문서 검토 필요 절의 사용자 검토 시각, 명세 요구사항의 사용자 확인 시각)과 일치하지 않습니다. log-spec 양식을 따르십시오.")
+REASON_EVIDENCE_REQUIRED = "명세 문서 `재구현 요청` 절의 새 항목에 `(근거: 검증 시각)` 표시가 없습니다. 사용자 근거 항목은 재구현 질문의 승인 답으로 hook이 기록합니다. log-spec 양식을 따르십시오."
+REASON_EVIDENCE_TIME = "재구현 요청의 근거 시각 `{kind} {stamp}`이 경과 문서 검증 결과의 FAIL 시각과 일치하지 않습니다. log-spec 양식을 따르십시오."
+REASON_USER_EVIDENCE = ("`(근거: 사용자 시각)` 재구현 요청 항목은 직접 쓸 수 없습니다. "
+                        "`재구현 요청 <요구사항 번호>. <수정 대상 경로>: <수정 위치>` 질문의 `승인` 답으로 hook이 기록합니다.")
 
 
 # 경과 문서 검증 결과 절에서 FAIL 줄이 딸린 판정 시각 집합이다. 시각은 `- YYYY-MM-DD HH:MM:SS` 줄 머리이다.
@@ -195,7 +193,7 @@ def confirmed_times(status_text: str, spec_text: str = "") -> set[str]:
     return stamps
 
 
-# 명세 문서 재구현 요청 절에 새로 추가하는 항목에 근거 표시가 없거나 근거 시각이 검증 FAIL 시각과 질문 확정 답 시각에 없으면 사유를 반환한다.
+# 명세 문서 재구현 요청 절에 새로 추가하는 항목에 근거 표시가 없거나 근거 시각이 검증 FAIL 시각에 없으면 사유를 반환한다. 사용자 근거 항목은 hook만 기록하므로 직접 쓰면 사유를 반환한다.
 # 일반 사용자 메시지 시각은 근거가 아니다. 양식 자리표시 항목과 파일 전체 내용을 구할 수 없는 쓰기는 판정하지 않는다. 맞으면 None이다.
 def evidence_gap(data: dict, path: Path, new: str | None, old: str) -> str | None:
     if new is None:
@@ -208,10 +206,11 @@ def evidence_gap(data: dict, path: Path, new: str | None, old: str) -> str | Non
         marks = EVIDENCE.findall(item)
         if not marks:
             return REASON_EVIDENCE_REQUIRED
-        status = read(sibling(path, "state"))
-        failed, users = fail_times(status), confirmed_times(status, new)
+        failed = fail_times(read(sibling(path, "state")))
         for kind, stamp in marks:
-            if stamp not in (failed if kind == "검증" else users):
+            if kind == "사용자":
+                return REASON_USER_EVIDENCE
+            if stamp not in failed:
                 return REASON_EVIDENCE_TIME.format(kind=kind, stamp=stamp)
     return None
 
@@ -237,7 +236,7 @@ def basis_code(new: str | None, old: str) -> str | None:
 
 REASON_SPEC_EARLY ="{items}이(가) 끝나지 않아 명세 문서를 쓸 수 없습니다. 모든 검토를 끝낸 뒤 쓰십시오."
 REASON_UNCONFIRMED = ("기존 요구 구분 `director 해석 (검토 {number})`의 검토 완료 근거가 없어 쓸 수 없습니다. "
-                      "새 해석은 question-plan 양식의 문제 정의 질문으로 확인받으십시오.")
+                      "새 해석은 question-confirmed 양식의 확정 질문으로 확인받으십시오.")
 REASON_USER_QUOTE = "작업 문서에 사용자 메시지 원문({quote}…)이 들어 있습니다. 요약해서 쓰십시오."
 INTERPRETED = re.compile(r"^\s*(?:- )?요구 구분:\s*director 해석 \(검토 (\d+)\)", re.M)
 QUOTE_MIN = 20
@@ -272,71 +271,7 @@ def unconfirmed(added: list[str], old: str) -> str | None:
     return next((n for n in wanted if n not in done), None)
 
 
-# 문제 정의 확인 질문이다. 머리말은 `[문제 정의]`이고, 확정, 폐기, 추가 합의, 교체 질문이 같은 문제 번호 머리말을 쓰며 끝에 작업 태그가 붙을 수 있다.
-# 묶음 번호는 1 문제 번호, 2 확정 문장, 3 폐기 사유, 4 추가 합의, 5 교체 원문, 6 작업 태그이다.
-PROBLEM_QUESTION = re.compile(r"^(?:\[문제 정의\]|문제 정의 확인:) 문제 (\d+)(?:\. (?!폐기: |추가 합의: |교체: )(.+?)|\.? 폐기: (.+?)|\.? 추가 합의: (.+?)|\.? 교체: (.+?))"
-                              r"(?: \(작업 (\d{4}-\d{6})\))?$")
-PROBLEM_YES = re.compile(r"(?:확인|확정|동의|맞습니다|맞아요|맞아|네|예|좋습니다)(?:합니다|했습니다|했어요)?[.!~]*")
 PLACEHOLDER = re.compile(r"<[^<>\n]+>")
-
-
-# 질문과 답이 같은 작업의 문제 정의 확인 확정 답이면 (번호, 문제 정의 줄)을 반환한다. 아니면 None이다.
-def problem_item(question: dict, answer: str, tag: str) -> tuple[int, str] | None:
-    match = PROBLEM_QUESTION.fullmatch(" ".join(str(question.get("question") or "").split()))
-    if not match or (match[6] and match[6] != tag):
-        return None
-    answer = re.sub(r"\s*\(Recommended\)$", "", str(answer)).strip()
-    labels = [re.sub(r"\s*\(Recommended\)$", "", str(option.get("label") or "")).strip()
-              for option in question.get("options") or [] if isinstance(option, dict)]
-    if not PROBLEM_YES.fullmatch(answer) or answer not in labels:
-        return None
-    if match[4]:
-        return int(match[1]), f"추가 합의: {match[4]}"
-    if match[5]:
-        return int(match[1]), f"교체: {match[5]}"
-    return int(match[1]), f"- 문제 {match[1]}. {match[2]}" if match[2] else f"- 문제 {match[1]}. 폐기: {match[3]}"
-
-
-# 같은 작업의 문제 정의 확정 답을 기록 순서대로 (번호, 문제 정의 줄, 답 시각) 목록으로 반환한다.
-# extra는 세션 기록에 아직 없는 이번 호출의 (질문, 답) 목록이며 시각은 `기록 없음`이다.
-def problem_answers(data: dict, path: Path, extra: list | None = None) -> list[tuple[int, str, str]]:
-    tag = path.parent.name[4:15]
-    out, calls, seen = [], [], set()
-    for entry in read_session(data.get("transcript_path") or ""):
-        try:
-            if any(name in ("AskUserQuestion", "request_user_input") for name, _ in entry["calls"]):
-                calls.append(entry)
-            if not entry.get("replies"):
-                continue
-            for call in calls:
-                for question, answer in question_answers([call, entry]):
-                    key = (id(call), question.get("question"))
-                    item = None if key in seen else problem_item(question, answer, tag)
-                    if item:
-                        seen.add(key)
-                        out.append((*item, entry.get("timestamp") or "기록 없음"))
-        except (ValueError, TypeError, AttributeError, KeyError):
-            continue
-    recorded = {line for _, line, _ in out}
-    for question, answer in extra or []:
-        item = problem_item(question, answer, tag)
-        if item and item[1] not in recorded:
-            out.append((*item, "기록 없음"))
-    return out
-
-
-# 문제 정의 확정 답을 같은 작업 명세 문서 요구사항 목록의 사용자 확인 시각과 문제 칸에 기록한 명세 본문을 반환한다.
-# 명세 문서가 기존 구조이면 명세 본문을 그대로 반환한다.
-def problem_spec(data: dict, status: Path, spec: str, extra: list | None = None) -> str:
-    from sub_spec import apply
-    if not spec or not integrated(spec):
-        return spec
-    records = problem_answers(data, status, extra)
-    if not records:
-        return spec
-    from check_workflow_response import splice
-    ops = [("problem", number, line, stamp) for number, line, stamp in records]
-    return splice(spec, "요구사항 목록", lambda body: apply(body, ops, {}))
 
 
 REASON_MISSING_TITLES = "{name}: 빠진 절 `{titles}`. {template} 양식을 따르십시오."
@@ -517,81 +452,6 @@ REASON_LOG_PATH = (".agent-logs/ 아래에는 .agent-logs/task/<작업-id>/의 s
 REASON_SCRIPT_FILE = "승인 전에는 .agent-logs/에 스크립트 파일을 쓸 수 없습니다. 파일을 쓰는 대신 명령 출력으로 즉시 처리하십시오."
 REASON_NO_SKILL = "{skill} 스킬을 이번 턴에 호출하지 않았습니다. " + RETRY
 SCRIPT_EXT = (".py", ".sh", ".ps1", ".js", ".bat", ".cmd")
-VERDICT_ITEM = re.compile(r"^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}:")
-
-
-# 경과 문서 쓰기 후 `검증 결과` 절에 새로 생기는 `- YYYY-MM-DD HH:MM:SS:` 항목 줄 목록을 반환한다.
-def new_verdict_items(data: dict, path: Path) -> list[str]:
-    _, new = added_lines(data, path)
-    if new is None:
-        return []
-    before = section(read(path), "검증 결과").splitlines()
-    return [l for l in section(new, "검증 결과").splitlines() if VERDICT_ITEM.match(l) and l not in before]
-
-
-REASON_JUDGMENT_DROP = ("`{function}` 함수의 판정 줄 `{line}`을 지웁니다. 명세 요구사항 결과에 `{function}`이 없으면 기존 판정 줄을 지울 수 없습니다. "
-                        "판정 줄을 유지하거나 명세 결과에 해당 함수를 적도록 director에게 보고하십시오.")
-# Python 판정 줄과 함수 정의 줄이다.
-JUDGMENT_LINE = re.compile(r"^\s*(?:if|elif|return)\b")
-DEF_LINE = re.compile(r"^(\s*)(?:async\s+)?def (\w+)")
-
-
-# 쓰기 세션의 명세 문서에서 요구사항 결과 칸(통합 구조는 `기대 결과`)과 `결과` 제목 절의 본문을 이은 문자열이다. 명세 문서를 찾지 못하면 None이다.
-# 서브에이전트는 첫 요청의 작업 ID, 메인 세션은 작업 색인의 현재 진행 작업으로 명세 문서를 찾는다.
-def spec_results(data: dict, root: Path) -> str | None:
-    from sub_document import values
-    from sub_task_index import selected_status
-    task = None if main_session(data) else task_id(first_prompt(agent_transcript(data) or data.get("transcript_path")))
-    status = None if task else selected_status(root)
-    path = task_doc(root, task, "input") if task else sibling(status, "input") if status else None
-    if path is None or not path.is_file():
-        return None
-    text = read(path)
-    # 재구현 요청 절의 `기대 결과:` 줄도 판정 줄 삭제의 근거이다.
-    retry = re.findall(r"(?m)^\s*- 기대 결과:[ \t]*(.*)$", section(text, "재구현 요청"))
-    return "\n".join(values(text, "기대 결과" if integrated(text) else "결과") + retry)
-
-
-# 파일의 기준 커밋(HEAD) 내용이다. Git 저장소가 아니거나 HEAD에 없는 파일이면 빈 문자열이다.
-def head_text(path: Path, root: Path) -> str:
-    import subprocess
-    try:
-        done = subprocess.run(["git", "show", f"HEAD:{rel(path, root)}"], cwd=root, capture_output=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    return done.stdout.decode("utf-8", "replace").replace("\r\n", "\n") if done.returncode == 0 else ""
-
-
-# hooks .py Edit이 기준 커밋에 있던 if, elif, return 판정 줄을 지우고 그 줄을 감싼 함수 이름이 명세 결과에 없으면 사유를 반환한다.
-# old_string을 파일에서 찾지 못하거나 명세 문서가 없으면 판정하지 않는다.
-def judgment_drop_reason(data: dict, root: Path) -> str | None:
-    # hooks 폴더 .py 파일의 Edit에서 새 문자열에 남지 않은 판정 줄을 찾는다.
-    args = data.get("tool_input") or {}
-    path = Path(str(args.get("file_path") or ""))
-    if data.get("tool_name") != "Edit" or path.suffix != ".py" or not rel(path, root).startswith("hooks/"):
-        return None
-    old, new = str(args.get("old_string") or ""), str(args.get("new_string") or "")
-    # 기준 커밋에 없는 줄은 이번 작업에서 추가한 줄이므로 기존 판정 줄로 보지 않는다.
-    kept = {line.strip() for line in new.splitlines()}
-    dropped = [(i, line.strip()) for i, line in enumerate(old.splitlines()) if JUDGMENT_LINE.match(line) and line.strip() not in kept]
-    existing = {line.strip() for line in head_text(path, root).splitlines()} if dropped else set()
-    dropped = [(i, line) for i, line in dropped if line in existing]
-    text = read(path).replace("\r\n", "\n")
-    at = text.find(old) if dropped and old else -1
-    results = spec_results(data, root) if at >= 0 else None
-    if results is None:
-        return None
-
-    # 지운 줄보다 얕게 들여쓴 가장 가까운 def를 감싼 함수로 보고 명세 결과와 대조한다.
-    lines = text.splitlines()
-    for offset, line in dropped:
-        index = text[:at].count("\n") + offset
-        depth = len(lines[index]) - len(lines[index].lstrip())
-        owner = next((m[2] for l in reversed(lines[:index]) if (m := DEF_LINE.match(l)) and len(m[1]) < depth), None)
-        # 한글 조사가 붙은 함수 이름도 찾도록 영문, 숫자, 밑줄 경계만 본다.
-        if owner and not re.search(rf"(?<![A-Za-z0-9_]){re.escape(owner)}(?![A-Za-z0-9_])", results):
-            return REASON_JUDGMENT_DROP.format(function=owner, line=line[:80])
-    return None
 
 
 REASON_RECORD = "작업 문서에 사건 문서 경로와 세션 기록 정보를 쓸 수 없습니다. " + RETRY
@@ -603,9 +463,6 @@ def check_write(data: dict, role: str | None, paths: list[Path], main: bool = Fa
     if role in READONLY:
         return REASON_READONLY.format(role=role)
     root = project_root(data.get("cwd"))
-    reason = judgment_drop_reason(data, root)
-    if reason:
-        return reason
     user, _ = last_user(data.get("transcript_path"))
 
     # 메인 세션은 에이전트와 무관하게 .agent-logs/ 밖 쓰기에 사용자 승인이 필요하다.

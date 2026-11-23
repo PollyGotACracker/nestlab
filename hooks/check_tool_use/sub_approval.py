@@ -33,9 +33,12 @@ RESEARCH_SCOPE = ("task: research", "task: refute")
 NEGATION = ("안", "못")
 
 
-# (사용자 마지막 메시지, 그 직전 assistant 응답)이다.
+# (사용자 마지막 메시지, 그 직전 assistant 응답)이다. 마지막 사용자 메시지 뒤에 손상된 줄이 있으면
+# 그 줄이 승인 취소였는지 알 수 없으므로 메시지를 빈 문자열(승인 없음)로 돌려준다.
 def last_user(path: str | None) -> tuple[str, str]:
-    user, shown, _ = turn(read_session(path or ""))
+    user, shown, after = turn(read_session(path or ""))
+    if any(e.get("broken") for e in after):
+        return "", shown
     return user, shown
 
 

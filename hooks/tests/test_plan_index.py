@@ -96,12 +96,12 @@ class PlanIndex(unittest.TestCase):
 
     def test_stage_names_and_template_structure(self):
         self.assertEqual(head_line('[plan] 계획')[0],'계획')
-        for name in ('state','input','research','refute','report-plan'):
+        for name in ('state','input','research','refute','info-plan'):
             with self.subTest(name=name):
                 text = template_text(name)
                 self.assertIsNone(structure_reason(text,name))
                 self.assertIsNotNone(structure_reason(text+'\n## 임의 제목\n',name))
-        self.assertEqual(form_of('## 계획 보고'),'report-plan')
+        self.assertEqual(form_of('## 계획 보고'),'info-plan')
 
     def test_constraints_in_all_forms(self):
         for label in ('한계','위험','한계와 위험','잠재 위험과 한계','확인 범위와 한계'):
@@ -117,8 +117,10 @@ class PlanIndex(unittest.TestCase):
             (root.parent/'outside.txt').write_text('private')
             self.assertIsNotNone(source_gap('../outside.txt:1',root))
 
+    # 양식 머리말이 없는 질문은 통과하고, 머리말로 시작해 형식을 어긴 질문만 차단한다.
     def test_question_requires_template(self):
-        self.assertIsNotNone(check_one({'question':'아무 질문','options':[]},{},'codex'))
+        self.assertIsNone(check_one({'question':'아무 질문','options':[]},{},'codex'))
+        self.assertIsNotNone(check_one({'question':'요구사항 1 이름 없는 질문','options':[]},{},'codex'))
 
     # 작업 선택 질문은 미완료 작업 ID와 `신규 작업` 라벨만 허용하고, 없는 작업·완료 작업·신규 작업 누락은 차단한다.
     def test_task_select_question(self):

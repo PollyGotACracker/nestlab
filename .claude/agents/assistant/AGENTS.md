@@ -6,6 +6,7 @@ tools: Skill, Agent, Workflow, Read, Write, Edit, Glob, Grep, Bash, WebSearch, W
 model: sonnet
 effort: high
 readonly: false
+isolation: worktree
 sandbox_mode: "workspace-write"
 type: instruction
 created: 2026-10-03

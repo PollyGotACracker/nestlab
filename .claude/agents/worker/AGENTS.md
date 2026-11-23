@@ -8,6 +8,7 @@ skills:
 model: sonnet
 effort: medium
 readonly: false
+isolation: worktree
 sandbox_mode: "workspace-write"
 type: instruction
 created: 2026-10-03

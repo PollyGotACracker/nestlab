@@ -85,13 +85,16 @@ REPORT = re.compile(r"(?:범위 밖|승인 (?:범위|전)|권한)[^.\n]*적용�
                     r"|(?:이미|모두|전부) (?:고쳤|수정했|반영했|바로잡았)")
 FIRST_PERSON = re.compile(r"죄송|제 (?:실수|잘못)|제가")
 # 인용과 설명 문장의 조건부 표현
-CONDITIONAL = {"어긴", "지 않은 채", "확인 없이", "근거 없는"}
+CONDITIONAL = {"어긴", "지 않은 채", "확인 없이", "근거 없는", "절차 없이", "허락 없이", "근거 없이", "비교 없이", "검토 없이", "임의로"}
+# 일치 표현 직후의 조건 어미와, 같은 문장 앞 조건절(`면 `으로 끝나는 절)
+COND_AFTER = re.compile(r"(?:을 때|을 경우|으면|아도|어도|다면)")
+COND_CLAUSE = re.compile(r"(?:[하되이니]|으|라|다|었|았|였|했|겠)면\s")
 SPEAKER = re.compile(r"죄송|제 (?:실수|잘못|판단)|제가|저는|저의|저도")
 POINTED = re.compile(r"지적|잘못|틀렸|틀린|어겼|어기|위반|않았|안 지|맞지 않|불만|왜 ")
 # 자기 행동을 과거형으로 인정하는 서술
-SELF_PAST = re.compile(r"(?:것|사건|문장)(?:이 원인)?입니다(?!만)|(?<!못)(?:냈|했|썼)었?습니다")
+SELF_PAST = re.compile(r"(?:것|사건|문장)(?:이 원인)?입니다(?!만)|(?<!못)(?:냈|했|썼)었?(?:습니다|어요)")
 # 도구와 코드가 주어인 문장: 코드 동작 설명, hook 차단 사유를 옮겨 적은 문장
-HOOK_SUBJECT = re.compile(r"(?:차단 사유|hook 사유|Stop 사유|hook이|훅이)")
+HOOK_SUBJECT = re.compile(r"(?:차단 사유|hook 사유|Stop 사유|hook이|훅이|차단되어|차단돼|거부되어|막혀)")
 CODE_SUBJECT = re.compile(r"(?:도구|hook|훅|코드|함수|스크립트|모듈|정규식)(?:는|은)\s")
 
 
@@ -139,6 +142,9 @@ def scan(text: str, user: str = "", pattern: re.Pattern = ADMIT):
             if DENIAL.search(re.split(r"[.!?。]", line[m.end():], maxsplit=1)[0]):
                 continue
             if PASSIVE.match(line, m.start()):
+                continue
+            # 조건 어미가 바로 이어지거나 같은 문장 앞에 조건절이 있으면 조건 설명이므로 인정으로 보지 않는다.
+            if COND_AFTER.match(line, m.end()) or COND_CLAUSE.search(re.split(r"[.!?。]", line[:m.start()])[-1]):
                 continue
             if HOOK_SUBJECT.search(line[:m.start()]) and not SPEAKER.search(line):
                 continue

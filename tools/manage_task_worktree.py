@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""runner가 생성한 worktree에 배정 파일을 전달하고 결과를 원본 checkout에 반영한다.
+"""runner가 생성한 worktree의 변경 결과를 원본 checkout에 반영한다.
 
-입력: prepare/apply/recover 동작, 원본과 worktree 경로 및 prepare의 명세와 역할 및 파일 목록.
-반환: 처리한 경로 목록과 종료 코드 0, 실패 원문과 종료 코드 1.
-한계: worktree 생성은 runner의 기본 기능으로 완료해야 한다.
+입력: apply 동작과 worktree 경로(원본 경로는 생략하면 worktree에서 구한다).
+반환: 반영한 경로 목록은 stdout, 보류한 경로 목록은 stderr에 출력하고 종료 코드 0, 실패 원문과 종료 코드 1.
+한계: worktree 생성은 runner의 기본 기능으로 완료해야 하며, 원본 내용이 기준 커밋과 다른 파일은 보류한다.
 """
 from __future__ import annotations
 
@@ -13,32 +13,27 @@ import sys
 
 HOOKS = Path(__file__).resolve().parents[1] / "hooks"
 sys.path[:0] = [str(HOOKS / "common"), str(HOOKS / "check_tool_use")]
-from sub_worktree import apply, origin, prepare, recover
+from sub_worktree import apply, origin
 
 
-# 명시한 동작을 실행하고 실패 시 원본과 worktree를 보존한 오류를 반환한다.
+# apply를 실행하고 실패 시 원본과 worktree를 보존한 오류를 반환한다.
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "apply", "recover"))
+    parser.add_argument("action", choices=("apply",))
     parser.add_argument("--source", type=Path, help="생략하면 worktree의 원본 checkout을 사용한다.")
     parser.add_argument("--worktree", type=Path, required=True)
-    parser.add_argument("--spec")
-    parser.add_argument("--role", choices=("worker", "documenter"))
-    parser.add_argument("--file", action="append", default=[])
     args = parser.parse_args()
-    if args.action == "prepare" and not (args.spec and args.role and args.file):
-        parser.error("prepare에는 --spec, --role, --file이 필요합니다.")
     try:
-        args.source = args.source or origin(args.worktree)
-        paths = (prepare(args.source, args.worktree, args.spec, args.role, args.file) if args.action == "prepare"
-                 else {"apply": apply, "recover": recover}[args.action](args.source, args.worktree))
-    except (OSError, ValueError, KeyError) as error:
+        applied, held = apply(args.source or origin(args.worktree), args.worktree)
+    except (OSError, ValueError) as error:
         print(f"{error}\n원본 checkout과 worktree를 보존했습니다.", file=sys.stderr)
         return 1
-    print("\n".join(paths))
+    print("\n".join(applied))
+    if held:
+        print("원본이 기준 커밋과 달라 보류했습니다. 직접 병합하십시오: " + ", ".join(held), file=sys.stderr)
     return 0
 
 

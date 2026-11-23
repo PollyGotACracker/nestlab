@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import io
+import re
 import tokenize
 from pathlib import Path
 
@@ -74,6 +75,7 @@ def check_file(
     in_fence = False
     check_rule_id = rel.startswith(RULE_ID_SCOPE)
     check_agent = bool(AGENT_NAME_SCOPE.match(rel))
+    example_indent = -1  # 수정 대상 예시 목록 줄의 들여쓰기이며, 없으면 -1이다.
     # 줄마다 코드 블록 밖에서 경로와 절 참조를 검사한다.
     for lineno, line in enumerate((path.read_text(encoding="utf-8-sig") if text is None else text).splitlines(), 1):
         if FENCE.match(line):
@@ -109,6 +111,16 @@ def check_file(
         if check_agent:
             for match in AGENT_NAME.finditer(line):
                 violations.append((rel, lineno, KIND_AGENT, match.group(0)))
+
+        # 수정 대상 예시 목록 줄과 그 들여쓴 이어지는 줄은 인용한 표현이므로 부정 표현 검사에서 제외한다.
+        indent = len(line) - len(line.lstrip())
+        if re.match(r"\s*(?:[-*]\s+)?수정 대상 예시:", line):
+            example_indent = indent
+            continue
+        if example_indent >= 0:
+            if line.strip() and indent > example_indent:
+                continue
+            example_indent = -1
 
         # 부정 표현을 위반으로 판정한다.
         for match in NEGATIVE.finditer(line):

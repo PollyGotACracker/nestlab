@@ -48,6 +48,23 @@ class SkillAgentNameTest(unittest.TestCase):
         self.assertFalse([v for v in sub_rules.check_file("AGENTS.md", set(), {}, body) if v[2] == sub_rules.KIND_AGENT])
 
 
+class NegativeTest(unittest.TestCase):
+    # 수정 대상 예시 줄과 들여쓴 이어지는 줄은 위반이 아니고, 다른 이름의 예시 목록과 이어지지 않는 줄은 위반이다.
+    def test_example_negative(self):
+        body = ("- 규칙\n  - 수정 대상 예시: `A가 아니라 B`,\n    `A이다. B하지 않는다.`\n"
+                "    - `C하지 않는다`\n- 이어지는 줄 아님\n")
+        self.assertEqual(sub_rules.check_file("AGENTS.md", set(), {}, body), [])
+        other = "  - 예시 목록:\n    `A이다. B하지 않는다.`\n"
+        self.assertEqual(len(sub_rules.check_file("AGENTS.md", set(), {}, other)), 1)
+
+    # 행동 규칙 줄의 부정형은 위반이고, 예시 목록 뒤 같은 들여쓰기의 줄도 위반이다.
+    def test_rule_negative(self):
+        found = sub_rules.check_file("AGENTS.md", set(), {}, "- 결과를 단정하지 않는다.\n")
+        self.assertEqual([(line, kind) for _, line, kind, _ in found], [(1, sub_rules.KIND_NEGATIVE)])
+        after = "  - 수정 대상 예시: `x`\n  - 결과를 단정하지 않는다.\n"
+        self.assertEqual(len(sub_rules.check_file("AGENTS.md", set(), {}, after)), 1)
+
+
 class RecordIdTest(unittest.TestCase):
     # 주석과 docstring의 식별자는 검사8 위반이고, 문자열 리터럴과 폴더, 작업 색인 일반 언급은 허용한다.
     def test_record_ids_only_in_comments_and_docstrings(self):

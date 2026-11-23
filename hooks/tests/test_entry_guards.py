@@ -1,5 +1,6 @@
 """문서 구조, 원인 분석 선행 조건과 persona 주입의 회귀 검사."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -94,12 +95,14 @@ class Causes(unittest.TestCase):
 
 class Persona(unittest.TestCase):
     def test_default_injects_fallback_and_unknown_fails_visibly(self):
+        # 호출자 역할 환경 변수가 기본 역할보다 우선하므로 하위 프로세스 환경에서 제거한다.
+        env = {k: v for k, v in os.environ.items() if k != "NESTLAB_AGENT"}
         with tempfile.TemporaryDirectory() as folder:
             for role, expected in (("default", 0), ("not-registered", 1)):
                 result = subprocess.run(
                     [sys.executable, "-B", str(HOOKS / "load_agent.py"), "--default-role", "buddy"],
                     input=json.dumps({"agent_type": role, "cwd": folder, "hook_event_name": "SessionStart"}),
-                    capture_output=True, text=True, encoding="utf-8")
+                    capture_output=True, text=True, encoding="utf-8", env=env)
                 self.assertEqual(result.returncode, expected, result.stderr)
                 if not expected:
                     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
@@ -107,6 +110,14 @@ class Persona(unittest.TestCase):
                     self.assertIn("## Tone Guide", context)
                 else:
                     self.assertIn("persona", result.stderr)
+
+
+class Dropped(unittest.TestCase):
+    def test_dropped_needs_whole_value_or_title(self):
+        from sub_document import dropped
+        self.assertTrue(dropped("요구사항 3. 폐기", ""))
+        self.assertTrue(dropped("요구사항 3. 이름", "#### 기대 결과\n\n- 폐기\n"))
+        self.assertFalse(dropped("요구사항 3. 이름", "#### 기대 결과\n\n- 폐기된 항목을 복원한다.\n"))
 
 
 class Constraints(unittest.TestCase):

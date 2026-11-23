@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""MessageDisplay hook: 응답 미흡(REASON_EMPTY)으로 차단될 응답을 교체 문구로, 구현 승인 요청 줄을 생성 본문으로 바꿔 표시한다.
+"""MessageDisplay hook: 구현 승인 요청 줄을 생성 본문으로 바꿔 표시한다.
 
-다른 사유로 차단될 응답은 원문 그대로 표시한다. Stop hook은 그 경우 누락 내용만 이어서 작성하게 한다.
+차단될 응답을 포함해 그 밖의 응답은 원문 그대로 표시한다. Stop hook은 차단 시 누락 내용만 이어서 작성하게 한다.
 
 호출자:
 - Claude Code의 MessageDisplay hook 설정 원본(Claude 설정)
@@ -11,7 +11,7 @@
 - stdout에 `{"hookSpecificOutput": {"hookEventName": "MessageDisplay", "displayContent": ...}}` JSON을 출력한다.
 - final이 아닌 batch: 같은 message_id의 delta를 OS 임시 폴더 파일에 누적하고 빈 displayContent를 출력한다.
 - final batch: 누적한 원문을 last_assistant_message로 check_workflow_response.check에 넣어 판정한다.
-  응답 미흡이면 교체 문구를, 그 밖에는 누적한 원문 전체를 displayContent로 출력하고 임시 파일을 지운다.
+  누적한 원문 전체를 displayContent로 출력하고 임시 파일을 지운다.
   통과한 원문의 `구현 승인 요청: <작업 ID>` 줄은 생성한 구현 승인 요청 본문으로 바꿔 표시한다.
   transcript 끝 20줄에서 원문과 같은 assistant text 항목의 stop_reason이 tool_use이면 도구 호출 앞의 중간 메시지로 보고 검사 없이 원문을 출력한다.
   stop_reason이 tool_use가 아니어도 transcript 전체에 완료 알림(`<task-id>`)이 없는 백그라운드 작업(async_launched agentId, backgroundTaskId)이 있으면 검사 없이 원문을 출력한다.
@@ -32,12 +32,10 @@ import tempfile
 import time
 from pathlib import Path
 
-from check_workflow_response import NOTICE_REQUEST, REASON_EMPTY, check
+from check_workflow_response import NOTICE_REQUEST, check
 from sub_docs import project_root
 from sub_gate import REQUEST_LINE, approval_request
 from sub_role import director_main
-
-REPLACEMENT = "(직전 응답의 내용이 미흡하여 다시 작성합니다.)"
 
 
 # message_id별 delta 누적 파일 경로를 반환한다.
@@ -115,8 +113,6 @@ def display(data: dict) -> str:
         if has_pending_background(data["transcript_path"]):
             data = {**data, "background_tasks": [True]}
     reason = check({**data, "last_assistant_message": text}, "claude", record=False)
-    if reason == REASON_EMPTY:
-        return REPLACEMENT
     return text if reason else with_request(text, data.get("cwd"))
 
 

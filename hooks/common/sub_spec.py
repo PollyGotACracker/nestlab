@@ -1,13 +1,14 @@
-"""명세 문서 요구사항 절의 hook 관리 칸(통합 구조의 사용자 확인 시각, 문제, 기대 결과와 기존 구조의 결과, 기대 결과)을 읽고 쓰는 공용 모듈이다.
+"""명세 문서 요구사항 절의 hook 관리 칸을 읽고 쓰는 공용 모듈이다.
 
 호출자:
-- hooks/check_workflow_response.py(검토 확정 답을 결과 칸에 기록, 폐기 답을 `### 요구사항 <번호>. 폐기` 절로 기록)
-- hooks/check_tool_use/sub_scope.py(문제 정의 확정 답을 사용자 확인 시각과 문제 칸에 기록, 에이전트의 hook 관리 칸 직접 수정 잠금)
+- hooks/check_workflow_response.py(확정 질문의 확정 답을 사용자 확인 시각, 문제, 목표, 기대 결과, 한계, 잠재 위험 칸에 기록)
+- hooks/check_tool_use/sub_scope.py(에이전트의 hook 관리 칸 직접 수정 잠금)
 - hooks/common/sub_task_docs.py(구현 승인 요청 본문 생성)
 입력: 명세 문서의 `요구사항 목록` 절 본문 또는 명세 문서 전문
 반환: 칸 값 dict 또는 칸을 바꾼 절 본문
 한계: `###` 제목이 코드 블록 안에 있으면 요구사항 절 경계로 오인한다.
-기존 구조(`- 칸:` 줄) 절은 기존 구조로 읽고 쓴다. 통합 구조는 `#### 칸` 제목 아래 본문을 칸 값으로 쓰며 hook 관리 칸은 사용자 확인 시각, 문제, 기대 결과이다.
+기존 구조(`- 칸:` 줄) 절은 기존 구조로 읽고 쓴다. 통합 구조는 `#### 칸` 제목 아래 본문을 칸 값으로 쓴다.
+사용자 확인 시각, 기대 결과, 결과 칸은 항상 hook만 쓰고, 문제, 목표, 한계, 잠재 위험 칸은 사용자 확인 시각이 기록된 뒤부터 hook만 쓴다.
 """
 from __future__ import annotations
 
@@ -24,7 +25,10 @@ LEGACY_BLOCK = ("### <번호>. <요구사항 이름>\n\n- 문제: 문제 <번호
                 "- 결과:\n  - <목표를 달성했을 때 기대되는 결과>\n- 검증:\n  - <검증 내용> (<정적 | 실제 동작>)\n"
                 "- 기대 결과:\n  - <판정 기준>\n- 한계:\n  - <설계 자체의 제약 | 없음> (출처: <파일:행 | URL>, 확인 방법: <방법>)\n"
                 "- Test Case:\n  - 차단 동작: <있음 | 없음>\n\n")
-LOCKED = ("사용자 확인 시각", "문제", "기대 결과", "결과")
+LOCKED = ("사용자 확인 시각", "기대 결과", "결과")
+# 사용자 확인 시각이 기록된 절에서 추가로 잠기는 칸이다.
+CONFIRMED_LOCKED = ("문제", "목표", "한계", "잠재 위험")
+STAMP = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
 
 
 # 절 본문을 (번호, 절 본문) 목록으로 나눈다. 번호가 없는 머리말과 양식 자리표시 절의 번호는 None이다.
@@ -88,8 +92,10 @@ def template_block(legacy: bool = False) -> str:
     return LEGACY_BLOCK
 
 
-# 한 절에서 hook만 쓰는 칸의 값을 이은 문자열이다.
+# 한 절에서 hook만 쓰는 칸의 값을 이은 문자열이다. 사용자 확인 시각이 기록된 절은 확정으로 잠기는 칸을 더한다.
 def locked_text(block: str) -> str:
+    if STAMP.fullmatch(text_of(block, "사용자 확인 시각")):
+        return "\n--\n".join(text_of(block, name) for name in LOCKED + CONFIRMED_LOCKED)
     return "\n--\n".join(text_of(block, name) for name in LOCKED)
 
 
@@ -103,10 +109,38 @@ def blank_cells(legacy: bool = False) -> str:
     return locked_text(template_block(legacy))
 
 
+# 안 설명 앞의 목록 표식과 `안 <번호>. <이름>: ` 접두를 뗀 문자열이다.
+def desc(text: str) -> str:
+    return re.sub(r"^\s*(?:[-*]\s+)?(?:안 \d+\. [^:]+: )?", "", text.strip())
+
+
+QUOTE_PAIRS = {"'": "'", '"': '"', "‘": "’", "“": "”"}
+
+
+# 안 설명을 `다.`로 끝나는 문장 단위로 나눈 목록이다. 따옴표 안과 문장 안의 번호 뒤 마침표는 나누지 않으며, 닫히지 않은 따옴표 뒤는 나누지 않는다.
+def sentences(text: str) -> list[str]:
+    body, parts, start, closer = desc(text), [], 0, ""
+    for i, ch in enumerate(body):
+        if closer:
+            closer = "" if ch == closer else closer
+        elif ch in QUOTE_PAIRS:
+            closer = QUOTE_PAIRS[ch]
+        elif ch == "." and body[max(i - 1, 0)] == "다" and body[i + 1:i + 2].isspace():
+            parts.append(body[start:i + 1])
+            start = i + 1
+    parts.append(body[start:])
+    return [p.strip() for p in parts if p.strip()]
+
+
+# 값 한 줄을 목록 줄로 바꾼다. 이미 목록 표식이 있으면 그대로 둔다.
+def bullet(value: str) -> str:
+    value = value.strip()
+    return value if value.startswith("- ") else f"- {value}"
+
+
 # 요구사항 목록 절 본문에 ops를 순서대로 적용한 본문을 반환한다. names는 새 절 제목에 쓸 번호별 이름이다.
 # ops:
-# - ("req", 번호, 확정 안 설명, 문제 표기[, 복사할 문제 항목 번호]): 결과 칸을 쓴다.
-# - ("problem", 번호, 문제 정의 줄, 답 시각): 통합 구조의 사용자 확인 시각과 문제 칸을 쓴다.
+# - ("confirm", 번호, 이름, 목표, 확정 기대 결과, 한계, 잠재 위험, 확인 시각[, 문제]): 확정안을 사용자 확인 시각, 목표, 기대 결과, 한계, 잠재 위험 칸에 쓰고, 문제가 있으면 문제 칸에도 쓴다.
 # - ("drop", 번호, 사유): 절을 폐기 절로 바꾼다. 사유는 쓰지 않는다.
 def apply(body: str, ops: list[tuple], names: dict[int, str]) -> str:
     parts = blocks(body)
@@ -126,43 +160,28 @@ def apply(body: str, ops: list[tuple], names: dict[int, str]) -> str:
 
     # 통합 구조 절의 제목 이름을 바꾼다.
     rename = lambda block, n, name: re.sub(r"(?m)^### .*$", lambda _: f"### {n}. {name}", block, count=1)
-    # 안 설명은 `다.`로 끝나는 문장 단위로 나눠 결과 칸 목록으로 쓴다. 문장 안의 번호 뒤 마침표는 나누지 않는다.
-    desc = lambda s: re.sub(r"^-?\s*안 \d+\. [^:]+: ", "", s.strip())
-    sentences = lambda s: [p for p in re.split(r"(?<=다\.)\s+", desc(s)) if p.strip()]
 
     for op in ops:
         n = op[1]
-        if op[0] == "req" and not legacy:
-            # 통합 구조는 기대 결과 칸만 hook이 쓰고 제목 이름을 확정한 검토 이름으로 바꾼다. 복사 대상이 있으면 문제 칸을 옮긴다.
-            source = next((t for k, t in parts if len(op) > 4 and op[4] is not None and k == op[4]), None)
+        if op[0] == "confirm" and not legacy:
+            # 같은 확정안이 이미 기록돼 있으면 확인 시각을 유지하고 다시 쓰지 않는다.
+            _, _, name, goal, expected, limit, risk, stamp, *problem = op
             i = find(n)
-            block = rename(parts[i][1], n, names.get(n, "요구사항"))
-            if source is not None:
-                for name in ("사용자 확인 시각", "문제"):
-                    block = set_lines(block, name, text_of(source, name).split("\n"))
-            parts[i] = (n, set_lines(block, "기대 결과", [f"- {s}" for s in sentences(op[2])]))
-        elif op[0] == "req":
+            block = rename(parts[i][1], n, name)
+            cells_ = {"목표": [bullet(goal)], "기대 결과": [f"- {s}" for s in sentences(expected)],
+                      "한계": [bullet(limit)], "잠재 위험": [bullet(risk)]}
+            # 문제 줄이 있으면 문제 칸에 한 문장으로 기록한다.
+            if problem and problem[0]:
+                cells_["문제"] = [problem[0].strip()]
+            same = all(text_of(block, c) == "\n".join(v) for c, v in cells_.items()) and STAMP.fullmatch(text_of(block, "사용자 확인 시각"))
+            for cell, lines in cells_.items():
+                block = set_lines(block, cell, lines)
+            parts[i] = (n, block if same else set_lines(block, "사용자 확인 시각", [stamp]))
+        elif op[0] == "confirm":
+            # 기존 구조는 기대 결과 칸과 결과 칸에 확정 기대 결과를 쓴다.
             i = find(n)
-            # 결과 칸이 양식 자리표시 값이거나 이전 안 설명 그대로면 새 안 설명으로 채운다.
-            # 결과 칸은 hook만 쓸 수 있어 비워 두면 구현 배정이 막힌다.
-            old = desc(text_of(parts[i][1], "기대 결과"))
-            block = set_lines(parts[i][1], "기대 결과", [f"  - {op[2]}"])
-            # 결과 칸은 목록 줄을 이어 비교하므로 이전 안 설명을 문장으로 나눠 쓴 칸도 이전 값으로 본다.
-            joined = lambda b: " ".join(re.sub(r"^\s*-\s*", "", l) for l in text_of(b, "결과").splitlines() if l.strip())
-            # 자리표시 표기가 남은 결과 칸은 채움 검사를 통과하지 못하므로 새 안 설명으로 다시 쓴다.
-            if joined(block) in (joined(template_block(True)), old) or re.search(r"<[^<>\n]+>", joined(block)):
-                block = set_lines(block, "결과", [f"  - {s}" for s in sentences(op[2])])
-            # 확정한 검토 질문의 문제 번호를 문제 칸에 쓴다.
-            if len(op) > 3 and op[3]:
-                block = re.sub(r"(?m)^- 문제:.*$", lambda _: f"- 문제: {op[3]}", block, count=1)
-            parts[i] = (parts[i][0], block)
-        elif op[0] == "problem":
-            # 기존 구조는 문제 정의를 경과 문서에 쓰므로 건너뛴다. 새 절의 제목 이름은 문제 원문으로 시작하고 검토 확정 때 검토 이름으로 바뀐다.
-            if legacy or op[2].startswith(("추가 합의: ", "교체: ")) and n not in {k for k, _ in parts}:
-                continue
-            names = {n: op[2].split(". ", 1)[-1], **names}
-            i = find(n)
-            parts[i] = (n, problem_block(parts[i][1], n, op[2], op[3]))
+            block = set_lines(parts[i][1], "기대 결과", [f"  - {op[4]}"])
+            parts[i] = (n, set_lines(block, "결과", [f"  - {s}" for s in sentences(op[4])]))
         elif legacy:
             # 절을 `### 요구사항 <번호>. 폐기`와 기대 결과 `폐기`만 남긴다.
             parts[find(n)] = (n, f"### 요구사항 {n}. 폐기\n\n- 기대 결과:\n  - 폐기\n\n")
@@ -173,32 +192,3 @@ def apply(body: str, ops: list[tuple], names: dict[int, str]) -> str:
     # 새 절이 들어간 자리에서 절 사이 빈 줄을 맞추고 이어 붙인다.
     texts = [t if k is None or t.endswith("\n\n") else t.rstrip("\n") + "\n\n" for k, t in parts[:-1]]
     return "".join(texts + [parts[-1][1]] if parts else [])
-
-
-# 통합 구조 절에 문제 정의 확정 답 한 건을 쓴 절을 반환한다. line은 `- 문제 <번호>. <원문>`, `- 문제 <번호>. 폐기: <사유>`,
-# `추가 합의: <내용>`, `교체: <새 원문>` 중 하나이고 stamp는 답 시각이다. 같은 원문의 재확정은 이전 확인 시각을 유지한다.
-def problem_block(block: str, n: int, line: str, stamp: str) -> str:
-    rename = lambda b, name: re.sub(r"(?m)^### .*$", lambda _: f"### {n}. {name}", b, count=1)
-    current = text_of(block, "문제").split("\n")
-    first = current[0] if current and not re.search(r"<[^<>\n]+>", current[0]) else ""
-    before = text_of(block, "사용자 확인 시각")
-    before = before if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", before) else ""
-    if line.startswith("추가 합의: "):
-        # 원문과 기존 하위 줄은 바꾸지 않고 같은 합의가 없을 때만 하위 줄을 덧붙인다.
-        if first and not any(l.startswith(f"- {line} (") for l in current):
-            block = set_lines(block, "문제", current + [f"- {line} (사용자 확인 시각: {stamp})"])
-        return block
-    if line.startswith("교체: "):
-        # 번호를 유지한 채 새 원문과 시각으로 바꾸고 이전 원문과 이전 시각은 이전 확정 줄로 남긴다.
-        if first and first != line[4:]:
-            block = set_lines(block, "문제", [line[4:], *current[1:], f"- 이전 확정: {first} (사용자 확인 시각: {before or '기록 없음'})"])
-            block = set_lines(block, "사용자 확인 시각", [stamp])
-        return block
-    text = line.split(". ", 1)[1]
-    if text.startswith("폐기: "):
-        block = rename(block, "폐기")
-    elif re.search(r"<[^<>\n]+>", block.split("\n", 1)[0]) or block.split("\n", 1)[0].endswith(". 요구사항"):
-        # 자리표시 제목이 남은 절은 문제 원문을 제목 이름으로 쓴다.
-        block = rename(block, text)
-    block = set_lines(block, "사용자 확인 시각", [before if first == text and before else stamp])
-    return set_lines(block, "문제", [text] + (current[1:] if first == text else []))

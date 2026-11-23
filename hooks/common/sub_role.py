@@ -21,7 +21,7 @@ from pathlib import Path
 from sub_agents import discover_agents, read_folder_agent
 from sub_call import CIPHER, task_prompt
 from sub_docs import ROOT
-from sub_session import CODEX_SESSIONS, read_session
+from sub_session import CODEX_SESSIONS, iter_session
 
 
 # rollout 첫 줄(session_meta)의 payload이다. 읽을 수 없으면 빈 dict이다.
@@ -110,7 +110,7 @@ def agent_setting(path: str | None) -> str | None:
 
 # 대화 기록의 첫 사용자 메시지를 반환한다. 없으면 빈 문자열이다.
 def first_prompt(path: str | None) -> str:
-    text = next((e["text"] for e in read_session(path or "") if e["role"] == "user"), "")
+    text = next((e["text"] for e in iter_session(path or "") if e["role"] == "user"), "")
     if text.strip() and not CIPHER.match(text.strip()):
         return text
 

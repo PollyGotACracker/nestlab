@@ -253,6 +253,7 @@ class SetHooksTest(unittest.TestCase):
         self.assertIn("Bash(cd *)", claude["permissions"]["deny"])
         self.assertIn("Workflow", claude["permissions"]["allow"])
         self.assertEqual(claude["env"]["CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"], "1")
+        self.assertEqual(claude["worktree"]["baseRef"], "head")
         cfg = tomllib.loads((self.home / ".codex/config.toml").read_text(encoding="utf-8"))
         self.assertEqual(cfg["sandbox_mode"], "workspace-write")
         self.assertNotIn("default_permissions", cfg)

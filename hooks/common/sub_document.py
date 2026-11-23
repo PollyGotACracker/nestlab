@@ -221,9 +221,9 @@ def integrated(plan_text: str) -> bool:
     return bool(re.search(r"(?m)^#{4} (?:사용자 확인 시각|문제|목표|기대 결과)\s*$", plan_text or ""))
 
 
-# 요구사항 절이 폐기됐으면 True이다. 제목이 `요구사항 <번호>. 폐기`이거나 기대 결과 칸이 `폐기`로 시작한다.
+# 요구사항 절이 폐기됐으면 True이다. 제목이 `요구사항 <번호>. 폐기`이거나 기대 결과 칸 값 전체가 `폐기`이다.
 def dropped(name: str, body: str) -> bool:
-    return name.endswith(". 폐기") or any(v.startswith("폐기") for v in values(body, "기대 결과"))
+    return name.endswith(". 폐기") or any(v.strip() == "폐기" for v in values(body, "기대 결과"))
 
 
 # 항목 한 줄에 `(요구사항 <번호>)` 표기가 있고 모든 번호가 numbers에 있으면 True이다.

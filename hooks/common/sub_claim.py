@@ -27,24 +27,6 @@ REASON_SOURCE = ("측정이나 확인을 주장한 문장 '{sentences}'에 근�
                  "근거의 출처(파일:행, 파일 경로, 링크, 커맨드 결과 인용)를 보완하십시오.")
 
 
-LIMIT_LINE = re.compile(r"^\s*[-*]\s*(한계|위험):\s*(.*?)\s*$", re.M)
-HTTP_SOURCE = re.compile(r"출처:\s*https?://[^\s<>)]+")
-REASON_LIMIT = "질문 전 응답의 {found}: question-plan 양식을 따르십시오."
-
-
-# 응답 본문의 `- 한계:`, `- 위험:` 두 줄을 검사한다. 줄이 없거나 내용이 있는 줄의 출처가 http(s) URL이 아니면 사유를 반환한다.
-# 값이 `없음`인 줄은 출처 없이 통과한다. 맞으면 None이다.
-def limit_risk_gap(body: str) -> str | None:
-    found = {m[1]: m[2] for m in LIMIT_LINE.finditer(body or "")}
-    for name in ("한계", "위험"):
-        value = found.get(name)
-        if value is None:
-            return REASON_LIMIT.format(found=f"`{name}` 줄 없음")
-        if value.split(" (출처")[0].strip() != "없음" and (re.search(r"미확인|미검증|미완료|미확정", value) or not HTTP_SOURCE.search(value)):
-            return REASON_LIMIT.format(found=f"`{name}` 줄 출처가 URL이 아님")
-    return None
-
-
 # 출처 없이 측정이나 확인을 주장한 긍정형 문장과 출처 없는 불가 주장 문장 목록을 반환한다.
 def unsourced_claims(message: str, body: str) -> list[str]:
     split = lambda text: [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text)]

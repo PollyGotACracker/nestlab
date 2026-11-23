@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 
 from check_invalid_response import plain, transcript_of
-from sub_claim import PATH, URL
 from sub_docs import FENCE_LINE, HEADING, legacy, section, strip_comments, template_text, template_titles, titles
 from sub_session import previous_stop_reason, read_session, turn, user_messages
 from sub_document import filled
@@ -28,13 +27,6 @@ def body_of(message: str) -> str:
         elif not fence and not line.lstrip().startswith(">"):
             out.append(line)
     return "\n".join(out)
-
-
-# 코드 블록, 표, 목록, diff, 경로, 링크 중 하나라도 있으면 True이다.
-def has_deliverable(message: str, body: str) -> bool:
-    if any(FENCE.match(line) for line in message.splitlines()):
-        return True
-    return any(p.search(body) for p in (TABLE, LIST, DIFF, PATH, URL))
 
 
 # 응답 본문 제목이 가리키는 양식 이름이다. 없으면 None이다.
@@ -149,22 +141,19 @@ def completed_response(data: dict, runner: str, message: str) -> str:
 
 
 FENCE = re.compile(r"^\s*(```|~~~)")
-TABLE = re.compile(r"^\s*\|.*\|\s*$", re.M)
-LIST = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S", re.M)
-DIFF = re.compile(r"^(?:[+-]{3} |@@ )", re.M)
 # 에이전트가 직접 쓴 구현 승인 요청 제목이다. 구현 승인 요청 본문은 hook이 생성해 표시한다.
 APPROVAL_BLOCK = re.compile(r"^#{1,6} (?:작업 승인 필요|구현 승인 요청)\s*$", re.M)
 
 
 # 응답 본문 양식을 가리키는 제목이다. 제목이 있는 응답은 해당 양식의 필수 제목과 항목을 갖춰야 한다.
-FORM_HEADINGS = {"request-stop": "중단 판정 요청", "report-plan": "계획 보고",
+FORM_HEADINGS = {"request-stop": "중단 판정 요청", "info-plan": "계획 보고",
                  "approval-complete": "완료 승인 요청", "approval-research": "조사 승인 요청",
-                 "approval-measure": "(?:모델 호출 )?실측 승인 요청"}
+                 "approval-measure": "(?:모델 호출 )?실측 승인 요청", "info-review": "검토 표시"}
 
 
 # 값이 없을 때 `없음`만 쓰는 절이다.
-NONE_TITLES = ("구조 변경", "기존 설계", "기존 흐름")
-SOURCED_LINES = ("장점", "단점", "현재 동작", "한계와 위험")
+NONE_TITLES = ("구조 변경", "기존 설계", "기존 흐름", "제외한 안")
+SOURCED_LINES = ("장점", "단점", "한계", "잠재 위험")
 SOURCE_TAIL = re.compile(r"\(출처: ([^)]*)\)\s*$")
 FILE_SOURCE = re.compile(r"^([^\s:]+):(\d+)(?:-(\d+))?$")
 
