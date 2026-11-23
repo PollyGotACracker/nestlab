@@ -82,7 +82,7 @@ def unfinished_reason(data: dict, message: str, runner: str) -> str | None:
         state, plan = read(path), read(sibling(path, "input"))
         if not REQUEST_APPROVED(state) or not plan.strip():
             continue
-        # 작업 단계가 구현이 아니면(계획으로 돌아간 작업, 단계 줄 없는 이전 양식) 완료 조건을 검사하지 않는다.
+        # 작업 단계가 구현이 아니면(계획으로 돌아간 작업, 단계 줄 없는 이전 템플릿) 완료 조건을 검사하지 않는다.
         if stage_of(state) != "구현":
             continue
         # 실제 질문 도구가 아직 확정되지 않은 검토 항목을 요청했으면 사용자 답을 기다린다.
@@ -104,7 +104,7 @@ def unfinished_reason(data: dict, message: str, runner: str) -> str | None:
 
 # 모든 요구사항 검증이 PASS이고 남은 문제가 없는데 완료 전이 검사가 거부하면 그 사유를 반환한다. 아니면 None이다.
 def complete_refusal(path: Path) -> str | None:
-    # 구현 승인이 있고 아직 완료가 아닌 새 양식 명세 문서만 본다.
+    # 구현 승인이 있고 아직 완료가 아닌 새 템플릿 명세 문서만 본다.
     text, plan = read(path), read(sibling(path, "input"))
     if not plan.strip() or not (stage_of(text) or REQUEST_APPROVED(text)) or stage_of(text) == "완료" or (not stage_of(text) and re.search(r"^- 작업 상태: 완료\s*$", text, re.M)):
         return None

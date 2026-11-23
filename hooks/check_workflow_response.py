@@ -1,4 +1,4 @@
-"""Stop hook: 응답의 양식, 구현 승인 요청, 완료 판정과 경과 문서의 작업 흐름 위반을 검사하고 응답을 다시 쓰게 한다."""
+"""Stop hook: 응답의 템플릿, 구현 승인 요청, 완료 판정과 경과 문서의 작업 흐름 위반을 검사하고 응답을 다시 쓰게 한다."""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,7 @@ from sub_record import record_answers, record_times, record_unresolved, splice  
 
 # (작업 흐름 위반 사유, 관련 경과 문서)이다. .agent-logs 폴더가 없는 저장소는 검사하지 않는다.
 def workflow_reason(data: dict, message: str, body: str, runner: str) -> tuple[str | None, list[Path]]:
-    # 보고와 조사 및 실측 승인 요청은 제목이 가리키는 양식의 누락을 차단한다.
+    # 보고와 조사 및 실측 승인 요청은 제목이 가리키는 템플릿의 누락을 차단한다.
     form = form_of(body)
     if form and (missing := form_gap(body, form, message)):
         return REASON_FORM.format(form=form, missing=", ".join(missing)), []
@@ -69,7 +69,7 @@ def inspect(data: dict, runner: str = "claude", record: bool = True) -> tuple[st
     message = completed_response(data, runner, message)
     data = {**data, "last_assistant_message": message}
     body = body_of(message)
-    # 작업 문서를 수정한 director 외 세션은 양식 검사만 적용한다.
+    # 작업 문서를 수정한 director 외 세션은 템플릿 검사만 적용한다.
     if not director_main(data):
         form = form_of(body)
         missing = form_gap(body, form, message) if form else []
@@ -163,7 +163,7 @@ QUESTION_END = re.compile(r"[?？]\s*\**\s*$")
 REASON_REQUEST_FORM = ("구현 승인 요청 본문은 hook이 생성해 표시합니다. 응답에는 `구현 승인 요청: <작업 ID>` 한 줄만 작성하십시오.")
 NOTICE_REQUEST = "\n\n구현을 승인하려면 `승인`을 입력하십시오."
 REASON_QUESTION = ("응답을 질문 문장으로 끝냈습니다. 지침이나 요구로 정해지는 사안이면 근거를 적고 진행하십시오.\n"
-                   "사용자 판단이 필요하면 후보 비교를 응답에 쓰고 질문 도구로 검토 <번호>. 질문을 하십시오.")
+                   "사용자 판단이 필요하면 info-confirmed 템플릿의 확정안을 응답에 쓰고 질문 도구로 `요구사항 <번호>. <이름>: <목표>` 확정 질문을 하십시오.")
 REASON_COMPLETE = "경과 문서 '{doc}'의 모든 요구사항 검증이 PASS이고 남은 문제가 없는데 완료로 바뀌지 않습니다. 사유: {reason}"
 REASON_FORM = "응답: 관련 지침과 {form} 템플릿을 준수하십시오. 보완 대상: {missing}"
 REASON_CHOICE = "후보 보고에서 누락된 안 블록 항목을 보완하십시오. {missing}"

@@ -87,14 +87,14 @@ def without_heading(text: str) -> str:
     return re.sub(r"(?m)^### .*결과[ \t]*\n?", "", text).strip()
 
 
-# 결과 양식(조사 문서 `조사 결과`, 반증 문서 `회차 결과` 절)에서 보고 형식으로 쓰는 부분이다.
+# 결과 템플릿(조사 문서 `조사 결과`, 반증 문서 `회차 결과` 절)에서 보고 형식으로 쓰는 부분이다.
 def result_template(kind: str) -> str:
     text = template_text("research" if kind == "research" else "refute")
     start = re.search(rf"(?m)^## {RESULT_SECTION[kind]}[ \t]*$", text)
     return text[start.start():] if start else ""
 
 
-# 보고가 결과 양식의 모든 블록과 칸을 채웠는지 확인해 문제 목록을 반환한다. wanted는 결과가 필요한 조사 번호이다.
+# 보고가 결과 템플릿의 모든 블록과 칸을 채웠는지 확인해 문제 목록을 반환한다. wanted는 결과가 필요한 조사 번호이다.
 def result_gaps(kind: str, message: str, wanted: list[str]) -> list[str]:
     # sub_form은 사건 기록 모듈을 거쳐 이 모듈을 불러오므로 호출 시점에 불러온다.
     from sub_form import block_gaps
@@ -119,10 +119,10 @@ def result_gaps(kind: str, message: str, wanted: list[str]) -> list[str]:
 # 칸 검사 결과 문제가 있으면 재제출을 요구하는 ValueError를 던진다.
 def require_filled(gaps: list[str]) -> None:
     if gaps:
-        raise ValueError("결과 양식의 칸을 채워 다시 제출하십시오. 누락: " + "; ".join(gaps[:8]))
+        raise ValueError("결과 템플릿의 칸을 채워 다시 제출하십시오. 누락: " + "; ".join(gaps[:8]))
 
 
-# 결과 절 안의 양식 자리표시자(`<`가 든 `###` 제목) 블록을 지운다.
+# 결과 절 안의 템플릿 자리표시자(`<`가 든 `###` 제목) 블록을 지운다.
 def drop_placeholder_blocks(text: str, kind: str) -> str:
     lines = text.splitlines()
     found = section_bounds(lines, RESULT_SECTION[kind])
@@ -185,7 +185,7 @@ def refute_block(message: str, n: int) -> str:
     return f"### {n}회차 반증 결과\n\n" + cut_block(message[found.end():]) if found else message
 
 
-# 반증 문서 양식의 `<회차>` 표 행을 지운다.
+# 반증 문서 템플릿의 `<회차>` 표 행을 지운다.
 def drop_placeholder_row(text: str) -> str:
     return re.sub(r"(?m)^\|\s*<회차>[^\n]*\n?", "", text)
 
@@ -213,13 +213,13 @@ def add_loop_row(text: str, message: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
-# 반증 문서의 `주장 목록` 절 본문을 조사 결과의 주장 줄로 바꾼다. 주장 줄이 있고 반증 문서가 없으면 양식으로 만든다.
+# 반증 문서의 `주장 목록` 절 본문을 조사 결과의 주장 줄로 바꾼다. 주장 줄이 있고 반증 문서가 없으면 템플릿으로 만든다.
 def write_claims(refute_doc: Path, message: str) -> None:
     claims = [re.sub(r"^\s*[*-]\s*", "- ", line).rstrip() for line in CLAIM_LINE.findall(message)]
     if not claims:
         return
 
-    # 반증 문서가 없으면 양식에 작업 ID를 채워 만든다.
+    # 반증 문서가 없으면 템플릿에 작업 ID를 채워 만든다.
     if not refute_doc.is_file():
         template = template_text("refute")
         if not template:
@@ -227,7 +227,7 @@ def write_claims(refute_doc: Path, message: str) -> None:
         refute_doc.write_text(template.replace("<작업-id>", refute_doc.parent.name) + "\n", encoding="utf-8")
     text = refute_doc.read_text(encoding="utf-8")
 
-    # 기존 주장 줄은 남기고 새 주장 번호는 기존 최대 번호 뒤로 이어 붙인다. 양식 자리표시 줄은 지운다.
+    # 기존 주장 줄은 남기고 새 주장 번호는 기존 최대 번호 뒤로 이어 붙인다. 템플릿 자리표시 줄은 지운다.
     number = lambda line: int(re.search(r"주장\s*(\d+)", line)[1])
     found = re.search(r"(^## 주장 목록[^\n]*\n)(.*?)(?=^## |\Z)", text, re.M | re.S)
     kept = {number(l): l.rstrip() for l in (found.group(2) if found else "").splitlines() if re.match(r"^- 주장 \d+\s*[:：]", l)}
@@ -247,7 +247,7 @@ def write_claims(refute_doc: Path, message: str) -> None:
 
 
 # 저장할 문서를 PreToolUse 작업 문서 쓰기와 같은 검사(제목 구조, 한계 출처, 조사 문서의 출처 형식)로 확인한다.
-# 위반이면 문서 이름, 위반 행, 양식 이름을 담은 사유를, 통과하면 None을 반환한다.
+# 위반이면 문서 이름, 위반 행, 템플릿 이름을 담은 사유를, 통과하면 None을 반환한다.
 def document_reason(target: Path, text: str, refute: bool, blocks: list[str]) -> str | None:
     from sub_docs import constraint_reason, structure_reason
     from sub_document import bare
@@ -264,7 +264,7 @@ def document_reason(target: Path, text: str, refute: bool, blocks: list[str]) ->
 
 
 # target 문서에 결과를 쓴다. 반증이면 target은 반증 문서이고, 조사이면 조사 문서이며 주장 목록을 반증 문서에 쓴다.
-# 양식 칸이 비었거나 판정 형식이 어긋나면 문서를 바꾸지 않고 재제출 사유를 반환한다. 이미 기록한 반증 보고면 쓰지 않는다.
+# 템플릿 칸이 비었거나 판정 형식이 어긋나면 문서를 바꾸지 않고 재제출 사유를 반환한다. 이미 기록한 반증 보고면 쓰지 않는다.
 def write_result(target: Path, prompt: str, message: str, refute: bool) -> str | None:
     text = target.read_text(encoding="utf-8")
     status = sibling(target, "state")
@@ -273,7 +273,7 @@ def write_result(target: Path, prompt: str, message: str, refute: bool) -> str |
         if match and (reason := document_stage_reason("refute" if refute else "research", match[1].strip())):
             return reason
 
-    # 보고가 결과 양식의 블록과 칸을 채웠는지, 반증 판정 형식을 지켰는지 확인한다.
+    # 보고가 결과 템플릿의 블록과 칸을 채웠는지, 반증 판정 형식을 지켰는지 확인한다.
     from sub_document import Document
     from sub_gate import check_refutation, research_items
     try:

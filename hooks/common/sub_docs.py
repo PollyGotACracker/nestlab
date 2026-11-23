@@ -1,5 +1,5 @@
 """hook이 쓰는 작업 문서 경로와 문서 절을 읽는다.
-작업 문서는 작업 폴더의 status, spec, research, refute 파일이며 양식은 작업 문서 양식 폴더에서 읽는다.
+작업 문서는 작업 폴더의 status, spec, research, refute 파일이며 템플릿은 작업 문서 템플릿 폴더에서 읽는다.
 
 호출자:
 - hooks/check_tool_use.py와 그 하위 모듈
@@ -17,8 +17,8 @@
 - loop_count는 반증 회차 수
 - titles와 missing_titles는 제목 목록
 - section은 절 본문 문자열
-- review_pending은 경과 문서 검토 필요 절에서 확정 답이 없는 항목 이름 목록
-- review_done_numbers는 확정 답이 있는 검토 번호 집합
+- review_pending은 경과 문서 요구사항 확인 절에서 확정 답이 없는 항목 이름 목록
+- review_done_numbers는 확정 답이 있는 요구사항 번호 집합
 - measure_pending은 모델 호출 실측 필요 절의 미완료 항목 이름 목록
 - saved_report는 bool
 - 차단 사유 문자열은 없음
@@ -150,7 +150,7 @@ SKILLS = SKILL_DIR
 TEMPLATES = TEMPLATE_DIR
 TEMPLATE_NAMES = {"state": "log-status", "input": "log-spec", "research": "log-research", "refute": "log-refute",
                   "nestlab-log-incident": "log-incident"}
-# 응답 양식 이름이다. 생성기의 `--print-template` 인자와 같다.
+# 응답 템플릿 이름이다. 생성기의 `--print-template` 인자와 같다.
 RESPONSE_TEMPLATES = ("question-confirmed", "question-task", "request-stop", "approval-complete", "info-plan", "info-review",
                       "info-confirmed", "approval-research", "approval-implement", "approval-measure")
 FENCE_LINE = re.compile(r"^\s*(`{3,}|~{3,})")
@@ -185,14 +185,14 @@ def structure_reason(text: str, skill: str, label: str = "작업 문서") -> str
         actual = Document(text)
         template = Document(template_text(skill))
     except ValueError:
-        return f"{label}: {template_name(skill)} 양식을 따르십시오."
+        return f"{label}: {template_name(skill)} 템플릿을 따르십시오."
     # 기존 절 파서가 읽지 않는 대체 제목 표기는 허용하지 않는다.
     for index, line in enumerate(actual.lines):
         indented = re.match(r"^ {1,3}#{1,6}[ \t]", line)
         underline = re.fullmatch(r" {0,3}(?:=+|-+)\s*", line)
         previous = actual.lines[index - 1].strip() if index else ""
         if indented or underline and previous and not previous.startswith(("#", "-", "|")):
-            return f"{label} {index + 1}행: {template_name(skill)} 양식을 따르십시오."
+            return f"{label} {index + 1}행: {template_name(skill)} 템플릿을 따르십시오."
     rules, parents = [], []
     for _, depth, title in template.headings:
         while parents and rules[parents[-1]][0] >= depth:
@@ -211,10 +211,10 @@ def structure_reason(text: str, skill: str, label: str = "작업 문서") -> str
         matches = [i for i, (level, pattern, owner, _) in enumerate(rules)
                    if level == depth and owner == parent and pattern.fullmatch(title)]
         if not matches:
-            return f"{label} {line + 1}행: {template_name(skill)} 양식을 따르십시오."
+            return f"{label} {line + 1}행: {template_name(skill)} 템플릿을 따르십시오."
         index = next((i for i in matches if not rules[i][3]), matches[-1])
         if index < last.get(context, -1) or ((context, index) in seen and not rules[index][3]):
-            return f"{label} {line + 1}행: {template_name(skill)} 양식을 따르십시오."
+            return f"{label} {line + 1}행: {template_name(skill)} 템플릿을 따르십시오."
         seen.add((context, index))
         last[context] = index
         stack.append((depth, index, line))
@@ -234,9 +234,9 @@ def constraint_reason(text: str, template: str | None = None, label: str = "작�
     try:
         document = Document(text)
     except ValueError:
-        return f"{label}: {form} 양식을 따르십시오."
+        return f"{label}: {form} 템플릿을 따르십시오."
     lines = document.lines
-    reason = lambda index: f"{label} {index + 1}행: {form} 양식을 따르십시오."
+    reason = lambda index: f"{label} {index + 1}행: {form} 템플릿을 따르십시오."
 
     # 출처 표기는 `출처`로 통일한다.
     fence = ""
@@ -300,7 +300,7 @@ def constraint_reason(text: str, template: str | None = None, label: str = "작�
 
 # 결과 저장 hook만 쓰는 결과 절(`조사 결과`, `회차 결과`)의 저장된 `###` 블록 줄을 빈 줄로 바꾼 본문이다.
 # 작성자가 고칠 수 없는 줄을 작성자 쓰기와 배정 게이트의 검사에서 제외한다. 결과 블록은 저장 시점에 검사한다.
-# 양식 자리표시자 블록과 코드 블록 안의 제목 줄은 블록 경계로 보지 않는다. 줄 번호는 유지한다.
+# 템플릿 자리표시자 블록과 코드 블록 안의 제목 줄은 블록 경계로 보지 않는다. 줄 번호는 유지한다.
 def mask_results(text: str) -> str:
     out, section, locked, fence = [], "", False, ""
     for line in (text or "").split("\n"):
@@ -319,7 +319,7 @@ def mask_results(text: str) -> str:
 PROGRESS = r"미확정|미검증|미확인|미완료|미측정|검증 대기|확인 필요|추후 확인"
 
 
-# 양식의 자리표시자 줄 집합이다. 양식 이름이 없으면 빈 집합이다.
+# 템플릿의 자리표시자 줄 집합이다. 템플릿 이름이 없으면 빈 집합이다.
 def placeholders_of(template: str | None) -> set[str]:
     return {line.strip() for line in template_text(template).splitlines() if "<" in line} if template else set()
 
@@ -338,32 +338,32 @@ def first_block(text: str) -> str:
     return "\n".join(out)
 
 
-# 독립 양식의 제목 중 자리표시가 없는 제목을 반환한다.
+# 독립 템플릿의 제목 중 자리표시가 없는 제목을 반환한다.
 def template_titles(skill: str) -> list[str]:
     return [t for t in titles(template_text(skill)) if "<" not in t]
 
 
-# 문서 종류, 스킬 이름이나 양식 이름이 가리키는 양식 파일 이름(확장자 제외)을 반환한다.
+# 문서 종류, 스킬 이름이나 템플릿 이름이 가리키는 템플릿 파일 이름(확장자 제외)을 반환한다.
 def template_name(skill: str) -> str:
     name = TEMPLATE_NAMES.get(skill, skill)
     return f"log-{name}" if f"log-{name}" in TEMPLATE_NAMES.values() else name
 
 
-# 독립 원본의 파일 전체 내용을 반환한다. 알 수 없는 양식은 오류로 보고한다.
-# 작업 문서 종류 이름(status, spec, research, refute, incident)은 `log-` 양식으로 연결한다.
+# 독립 원본의 파일 전체 내용을 반환한다. 알 수 없는 템플릿은 오류로 보고한다.
+# 작업 문서 종류 이름(status, spec, research, refute, incident)은 `log-` 템플릿으로 연결한다.
 def template_text(skill: str) -> str:
     name = template_name(skill)
     if name not in (*TEMPLATE_NAMES.values(), *RESPONSE_TEMPLATES):
-        raise ValueError(f"알 수 없는 양식: {skill}")
+        raise ValueError(f"알 수 없는 템플릿: {skill}")
     return (TEMPLATES / f"{name}.md").read_text(encoding="utf-8").rstrip("\n")
 
 
-# 독립 양식의 지정 절 본문을 반환한다.
+# 독립 템플릿의 지정 절 본문을 반환한다.
 def template_section(skill: str, title: str) -> str:
     return section(template_text(skill), title)
 
 
-# 템플릿 필수 제목 중 new에 없는 것이다. old가 있으면 old에 있던 제목만 따진다(이전 양식 문서 보존).
+# 템플릿 필수 제목 중 new에 없는 것이다. old가 있으면 old에 있던 제목만 따진다(이전 템플릿 문서 보존).
 def missing_titles(new: str, skill: str, old: str = "") -> list[str]:
     # 템플릿 필수 제목과 새 문서의 제목을 구한다.
     required = template_titles(skill)
@@ -475,15 +475,15 @@ def strip_task_comments(path: Path) -> None:
         pass
 
 
-# 경과 문서 검토 필요 절의 확정 줄 형식이다. 확정 안 자리에는 안 라벨 또는 `폐기`가 온다.
-REVIEW_LINE = re.compile(r"^- 검토 (\d+)\. ([^:\n]+): (.+?) \(사용자 검토 시각: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)\s*$")
+# 경과 문서 요구사항 확인 절의 확정 줄 형식이다. 답 자리에는 `확정` 또는 `폐기`가 온다.
+REVIEW_LINE = re.compile(r"^- 요구사항 (\d+)\. ([^:\n]+): (.+?) \(사용자 확인 시각: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)\s*$")
 LEGACY_REVIEW_DONE = re.compile(r"(?m)^\s*- 상태:\s*(?:검토 완료|폐기)\s*$")
 
 
-# 경과 문서 검토 필요 절의 (항목 첫 줄, 확정 여부) 목록이다. 양식 자리표시 항목은 뺀다.
+# 경과 문서 요구사항 확인 절의 (항목 첫 줄, 확정 여부) 목록이다. 템플릿 자리표시 항목은 뺀다.
 # 기존 문서의 `- 상태: 검토 완료` 하위 줄도 확정으로 읽는다.
 def review_entries(text: str) -> list[tuple[str, bool]]:
-    body = strip_comments(section(text, "검토 필요"))
+    body = strip_comments(section(text, "요구사항 확인"))
     out = []
     for item in re.split(r"(?m)^(?=- )", body):
         first = item.splitlines()[0] if item.strip() else ""
@@ -492,14 +492,14 @@ def review_entries(text: str) -> list[tuple[str, bool]]:
     return out
 
 
-# 경과 문서 검토 필요 절에서 확정 답이 없는 항목 이름 목록이다.
+# 경과 문서 요구사항 확인 절에서 확정 답이 없는 항목 이름 목록이다.
 def review_pending(text: str) -> list[str]:
-    return [m[1] if (m := re.match(r"- (검토 \d+\.[^:\n]*)", line)) else line[2:42] for line, done in review_entries(text) if not done]
+    return [m[1] if (m := re.match(r"- (요구사항 \d+\.[^:\n]*)", line)) else line[2:42] for line, done in review_entries(text) if not done]
 
 
-# 경과 문서 검토 필요 절에서 확정 답이 있는 검토 번호 집합이다.
+# 경과 문서 요구사항 확인 절에서 확정 답이 있는 요구사항 번호 집합이다.
 def review_done_numbers(text: str) -> set[str]:
-    return {m[1] for line, done in review_entries(text) if done and (m := re.match(r"- 검토 (\d+)\.", line))}
+    return {m[1] for line, done in review_entries(text) if done and (m := re.match(r"- 요구사항 (\d+)\.", line))}
 
 
 # 경과 문서 구현 승인 범위의 연결 대상에 적힌 요구사항 번호 집합이다. 번호가 없으면 None이다.
@@ -517,7 +517,7 @@ def measure_pending(text: str, times: tuple[str, ...] = ("사전",), targets: se
     starts = list(re.finditer(r"(?m)^- (.+)$", body))
     out = []
     for i, m in enumerate(starts):
-        if m[1].strip() == "없음" or re.fullmatch(r"<[^<>]*>", m[1].strip()):  # 없음과 양식 자리표시 항목은 실측 항목이 아니다.
+        if m[1].strip() == "없음" or re.fullmatch(r"<[^<>]*>", m[1].strip()):  # 없음과 템플릿 자리표시 항목은 실측 항목이 아니다.
             continue
         item = body[m.end():(starts[i + 1].start() if i + 1 < len(starts) else len(body))]
         when = re.search(r"^\s*- 시점:\s*(.+?)\s*$", item, re.M)

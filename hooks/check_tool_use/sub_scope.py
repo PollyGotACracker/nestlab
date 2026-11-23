@@ -41,9 +41,9 @@ def rel(path: Path, root: Path) -> str:
 
 REASON_NO_APPROVAL = "사용자 마지막 메시지에 '승인'이 없어 승인 상태를 승인으로 쓸 수 없습니다.\n" + APPROVAL_RETRY
 REASON_UNRESOLVED = "중단 사유의 `중단 판정 미해결` 줄은 `중단 판정`이 든 질문 도구 질문의 확정 선택지 답이 세션 기록에 있어야 지우거나 바꿀 수 있습니다. " + RETRY
-REASON_LOCKED = ("status.md의 `작업 단계` 줄과 `검토 필요` 절은 hook만 바꿀 수 있습니다. "
-                 "log-status 양식을 따르고 변경은 질문 도구로 확정받으십시오.")
-LOCKED = ("검토 필요",)
+REASON_LOCKED = ("status.md의 `작업 단계` 줄과 `요구사항 확인` 절은 hook만 바꿀 수 있습니다. "
+                 "log-status 템플릿을 따르고 변경은 질문 도구로 확정받으십시오.")
+LOCKED = ("요구사항 확인",)
 STATE_LINE = re.compile(r"^- 작업 상태:.*$", re.M)
 
 
@@ -53,24 +53,24 @@ def state_line(text: str) -> str:
     return m.group(0).strip() if m else ""
 
 
-# 경과 문서 쓰기 후 작업 단계 줄과 검토 필요 절이 기존 문서와 다르면 True이다.
-# 새 문서는 이 줄과 절이 경과 문서 양식 원문과 같아야 한다. 파일 전체 내용을 구할 수 없는 apply_patch는 True이다.
+# 경과 문서 쓰기 후 작업 단계 줄과 요구사항 확인 절이 기존 문서와 다르면 True이다.
+# 새 문서는 이 줄과 절이 경과 문서 템플릿 원문과 같아야 한다. 파일 전체 내용을 구할 수 없는 apply_patch는 True이다.
 def state_locked(data: dict, path: Path, new: str | None, old: str) -> bool:
     if new is None:
         return True
 
-    # 기존 문서는 기존 본문과, 새 문서는 양식 원문과 보호 줄 및 절 본문을 주석 없이 비교한다.
+    # 기존 문서는 기존 본문과, 새 문서는 템플릿 원문과 보호 줄 및 절 본문을 주석 없이 비교한다.
     new, old = strip_comments(new), strip_comments(old)
     if state_line(new) != state_line(old or strip_comments(template_text(TEMPLATE_OF["state"]))):
         return True
     return any(section(new, t).strip() != strip_comments(section(old, t) if old else template_section(TEMPLATE_OF["state"], t)).strip()
                for t in LOCKED)
 REASON_SPEC_LOCKED = ("spec.md 요구사항 절의 `사용자 확인 시각`, `결과`, `기대 결과` 칸과 확정된 절의 `문제`, `목표`, `한계`, `잠재 위험` 칸은 hook만 바꿀 수 있습니다. "
-                      "log-spec 양식을 따르고 변경은 질문 도구로 확정받으십시오.")
+                      "log-spec 템플릿을 따르고 변경은 질문 도구로 확정받으십시오.")
 
 
 # 명세 문서 쓰기 후 파일 전체 내용에서 요구사항 절의 결과 칸과 기대 결과 칸이 기존 문서와 다르면 True이다.
-# 기존에 없던 절과 새 문서는 양식 자리표시 값과 같아야 한다. 파일 전체 내용을 구할 수 없는 apply_patch는 True이다.
+# 기존에 없던 절과 새 문서는 템플릿 자리표시 값과 같아야 한다. 파일 전체 내용을 구할 수 없는 apply_patch는 True이다.
 def spec_locked(data: dict, path: Path, new: str | None, old: str) -> bool:
     if new is None:
         return True
@@ -116,7 +116,7 @@ def plan_ref_reason(new: str | None, old: str) -> str | None:
     if new is None or section(new, "작업 계획") == section(old or "", "작업 계획"):
         return None
 
-    # 요구사항이 아직 없는 작성 초기 문서와 기존 양식 문서는 검사하지 않는다.
+    # 요구사항이 아직 없는 작성 초기 문서와 기존 템플릿 문서는 검사하지 않는다.
     try:
         plan = Document(new)
         numbers = {number_of(name) for name, _ in requirements(plan)}
@@ -125,7 +125,7 @@ def plan_ref_reason(new: str | None, old: str) -> str | None:
     if not numbered(plan):
         return None
 
-    # 자리표시자가 남은 줄은 작성 중인 양식 줄로 보고 건너뛴다.
+    # 자리표시자가 남은 줄은 작성 중인 템플릿 줄로 보고 건너뛴다.
     names = {name for _, _, name in plan.headings}
     try:
         for key in ("배정 범위", "변경 대상", "생성 대상", "문서 갱신 대상", "삭제 목록", "통합 목록"):
@@ -151,11 +151,11 @@ def plan_locked(path: Path, kind: str, new: str | None, old: str) -> bool:
     return False
 
 
-# old에서 new로 바뀐 줄이 모두 명세 양식 요구사항 절의 자리표시 줄을 값으로 바꾼 것이면 True이다. 같으면 True이다.
+# old에서 new로 바뀐 줄이 모두 명세 템플릿 요구사항 절의 자리표시 줄을 값으로 바꾼 것이면 True이다. 같으면 True이다.
 # 구현 단계에 질문으로 확정돼 hook이 추가한 요구사항의 빈 칸을 채우는 쓰기만 허용하고, 확정된 값의 변경은 막는다.
 def placeholder_fill(old: str, new: str) -> bool:
     import difflib
-    # 통합 구조와 기존 구조(`- 칸:` 줄) 양식의 자리표시 줄을 모두 채움 대상으로 본다.
+    # 통합 구조와 기존 구조(`- 칸:` 줄) 템플릿의 자리표시 줄을 모두 채움 대상으로 본다.
     marks = {l.strip() for legacy in (False, True) for l in template_block(legacy).splitlines() if "<" in l and not l.startswith("###")}
     a, b = old.splitlines(), new.splitlines()
     return all(tag == "equal" or (tag == "replace" and all(l.strip() in marks for l in a[i1:i2]))
@@ -163,9 +163,9 @@ def placeholder_fill(old: str, new: str) -> bool:
 
 
 EVIDENCE = re.compile(r"\(근거: (검증|사용자) (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\)")
-CONFIRMED_TIME = re.compile(r"사용자 (?:검토|확인) 시각:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
-REASON_EVIDENCE_REQUIRED = "명세 문서 `재구현 요청` 절의 새 항목에 `(근거: 검증 시각)` 표시가 없습니다. 사용자 근거 항목은 재구현 질문의 승인 답으로 hook이 기록합니다. log-spec 양식을 따르십시오."
-REASON_EVIDENCE_TIME = "재구현 요청의 근거 시각 `{kind} {stamp}`이 경과 문서 검증 결과의 FAIL 시각과 일치하지 않습니다. log-spec 양식을 따르십시오."
+CONFIRMED_TIME = re.compile(r"사용자 확인 시각:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+REASON_EVIDENCE_REQUIRED = "명세 문서 `재구현 요청` 절의 새 항목에 `(근거: 검증 시각)` 표시가 없습니다. 사용자 근거 항목은 재구현 질문의 승인 답으로 hook이 기록합니다. log-spec 템플릿을 따르십시오."
+REASON_EVIDENCE_TIME = "재구현 요청의 근거 시각 `{kind} {stamp}`이 경과 문서 검증 결과의 FAIL 시각과 일치하지 않습니다. log-spec 템플릿을 따르십시오."
 REASON_USER_EVIDENCE = ("`(근거: 사용자 시각)` 재구현 요청 항목은 직접 쓸 수 없습니다. "
                         "`재구현 요청 <요구사항 번호>. <수정 대상 경로>: <수정 위치>` 질문의 `승인` 답으로 hook이 기록합니다.")
 
@@ -181,11 +181,11 @@ def fail_times(status_text: str) -> set[str]:
     return out
 
 
-# 질문 답 기록 hook이 남긴 확정 답 시각 집합이다. 경과 문서 검토 필요 절의 사용자 검토 시각이다.
+# 질문 답 기록 hook이 남긴 확정 답 시각 집합이다. 경과 문서 요구사항 확인 절의 사용자 확인 시각이다.
 # spec_text가 있으면 통합 구조 명세 요구사항 항목의 사용자 확인 시각 칸과 문제 칸의 추가 합의 시각도 포함한다.
 def confirmed_times(status_text: str, spec_text: str = "") -> set[str]:
     from sub_document import values
-    stamps = {m[1] for m in CONFIRMED_TIME.finditer(section(status_text, "검토 필요"))}
+    stamps = {m[1] for m in CONFIRMED_TIME.finditer(section(status_text, "요구사항 확인"))}
     if integrated(spec_text):
         body = section(spec_text, "요구사항 목록")
         stamps |= {v for v in values(body, "사용자 확인 시각") if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", v)}
@@ -194,7 +194,7 @@ def confirmed_times(status_text: str, spec_text: str = "") -> set[str]:
 
 
 # 명세 문서 재구현 요청 절에 새로 추가하는 항목에 근거 표시가 없거나 근거 시각이 검증 FAIL 시각에 없으면 사유를 반환한다. 사용자 근거 항목은 hook만 기록하므로 직접 쓰면 사유를 반환한다.
-# 일반 사용자 메시지 시각은 근거가 아니다. 양식 자리표시 항목과 파일 전체 내용을 구할 수 없는 쓰기는 판정하지 않는다. 맞으면 None이다.
+# 일반 사용자 메시지 시각은 근거가 아니다. 템플릿 자리표시 항목과 파일 전체 내용을 구할 수 없는 쓰기는 판정하지 않는다. 맞으면 None이다.
 def evidence_gap(data: dict, path: Path, new: str | None, old: str) -> str | None:
     if new is None:
         return None
@@ -216,7 +216,7 @@ def evidence_gap(data: dict, path: Path, new: str | None, old: str) -> str | Non
 
 
 REASON_BASIS_CODE = ("명세 문서 `재검증 요청` 절의 `판정 기준` 칸에 구현 위치나 코드 식별자(`{value}`)가 있습니다. "
-                     "요구사항 번호와 확인할 동작만 쓰고 위치는 reviewer가 변경 대상 파일의 diff로 찾게 하십시오. log-spec 양식을 따르십시오.")
+                     "요구사항 번호와 확인할 동작만 쓰고 위치는 reviewer가 변경 대상 파일의 diff로 찾게 하십시오. log-spec 템플릿을 따르십시오.")
 # 파일:행, 밑줄이 든 이름, 괄호 호출과 백틱 코드이다. 이름은 ASCII 영문, 숫자, 밑줄만 보고 한글 단어는 제외한다.
 BASIS_CODE = re.compile(r"[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+:\d+|[A-Za-z0-9]+_[A-Za-z0-9_]+|[A-Za-z0-9_]+\(|`[^`]+`")
 
@@ -234,11 +234,11 @@ def basis_code(new: str | None, old: str) -> str | None:
     return None
 
 
-REASON_SPEC_EARLY ="{items}이(가) 끝나지 않아 명세 문서를 쓸 수 없습니다. 모든 검토를 끝낸 뒤 쓰십시오."
-REASON_UNCONFIRMED = ("기존 요구 구분 `director 해석 (검토 {number})`의 검토 완료 근거가 없어 쓸 수 없습니다. "
-                      "새 해석은 question-confirmed 양식의 확정 질문으로 확인받으십시오.")
+REASON_SPEC_EARLY ="{items}이(가) 끝나지 않아 명세 문서를 쓸 수 없습니다. 모든 요구사항 확인을 끝낸 뒤 쓰십시오."
+REASON_UNCONFIRMED = ("기존 요구 구분 `director 해석 (요구사항 {number})`의 확정 근거가 없어 쓸 수 없습니다. "
+                      "새 해석은 question-confirmed 템플릿의 확정 질문으로 확인받으십시오.")
 REASON_USER_QUOTE = "작업 문서에 사용자 메시지 원문({quote}…)이 들어 있습니다. 요약해서 쓰십시오."
-INTERPRETED = re.compile(r"^\s*(?:- )?요구 구분:\s*director 해석 \(검토 (\d+)\)", re.M)
+INTERPRETED = re.compile(r"^\s*(?:- )?요구 구분:\s*director 해석 \(요구사항 (\d+)\)", re.M)
 QUOTE_MIN = 20
 TASK_ID_TEXT = re.compile(r"(?<![\w-])\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9-])")
 REASON_OTHER_TASK = "작업 문서에 다른 작업 ID({task})를 쓸 수 없습니다. 이 작업의 내용으로 요약해 쓰십시오."
@@ -262,7 +262,7 @@ def user_quote(lines: list[str], data: dict) -> str | None:
     return None
 
 
-# 경과 문서에 새로 쓰는 `요구 구분: director 해석 (검토 N)` 줄의 검토 N이 기존 문서에서 검토 완료가 아니면 번호를 반환한다. 아니면 None이다.
+# 경과 문서에 새로 쓰는 `요구 구분: director 해석 (요구사항 N)` 줄의 요구사항 N이 기존 문서에서 확정이 아니면 번호를 반환한다. 아니면 None이다.
 def unconfirmed(added: list[str], old: str) -> str | None:
     wanted = [m[1] for m in map(INTERPRETED.match, added) if m]
     if not wanted:
@@ -274,7 +274,7 @@ def unconfirmed(added: list[str], old: str) -> str | None:
 PLACEHOLDER = re.compile(r"<[^<>\n]+>")
 
 
-REASON_MISSING_TITLES = "{name}: 빠진 절 `{titles}`. {template} 양식을 따르십시오."
+REASON_MISSING_TITLES = "{name}: 빠진 절 `{titles}`. {template} 템플릿을 따르십시오."
 
 # 작업 문서 한 개 쓰기 검사이다.
 def check_doc(data: dict, path: Path, r: str, user: str) -> str | None:
@@ -414,7 +414,7 @@ WRITE_ROLES = {"worker", "documenter"}
 IN_PROGRESS = re.compile(r"^- 작업 상태:\s*(?:구현|진행)\s*$", re.M)
 EXEC_APPROVED = re.compile(r"^\s*- (?:사용자 )?승인 상태:\s*승인\s*$", re.M)
 REASON_LOG_BASH = "이 쓰기 커맨드는 .agent-logs/ 폴더 경로를 포함합니다. " + RETRY
-REASON_REVIEW_LEFT = "진행 중인 작업의 검토 필요 또는 사전 모델 호출 실측 필요 항목({items})이 끝나지 않아 .agent-logs/ 밖에서 쓸 수 없습니다. " + RETRY
+REASON_REVIEW_LEFT = "진행 중인 작업의 요구사항 확인 또는 사전 모델 호출 실측 필요 항목({items})이 끝나지 않아 .agent-logs/ 밖에서 쓸 수 없습니다. " + RETRY
 
 
 # 구현 단계의 경과 문서를 반환한다. 단계가 없는 기존 문서는 진행 상태와 구현 승인을 확인한다.
@@ -428,7 +428,7 @@ def running_states(root: Path) -> list[tuple[Path, str]]:
     return out
 
 
-# 진행 중인 작업의 경과 문서 검토 필요 절에서 확정 답이 없는 항목과 미완료 사전 모델 호출 실측 항목 이름 목록을 반환한다.
+# 진행 중인 작업의 경과 문서 요구사항 확인 절에서 확정 답이 없는 항목과 미완료 사전 모델 호출 실측 항목 이름 목록을 반환한다.
 def unreviewed_items(root: Path) -> list[str]:
     states = running_states(root)
     if not states:
@@ -475,7 +475,7 @@ SCRIPT_EXT = (".py", ".sh", ".ps1", ".js", ".bat", ".cmd")
 
 
 REASON_RECORD = "작업 문서에 사건 문서 경로와 세션 기록 정보를 쓸 수 없습니다. " + RETRY
-REASON_STAMP = "{name}의 `생성 시각`, `완료 시각` 줄은 hook만 기록합니다. log-status 양식을 따르십시오."
+REASON_STAMP = "{name}의 `생성 시각`, `완료 시각` 줄은 hook만 기록합니다. log-status 템플릿을 따르십시오."
 
 # 에이전트별 쓰기 범위를 검사한다. 위반이면 deny 사유를, 통과면 None을 반환한다.
 def check_write(data: dict, role: str | None, paths: list[Path], main: bool = False, runner: str = "claude") -> str | None:
@@ -499,7 +499,7 @@ def check_write(data: dict, role: str | None, paths: list[Path], main: bool = Fa
         if outside and not ok:
             return REASON_OUTSIDE_STAGE.format(stage=stage) if stage else REASON_OUTSIDE_LOG
 
-        # 승인 뒤에도 진행 중인 작업에 허용 값이 아닌 검토 필요 항목이 있으면 director의 쓰기를 차단한다.
+        # 승인 뒤에도 진행 중인 작업에 허용 값이 아닌 요구사항 확인 항목이 있으면 director의 쓰기를 차단한다.
         if outside and role == "director":
             try:
                 left = unreviewed_items(root)
@@ -521,13 +521,13 @@ def check_write(data: dict, role: str | None, paths: list[Path], main: bool = Fa
             from sub_docs import structure_reason, constraint_reason, mask_results
             new = added_lines(data, path)[1]
             if new is not None:
-                # 생성 시각과 완료 시각은 hook이 기록한다. 새 문서는 양식의 초기값만 쓸 수 있다.
+                # 생성 시각과 완료 시각은 hook이 기록한다. 새 문서는 템플릿의 초기값만 쓸 수 있다.
                 if kind == "state":
                     stamps = lambda text: re.findall(r"(?m)^- (?:생성|완료) 시각:.*$", text)
                     initial = stamps(strip_comments(template_text(TEMPLATE_OF[kind])))
                     if stamps(new) != stamps(read(path)) and (path.is_file() or stamps(new) not in ([], initial)):
                         return REASON_STAMP.format(name=path.name)
-                # 기존 문서는 이전에 있던 양식 제목만, 새 문서는 양식의 모든 제목을 요구한다.
+                # 기존 문서는 이전에 있던 템플릿 제목만, 새 문서는 템플릿의 모든 제목을 요구한다.
                 # 결과 저장 hook만 쓰는 결과 블록은 작성자가 고칠 수 없으므로 출처와 값 검사에서 제외한다.
                 reason = (structure_reason(new, TEMPLATE_OF[kind], path.name)
                           or constraint_reason(mask_results(new), TEMPLATE_OF[kind], path.name))

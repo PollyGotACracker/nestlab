@@ -56,7 +56,7 @@ def check_plan(plan: Document, state: Document | None = None, every: bool = True
     for title in ("검증 계획", "잠재적 위험", "진행 순서", "작업 기준 자료"):
         require(bool(plan.section(title).strip()), R_SECTION_EMPTY.format(title=title))
 
-    # 변경 범위 양식이면 범위 항목을, 아니면 대상별 절을 확인하고 문서 갱신 대상을 구한다.
+    # 변경 범위 템플릿이면 범위 항목을, 아니면 대상별 절을 확인하고 문서 갱신 대상을 구한다.
     names = titles("\n".join(plan.raw))
     if "변경 범위" in names:
         require(bool(plan.section("작업 금지 목록").strip()), R_SECTION_EMPTY.format(title="작업 금지 목록"))
@@ -123,7 +123,7 @@ def case_gaps(name: str, body: str) -> list[str]:
 
 # 줄의 `출처:` 값 중 URL 또는 `파일:행` 형식이 아닌 첫 값을 반환한다. 모두 형식에 맞으면 None이다.
 def bad_source(line: str) -> str | None:
-    # 조사 문서 양식의 `<`로 시작하는 자리표시자 값은 제외한다.
+    # 조사 문서 템플릿의 `<`로 시작하는 자리표시자 값은 제외한다.
     return next((v.strip() for v in SOURCE_VALUE.findall(line)
                  if not v.strip().startswith("<") and not SOURCE_FORMAT.search(v)), None)
 
@@ -190,7 +190,7 @@ def check_research_result(message: str, items: list[str]) -> None:
         require("충족" in latest or "결론 불가" in latest, R_RESULT_FIT.format(item=bare(item)))
 
 # 조사 문서에 항목마다 결과를 확인한다. 항목별 결과 절(`조사 <번호>. <이름> 결과`)이 있는 문서는 결과 저장 hook이 칸을 검사해 넣었으므로 절 존재만 보고,
-# 기존 양식의 최종 조사 원문 코드 블록은 원문 형식을 검사한다.
+# 기존 템플릿의 최종 조사 원문 코드 블록은 원문 형식을 검사한다.
 def check_result_sections(research: Document, items: list[str]) -> None:
     titles_ = [name for _, _, name in research.headings]
     if "조사 결과" not in titles_:
@@ -227,7 +227,7 @@ def check_complete(state: Document, plan: Document, names: list[str]) -> None:
     require("검증 미개시" not in review and legacy("검증 미개시") not in review, R_REVIEW_NOT_STARTED)
     entries = re.split(r"(?m)^- (?=\d{4}-\d{2}-\d{2} )", review)[1:]
 
-    # 새 양식 명세 문서면 검증 항목마다 요구사항 목록에 있는 번호 표기를 요구하고, 요구사항을 번호로 대조한다.
+    # 새 템플릿 명세 문서면 검증 항목마다 요구사항 목록에 있는 번호 표기를 요구하고, 요구사항을 번호로 대조한다.
     by_number = numbered(plan)
     if by_number:
         for entry in entries:
@@ -256,7 +256,7 @@ def check_complete(state: Document, plan: Document, names: list[str]) -> None:
                 R_PENDING.format(title=title))
 
 
-# 경과 문서의 검토 필요 항목과 실측 필요 항목이 끝났는지 확인한다. 완료 단계(final)는 사후 실측도 요구한다.
+# 경과 문서의 요구사항 확인 항목과 실측 필요 항목이 끝났는지 확인한다. 완료 단계(final)는 사후 실측도 요구한다.
 # 관리 단계는 현재 명세 요구사항을, 기존 작업은 기록된 승인 연결 대상을 실측 범위로 삼는다.
 def measurement_targets(state_text: str, plan: Document | None = None) -> set[str] | None:
     if plan is not None:
@@ -264,10 +264,10 @@ def measurement_targets(state_text: str, plan: Document | None = None) -> set[st
     return approval_targets(state_text)
 
 
-# 검토 필요와 연결된 실측 필요 항목의 완료 상태를 확인한다.
+# 요구사항 확인과 연결된 실측 필요 항목의 완료 상태를 확인한다.
 def check_review_left(state: Document, final: bool, research: Document | None = None,
                       plan: Document | None = None) -> None:
-    # 경과 문서 검토 필요 절에 확정 답이 없는 항목이 없는지 확인한다. 양식 주석 안의 형식 예시는 읽지 않는다.
+    # 경과 문서 요구사항 확인 절에 확정 답이 없는 항목이 없는지 확인한다. 템플릿 주석 안의 형식 예시는 읽지 않는다.
     require(not review_pending("\n".join(state.raw)), R_REVIEW_LEFT)
 
     # 실측 필요 항목이 시점에 맞게 실측 완료인지 확인한다.
@@ -323,7 +323,7 @@ def validate(root: Path, task: str, stage: str) -> None:
             check_result_sections(research, items)
         return
 
-    # 원인 분석, 문서 구조와 한계, 명세 계획, 검토 필요와 실측 필요 항목을 확인한다.
+    # 원인 분석, 문서 구조와 한계, 명세 계획, 요구사항 확인과 실측 필요 항목을 확인한다.
     check_causes(state)
     from sub_docs import structure_reason, constraint_reason, mask_results
     # 결과 저장 hook만 쓰는 결과 블록은 배정 단계에서 고칠 수 없으므로 출처와 값 검사에서 제외한다.
@@ -375,7 +375,7 @@ def check_plan_exit(state: Document) -> None:
 
 # 경과 문서 원인 분석 항목마다 원인, 근거 내용, 출처, 한계가 채워졌는지 확인한다. 미달이면 ValueError를 던진다.
 def check_causes(state: Document) -> None:
-    reason = "경과 문서 `원인 분석` 절: 원인, 근거 내용, 출처 또는 한계가 없습니다. log-status 양식을 따르십시오."
+    reason = "경과 문서 `원인 분석` 절: 원인, 근거 내용, 출처 또는 한계가 없습니다. log-status 템플릿을 따르십시오."
     try:
         body = state.section("원인 분석")
     except ValueError:
@@ -433,9 +433,9 @@ def transition_reason(path: Path, new: str | None, old: str, plan: str) -> str |
 REQUEST_LINE = re.compile(r"(?m)^[ \t]*구현 승인 요청:[ \t]*`?(\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*)`?[ \t]*$")
 R_REQUEST_NO_DOC = "구현 승인 요청: 작업 {task}의 경과 문서와 명세 문서가 없습니다. 작업 문서 생성이 먼저입니다."
 R_REQUEST_BLANK = "구현 승인 요청: 명세 문서 요구사항의 빈 칸부터 채우십시오. 빈 칸: {items}"
-R_REQUEST_PENDING = ("구현 승인 요청: 경과 문서의 검토 필요 또는 사전 모델 호출 실측 필요에 끝나지 않은 항목({items})이 있습니다. "
-                     "검토 필요 항목은 확정 답을, 모델 호출 실측 필요 항목은 상태 `모델 호출 실측 완료`를 기록하십시오.")
-R_REQUEST_PLAN = "구현 승인 요청: 명세 문서를 log-spec 양식대로 채우십시오. 사유: {reason}"
+R_REQUEST_PENDING = ("구현 승인 요청: 경과 문서의 요구사항 확인 또는 사전 모델 호출 실측 필요에 끝나지 않은 항목({items})이 있습니다. "
+                     "요구사항 확인 항목은 확정 답을, 모델 호출 실측 필요 항목은 상태 `모델 호출 실측 완료`를 기록하십시오.")
+R_REQUEST_PLAN = "구현 승인 요청: 명세 문서를 log-spec 템플릿대로 채우십시오. 사유: {reason}"
 R_REQUEST_TRANSITION = "구현 승인 요청: 경과 문서에 구현 승인을 기록하면 차단됩니다. 사유: {reason}"
 
 
@@ -476,7 +476,7 @@ def approval_request(root: Path, task: str) -> tuple[str | None, str]:
         return R_REQUEST_NO_DOC.format(task=task), ""
     text, plan = read(status), read(spec)
 
-    # 끝나지 않은 검토와 사전 실측이 있으면 요청할 수 없다.
+    # 끝나지 않은 요구사항 확인과 사전 실측이 있으면 요청할 수 없다.
     try:
         targets = measurement_targets(text, Document(plan))
     except ValueError:
@@ -491,7 +491,7 @@ def approval_request(root: Path, task: str) -> tuple[str | None, str]:
     if blanks:
         return R_REQUEST_BLANK.format(items=" / ".join(blanks[:3])), ""
 
-    # 명세 양식과 구현 승인 전환 조건을 확인한다.
+    # 명세 템플릿과 구현 승인 전환 조건을 확인한다.
     try:
         state_doc, plan_doc = Document(text), Document(plan)
         check_numbers(state_doc, plan_doc)
@@ -558,9 +558,9 @@ R_CHECK_ACTUAL = "검증 계획의 실제 검증에 확인 수단 출처가 없�
 R_CHECK_CMDS = "검증 계획에 검증 커맨드 목록이 없습니다."
 
 
-R_GAP_LIMIT = "명세 문서 요구사항 `{name}`: 한계 칸에 출처와 확인 방법이 없습니다. log-spec 양식을 따르십시오."
-R_GAP_KINDS = "명세 문서 요구사항 `{name}`: Test Case 표에 차단 또는 허용 행이 없습니다. log-spec 양식을 따르십시오."
-R_GAP_FIELDS = "명세 문서 요구사항 `{name}`: Test Case 표의 입력, 커맨드 또는 기대 결과 칸이 비어 있습니다. log-spec 양식을 따르십시오."
+R_GAP_LIMIT = "명세 문서 요구사항 `{name}`: 한계 칸에 출처와 확인 방법이 없습니다. log-spec 템플릿을 따르십시오."
+R_GAP_KINDS = "명세 문서 요구사항 `{name}`: Test Case 표에 차단 또는 허용 행이 없습니다. log-spec 템플릿을 따르십시오."
+R_GAP_FIELDS = "명세 문서 요구사항 `{name}`: Test Case 표의 입력, 커맨드 또는 기대 결과 칸이 비어 있습니다. log-spec 템플릿을 따르십시오."
 
 
 R_ITEM_FORMAT = "조사 계획의 조사 항목 이름이 `조사 <번호>. <이름>` 형식이 아닙니다."
@@ -572,18 +572,18 @@ R_SOURCE_FORMAT = "조사 문서의 출처가 URL 또는 `파일:행` 형식이 
 
 
 PROBLEM_REF = re.compile(r"\(문제 (\d+(?:, ?\d+)*)\)")
-R_PROBLEM_REF = "조사 계획 항목 `{item}`: 문제 번호 표기가 log-research 양식과 다릅니다."
+R_PROBLEM_REF = "조사 계획 항목 `{item}`: 문제 번호 표기가 log-research 템플릿과 다릅니다."
 
 
-R_RESULT_EMPTY = "조사 결과: 결과 본문이 비어 있습니다. log-research 양식의 결과 블록을 채우십시오."
-R_RESULT_ITEM = "조사 결과 `{item}`: 결과 블록이 없습니다. log-research 양식의 결과 블록 제목을 쓰십시오."
-R_RESULT_LABEL = "조사 결과 `{item}`: `{label}` 칸이 없습니다. log-research 양식을 따르십시오."
-R_RESULT_FIT = "조사 결과 `{item}`: 충족 여부 칸이 없습니다. log-research 양식을 따르십시오."
+R_RESULT_EMPTY = "조사 결과: 결과 본문이 비어 있습니다. log-research 템플릿의 결과 블록을 채우십시오."
+R_RESULT_ITEM = "조사 결과 `{item}`: 결과 블록이 없습니다. log-research 템플릿의 결과 블록 제목을 쓰십시오."
+R_RESULT_LABEL = "조사 결과 `{item}`: `{label}` 칸이 없습니다. log-research 템플릿을 따르십시오."
+R_RESULT_FIT = "조사 결과 `{item}`: 충족 여부 칸이 없습니다. log-research 템플릿을 따르십시오."
 
 
 R_NO_VERDICT = "반증 판정과 출처가 없습니다."
 R_VERDICT_SOURCE = "반증 판정의 출처가 URL 또는 `파일:행` 형식이 아닙니다."
-R_VERDICT_FORMAT = "반증 결과 `{line}`: 판정 줄 형식이 log-refute 양식과 다릅니다."
+R_VERDICT_FORMAT = "반증 결과 `{line}`: 판정 줄 형식이 log-refute 템플릿과 다릅니다."
 CLAIM_START = re.compile(r"^[\s\-*]*주장\s*\d+\s*[:：]\s*(?:지지|반증|미확인)")
 
 
@@ -593,7 +593,7 @@ R_REVIEW_NOT_STARTED = "검증을 시작하지 않은 작업은 완료로 쓸 �
 R_REVIEW_MISSING = "`{name}`의 검증 결과가 없습니다."
 R_REVIEW_NOT_PASS = "`{name}`의 최종 검증 결과가 PASS가 아닙니다."
 R_REMAINING = "검증 결과의 남은 문제가 없음으로 기록돼 있지 않습니다."
-R_PENDING = "명세 문서 `{title}` 절: 처리하지 않은 요청이 있습니다. log-spec 양식을 따르십시오."
+R_PENDING = "명세 문서 `{title}` 절: 처리하지 않은 요청이 있습니다. log-spec 템플릿을 따르십시오."
 
 
 R_TASK_ID = "작업 ID 형식이 올바르지 않습니다."
@@ -602,19 +602,19 @@ R_OUTSIDE = "문서 경로가 저장소 밖을 가리킵니다."
 R_ID_MISMATCH = "`{name}`의 작업 ID가 요청한 작업 ID와 다릅니다."
 R_UNRESOLVED_STOP = "중단 사유에 미해결 중단 판정이 있어 다음 단계로 진행할 수 없습니다."
 R_NO_ITEMS = "조사할 조사 항목이 없습니다."
-R_REVIEW_LEFT = "상태 문서의 검토 필요에 검토가 끝나지 않은 항목이 있습니다."
+R_REVIEW_LEFT = "상태 문서의 요구사항 확인에 확정 답이 없는 항목이 있습니다."
 R_MEASURE_LEFT = "상태 문서의 모델 호출 실측 필요에 실측이 끝나지 않은 항목({items})이 있습니다."
 
 
-R_REIMPLEMENT_TARGET = "명세 문서 `{title}`: `{key}` 칸이 비어 있습니다. log-spec 양식을 따르십시오."
-R_REIMPLEMENT_POSITION = "명세 문서 `{title}`: 수정 위치 항목이 없습니다. log-spec 양식을 따르십시오."
+R_REIMPLEMENT_TARGET = "명세 문서 `{title}`: `{key}` 칸이 비어 있습니다. log-spec 템플릿을 따르십시오."
+R_REIMPLEMENT_POSITION = "명세 문서 `{title}`: 수정 위치 항목이 없습니다. log-spec 템플릿을 따르십시오."
 
 R_NO_REFUTE = "반증 문서가 없습니다."
 R_NO_SPEC = "명세 문서가 없습니다."
 
 
-R_PLAN_EXIT_ENV = "경과 문서 `프로젝트 환경` 절: 출처가 없습니다. log-status 양식을 따르십시오."
-R_PLAN_EXIT_FLOW = "경과 문서 `기존 흐름` 절: 채운 코드 블록이 없습니다. log-status 양식을 따르십시오."
+R_PLAN_EXIT_ENV = "경과 문서 `프로젝트 환경` 절: 출처가 없습니다. log-status 템플릿을 따르십시오."
+R_PLAN_EXIT_FLOW = "경과 문서 `기존 흐름` 절: 채운 코드 블록이 없습니다. log-status 템플릿을 따르십시오."
 
 
 R_IO = "작업 문서를 읽지 못했습니다({error})."

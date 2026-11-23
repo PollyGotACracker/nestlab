@@ -1,4 +1,4 @@
-"""조사 문서 원문 보존, 조사 문서 확인 상태, 검토 진행 상태를 검사한다.
+"""조사 문서 원문 보존, 조사 문서 확인 상태, 요구사항 확인 진행 상태를 검사한다.
 
 호출자:
 - hooks/check_tool_use/sub_scope.py(check_raw, check_judgment, check_stage, early_items, unanswered)
@@ -8,9 +8,9 @@
 - check_raw, check_judgment, check_stage는 deny 사유 문자열 또는 통과 시 None
 - review_items는 {항목 이름: 본문} dict
 - open_tasks는 색인의 현재 진행 작업 경과 문서 경로 목록(0개 또는 1개)
-- unanswered는 아직 답을 받지 않은 조사 문서 `검토 <번호>.` 보고 이름 목록
-- early_items는 명세 문서 쓰기 전에 끝나지 않은 검토 이름 목록
-한계: 조사 문서는 기록된 검토 필요 항목만 검사한다.
+- unanswered는 아직 답을 받지 않은 조사 문서 보고 이름 목록
+- early_items는 명세 문서 쓰기 전에 끝나지 않은 요구사항 확인 이름 목록
+한계: 조사 문서는 기록된 요구사항 확인 항목만 검사한다.
 """
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ ROUND = re.compile(r"^#{1,6} (\d+회차 반증 (?:요청|원문))\s*$", re.M)
 ITEM = re.compile(r"(?m)^- (.+)$")
 RAW_EMPTY = re.compile(r"^(`{3,})[^\n]*\n\s*(?:기록 없음|<[^<>\n]*>)?\s*\n\1$")
 DONE = "검토 완료"
-ASK = "사용자 검토 필요"
 
 
 # 회차 반증 블록의 (제목, 본문) 목록이다.
@@ -40,14 +39,14 @@ def raw_empty(text: str, title: str) -> bool:
     return not body or bool(RAW_EMPTY.match(body))
 
 
-# 결과 절(`조사 결과`, `회차 결과`) 안에서 양식 자리표시자가 아닌 `###` 결과 블록 목록이다. 결과 절이 없으면 빈 목록이다.
+# 결과 절(`조사 결과`, `회차 결과`) 안에서 템플릿 자리표시자가 아닌 `###` 결과 블록 목록이다. 결과 절이 없으면 빈 목록이다.
 def result_blocks(text: str, title: str) -> list[str]:
     if title not in titles(text):
         return []
     return [block.strip() for block in re.findall(r"(?ms)^### (?![^\n]*<).*?(?=^### |\Z)", section(text, title))]
 
 
-# 조사 문서에 저장된 결과가 없으면 True이다. 결과 절이 있으면 결과 블록으로, 기존 양식은 최종 조사 원문 칸으로 판정한다.
+# 조사 문서에 저장된 결과가 없으면 True이다. 결과 절이 있으면 결과 블록으로, 기존 템플릿은 최종 조사 원문 칸으로 판정한다.
 def research_empty(text: str) -> bool:
     return not result_blocks(text, "조사 결과") if "조사 결과" in titles(text) else raw_empty(text, "최종 조사 원문")
 
@@ -61,13 +60,13 @@ REASON_RAW ="조사 문서의 최종 원문 칸은 결과 저장 hook만 씁니�
 REASON_ROUND = "조사 문서의 회차 반증 블록은 결과 저장 hook만 씁니다."
 
 # 조사 문서와 반증 문서 쓰기에서 결과 저장 hook 전용 칸 변경을 차단한다.
-# blank_ok가 참이면 원문 칸이 모두 비고 회차 블록이 0개인 빈 양식 전체 덮어쓰기는 허용한다.
+# blank_ok가 참이면 원문 칸이 모두 비고 회차 블록이 0개인 빈 템플릿 전체 덮어쓰기는 허용한다.
 def check_raw(new: str | None, old: str, blank_ok: bool = False) -> str | None:
-    # 반증 문서를 빈 양식 전체로 덮어쓰는 쓰기는 허용한다.
+    # 반증 문서를 빈 템플릿 전체로 덮어쓰는 쓰기는 허용한다.
     if blank_ok and new is not None and not rounds(new) and not rounds(old) and all(raw_empty(t, title) for t in (new, old) for title in RAW):
         return None
 
-    # 최종 원문 칸이 바뀌면 차단한다. 변경 전후가 모두 빈 원문 칸(새 문서, 이전 양식의 빈 칸 제거)은 허용한다.
+    # 최종 원문 칸이 바뀌면 차단한다. 변경 전후가 모두 빈 원문 칸(새 문서, 이전 템플릿의 빈 칸 제거)은 허용한다.
     changed = [t for t in RAW if new is not None and section(new, t) != section(old, t)]
     if changed and not all(raw_empty(new, t) and raw_empty(old, t) for t in changed):
         return REASON_RAW
@@ -76,7 +75,7 @@ def check_raw(new: str | None, old: str, blank_ok: bool = False) -> str | None:
     if new is not None and rounds(new) != rounds(old):
         return REASON_ROUND
 
-    # 결과 절의 저장된 결과 블록이 바뀌면 차단한다. 양식 자리표시자 블록은 비교하지 않는다.
+    # 결과 절의 저장된 결과 블록이 바뀌면 차단한다. 템플릿 자리표시자 블록은 비교하지 않는다.
     if new is not None:
         for title, reason in (("조사 결과", REASON_RAW), ("회차 결과", REASON_ROUND)):
             if result_blocks(new, title) != result_blocks(old, title):
@@ -84,15 +83,15 @@ def check_raw(new: str | None, old: str, blank_ok: bool = False) -> str | None:
     return None
 
 
-# 상태 문서 검토 필요 절의 (항목 이름, 본문)이다. 항목은 0칸 들여쓴 `- ` 줄이다.
+# 상태 문서 요구사항 확인 절의 (항목 이름, 본문)이다. 항목은 0칸 들여쓴 `- ` 줄이다.
 def review_items(text: str) -> dict[str, str]:
-    body = section(text, "검토 필요")
+    body = section(text, "요구사항 확인")
     starts = list(ITEM.finditer(body))
     return {m.group(1).strip(): body[m.end():(starts[i + 1].start() if i + 1 < len(starts) else len(body))]
             for i, m in enumerate(starts)}
 
 
-# 검토 필요 항목 본문의 `상태` 칸 값을 반환한다. 없으면 빈 문자열이다.
+# 요구사항 확인 항목 본문의 `상태` 칸 값을 반환한다. 없으면 빈 문자열이다.
 def status_of(body: str) -> str:
     m = re.search(r"^\s*- 상태:\s*(.+?)\s*$", body, re.M)
     return m.group(1) if m else ""
@@ -113,7 +112,7 @@ def confirmed_by(transcript: str, key: str) -> bool:
     return any(key in q and confirmed(a) for q, a in answered_questions(transcript or ""))
 
 
-REASON_CONFIRM = "조사 문서 확인 상태를 확인으로 쓰기 전에 {items}의 검토 질문 확정 답이 경과 문서에 기록돼야 합니다."
+REASON_CONFIRM = "조사 문서 확인 상태를 확인으로 쓰기 전에 {items}의 확정 질문 답이 경과 문서에 기록돼야 합니다."
 REASON_BEFORE = "조사 문서 확인 상태는 경과 문서의 작업 단계가 계획일 때 쓰십시오(현재 작업 단계 [{stage}])."
 CHECKED = re.compile(r"^\s*(?:- )?확인 상태:\s*(\S+)", re.M)
 
@@ -131,7 +130,7 @@ def check_judgment(path: Path, new: str | None, old: str, transcript: str) -> st
     if current != "계획":
         return REASON_BEFORE.format(stage=current or "미지정")
 
-    # 검토 질문 확정 답이 모두 기록됐는지 확인한다. 경과 문서가 없으면 건너뛴다.
+    # 확정 질문 답이 모두 기록됐는지 확인한다. 경과 문서가 없으면 건너뛴다.
     try:
         left = early_items(state) if state.is_file() else []
     except ValueError as error:
@@ -169,6 +168,6 @@ def open_tasks(root: Path) -> list[Path]:
     return [status] if status is not None and stage_of(read(status)) != "완료" else []
 
 
-# 명세 문서 쓰기 전에 경과 문서 검토 필요 절에서 확정 답이 없는 검토 이름 목록이다.
+# 명세 문서 쓰기 전에 경과 문서 요구사항 확인 절에서 확정 답이 없는 항목 이름 목록이다.
 def early_items(status: Path) -> list[str]:
     return review_pending(read(status))

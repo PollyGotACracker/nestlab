@@ -31,7 +31,7 @@ CONFIRMED_LOCKED = ("문제", "목표", "한계", "잠재 위험")
 STAMP = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
 
 
-# 절 본문을 (번호, 절 본문) 목록으로 나눈다. 번호가 없는 머리말과 양식 자리표시 절의 번호는 None이다.
+# 절 본문을 (번호, 절 본문) 목록으로 나눈다. 번호가 없는 머리말과 템플릿 자리표시 절의 번호는 None이다.
 def blocks(body: str) -> list[tuple[int | None, str]]:
     out = []
     for part in BLOCK.split(body):
@@ -70,7 +70,7 @@ def span(block: str, name: str) -> tuple[list[str], int, int]:
     return lines, start + 1, end
 
 
-# 칸 본문을 줄 목록으로 바꾼 절을 반환한다. 줄이 없으면 기존 구조 양식 자리표시 줄을 쓴다. 칸이 없으면 절 그대로이다.
+# 칸 본문을 줄 목록으로 바꾼 절을 반환한다. 줄이 없으면 기존 구조 템플릿 자리표시 줄을 쓴다. 칸이 없으면 절 그대로이다.
 def set_lines(block: str, name: str, new: list[str]) -> str:
     lines, start, end = span(block, name)
     if start < 0:
@@ -84,7 +84,7 @@ def text_of(block: str, name: str) -> str:
     return "\n".join(l.rstrip() for l in lines[start:end]).strip() if start >= 0 else ""
 
 
-# 명세 양식의 요구사항 절 자리표시 본문이다. legacy이면 기존 구조 절을 쓰고, 양식을 읽지 못하면 기존 구조 절을 쓴다.
+# 명세 템플릿의 요구사항 절 자리표시 본문이다. legacy이면 기존 구조 절을 쓰고, 템플릿을 읽지 못하면 기존 구조 절을 쓴다.
 def template_block(legacy: bool = False) -> str:
     tpl = "" if legacy else template_section(TEMPLATE, "요구사항 목록")
     if "### " in tpl:
@@ -104,7 +104,7 @@ def cells(body: str) -> dict[int, str]:
     return {k: locked_text(t) for k, t in blocks(body) if k is not None}
 
 
-# 양식 자리표시 절의 hook 관리 칸 값이다. legacy이면 기존 구조 절의 값이다.
+# 템플릿 자리표시 절의 hook 관리 칸 값이다. legacy이면 기존 구조 절의 값이다.
 def blank_cells(legacy: bool = False) -> str:
     return locked_text(template_block(legacy))
 
@@ -141,12 +141,12 @@ def bullet(value: str) -> str:
 # 요구사항 목록 절 본문에 ops를 순서대로 적용한 본문을 반환한다. names는 새 절 제목에 쓸 번호별 이름이다.
 # ops:
 # - ("confirm", 번호, 이름, 목표, 확정 기대 결과, 한계, 잠재 위험, 확인 시각[, 문제]): 확정안을 사용자 확인 시각, 목표, 기대 결과, 한계, 잠재 위험 칸에 쓰고, 문제가 있으면 문제 칸에도 쓴다.
-# - ("drop", 번호, 사유): 절을 폐기 절로 바꾼다. 사유는 쓰지 않는다.
+# - ("drop", 번호, 사유): 해당 번호 절을 삭제한다. 절이 없으면 새 절을 만들지 않는다. 사유는 쓰지 않는다.
 def apply(body: str, ops: list[tuple], names: dict[int, str]) -> str:
     parts = blocks(body)
     legacy = any(k is not None or t.startswith("### ") for k, t in parts) and not any(heading_form(t) for _, t in parts)
 
-    # 번호의 절 위치를 반환한다. 없으면 양식 자리표시 절을 지우고 번호 순서 위치에 양식으로 새 절을 만든다.
+    # 번호의 절 위치를 반환한다. 없으면 템플릿 자리표시 절을 지우고 번호 순서 위치에 템플릿으로 새 절을 만든다.
     def find(n: int) -> int:
         nonlocal parts
         for i, (k, _) in enumerate(parts):
@@ -182,12 +182,9 @@ def apply(body: str, ops: list[tuple], names: dict[int, str]) -> str:
             i = find(n)
             block = set_lines(parts[i][1], "기대 결과", [f"  - {op[4]}"])
             parts[i] = (n, set_lines(block, "결과", [f"  - {s}" for s in sentences(op[4])]))
-        elif legacy:
-            # 절을 `### 요구사항 <번호>. 폐기`와 기대 결과 `폐기`만 남긴다.
-            parts[find(n)] = (n, f"### 요구사항 {n}. 폐기\n\n- 기대 결과:\n  - 폐기\n\n")
         else:
-            i = find(n)
-            parts[i] = (n, rename(parts[i][1], n, "폐기"))
+            # 폐기 답은 해당 번호 절을 지우고, 절이 없는 번호는 건너뛴다.
+            parts = [(k, t) for k, t in parts if k != n]
 
     # 새 절이 들어간 자리에서 절 사이 빈 줄을 맞추고 이어 붙인다.
     texts = [t if k is None or t.endswith("\n\n") else t.rstrip("\n") + "\n\n" for k, t in parts[:-1]]

@@ -1,4 +1,4 @@
-<!-- 구현 승인 요청 응답 양식 -->
+<!-- 구현 승인 요청 응답 템플릿 -->
 <!-- 응답에는 `구현 승인 요청: <작업-id>` 한 줄만 쓴다. hook이 `nestlab-task-docs --print-template approval-implement --task <작업-id>` 출력을 사용자에게 표시한다(Claude는 응답 표시 치환, Codex는 Stop hook 안내). -->
 <!-- 출력은 작업 문서 링크와 명세 문서 요구사항 목록 각 항목의 제목, 목표, 기대 결과, 한계, 잠재 위험 칸이다. -->
 

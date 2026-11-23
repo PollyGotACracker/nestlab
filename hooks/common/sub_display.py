@@ -3,7 +3,7 @@
 호출자:
 - hooks/check_tool_use/sub_question.py(확정 질문과 확정안 원문 대조)
 - hooks/check_workflow_response/sub_record.py(확정 답의 확정안 기록)
-입력: assistant 응답 본문 문자열 또는 대화 기록 항목 목록
+입력: 에이전트 응답 본문 문자열 또는 대화 기록 항목 목록
 반환: 확정안 dict 목록(`number`, `name`, `fields`)과 확정안 원문 문자열
 한계: 줄 형식 `- 칸 이름: 값`만 읽고 값의 의미는 판정하지 않는다. 코드 블록 안의 줄은 읽지 않는다.
 """
@@ -39,7 +39,7 @@ def parse_confirmed(text: str) -> list[dict]:
     return [c for c in out if all(c["fields"].get(cell) for cell in CELLS)]
 
 
-# 대화 기록 항목에 있는 모든 assistant 응답의 확정안을 오래된 순서로 모은 목록이다.
+# 대화 기록 항목에 있는 모든 에이전트 응답의 확정안을 오래된 순서로 모은 목록이다.
 def session_confirmed(entries: list[dict]) -> list[dict]:
     return [c for e in entries if e["role"] == "assistant" for c in parse_confirmed(e["text"])]
 

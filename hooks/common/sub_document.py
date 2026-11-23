@@ -73,7 +73,7 @@ class Document:
             if opening:
                 fence, start = opening.group(1), index
                 line = ""
-            # 양식의 들여쓰기는 2칸이다. Markdown의 들여쓴 코드는 제외한다.
+            # 템플릿의 들여쓰기는 2칸이다. Markdown의 들여쓴 코드는 제외한다.
             self.lines.append("" if line.startswith(("    ", "\t")) else line)
         require(not fence and not comment, R_UNCLOSED)
 
@@ -232,12 +232,12 @@ def has_ref(item: str, numbers: set[str]) -> bool:
     return bool(refs) and all(n in numbers for n in refs)
 
 
-# 새 양식(변경 범위 절이 없는 명세 문서)이면 True이다. 변경 범위 절이 있는 기존 양식은 번호 표기를 요구하지 않는다.
+# 새 템플릿(변경 범위 절이 없는 명세 문서)이면 True이다. 변경 범위 절이 있는 기존 템플릿은 번호 표기를 요구하지 않는다.
 def numbered(plan: Document) -> bool:
     return "변경 범위" not in titles("\n".join(plan.raw))
 
 
-# 새 양식 명세 문서의 요구사항 번호 집합을 반환한다. 문서가 없거나 기존 양식이거나 요구사항을 읽지 못하면 None이다.
+# 새 템플릿 명세 문서의 요구사항 번호 집합을 반환한다. 문서가 없거나 기존 템플릿이거나 요구사항을 읽지 못하면 None이다.
 def requirement_numbers(plan: Document | None) -> set[str] | None:
     if plan is None or not numbered(plan):
         return None
@@ -258,7 +258,7 @@ def state_numbers(state: Document | None) -> set[str] | None:
     return set(re.findall(r"^(?:요구사항 )?(\d+)\. ", body, re.M)) or None
 
 
-# 경과 문서에 요구사항 목록이 있고 새 양식 명세 문서이면 두 번호 집합이 같아야 한다. 어느 쪽이든 없으면 건너뛴다.
+# 경과 문서에 요구사항 목록이 있고 새 템플릿 명세 문서이면 두 번호 집합이 같아야 한다. 어느 쪽이든 없으면 건너뛴다.
 def check_numbers(state: Document, plan: Document | None) -> None:
     listed, written = state_numbers(state), requirement_numbers(plan)
     if listed is not None and written is not None:
@@ -292,7 +292,7 @@ R_APPROVAL_FIELD = "`{title}`의 `{name}` 칸이 비어 있습니다."
 
 
 REQ_TITLE = r"(?:요구사항 )?\d+\. .+"
-# 통합 구조 요구사항 항목의 칸 제목이며 양식 순서이다.
+# 통합 구조 요구사항 항목의 칸 제목이며 템플릿 순서이다.
 FIELDS = ("사용자 확인 시각", "문제", "목표", "기대 결과", "한계", "잠재 위험", "검증", "Test Case")
 R_NO_REQ = "요구사항 목록에 요구사항이 없습니다."
 R_REQ_NAME = "요구사항 제목이 `<번호>. <이름>` 형식이 아닙니다."

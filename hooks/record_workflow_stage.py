@@ -15,7 +15,7 @@ from sub_docs import project_root
 from sub_paths import TASK_REL
 from sub_role import director_main
 from sub_task_index import selected_status, refresh_index
-from sub_session import read_session
+from sub_session import HARNESS, read_session
 from sub_write import strings
 
 TASK = r"\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*"
@@ -24,7 +24,7 @@ REASON_FORMAT = ("머리줄: 사용자에게 첫 줄 머리줄 형식이 `[plan 
                  "또는 `[키워드 작업ID]`임을 알리십시오.")
 REASON_NO_DOC = "작업 {task}: 작업 문서가 없습니다. 사용자에게 해당 작업이 없음을 알리십시오."
 REASON_NO_TARGET = ("작업 색인: 현재 진행 작업이 없습니다. 프로젝트 작업 요청이면 아래 미완료 작업 중 요청과 관련된 작업을 "
-                    "question-task 양식의 선택지로 제시하고, 기존 작업으로 진행할지 신규 작업을 착수할지 질문하십시오.")
+                    "question-task 템플릿의 선택지로 제시하고, 기존 작업으로 진행할지 신규 작업을 착수할지 질문하십시오.")
 NEW_TASK = ("신규 작업: director 지침의 계획 단계 절차대로 KST 시각과 기준 커밋을 확인하고 "
             "`nestlab-task-docs --task <YYYYMMDD-HHMMSS-name> --title \"<작업명>\" --stage plan`으로 작업 문서를 생성하십시오.")
 RECORDED = "작업 {task}의 작업 단계를 `{stage}`로 기록했습니다."
@@ -60,7 +60,7 @@ def decide(data: dict) -> str | None:
     return "\n".join(part for part in (staged, plan) if part) or None
 
 
-# 직전 응답의 마지막 assistant 텍스트에 hook이 표시한 구현 승인 요청 줄이 있고 사용자 메시지가 승인이면,
+# 마지막 실제 사용자 메시지 이후 에이전트 응답에 hook이 표시한 구현 승인 요청 줄이 있고 사용자 메시지가 승인이면,
 # 그 작업 경과 문서에 구현 승인과 구현 단계를 기록하고 결과 문장을 반환한다. 해당하지 않으면 None이다.
 def record_approval(data: dict) -> str | None:
     from datetime import datetime, timedelta, timezone
@@ -69,8 +69,19 @@ def record_approval(data: dict) -> str | None:
     from sub_write import read
     if not approved(data.get("prompt") or ""):
         return None
-    shown = next((e["text"] for e in reversed(read_session(data.get("transcript_path") or ""))
-                  if e["role"] == "assistant" and e["text"].strip()), "")
+    # 에이전트 텍스트를 뒤에서부터 훑어 가장 가까운 요청 줄을 찾는다. 실제 사용자 메시지(HARNESS 접두어 항목 제외)에서 멈춘다.
+    # 현재 승인 메시지가 기록에 이미 있으면 한 번 건너뛴다.
+    shown, skip = "", (data.get("prompt") or "").strip()
+    for entry in reversed(read_session(data.get("transcript_path") or "")):
+        text = entry["text"].strip()
+        if entry["role"] == "user" and text and not text.startswith(HARNESS):
+            if skip and text == skip:
+                skip = ""
+                continue
+            break
+        if entry["role"] == "assistant" and REQUEST_LINE.search(text):
+            shown = text
+            break
     request = REQUEST_LINE.search(shown)
     if not request:
         return None
@@ -108,7 +119,7 @@ def unselected(data: dict) -> str | None:
     return no_target(root)
 
 
-# 경과 문서가 구현 단계 기록 조건을 채우지 못한 첫 위반 위치와 양식 이름을 반환한다. 위반이 없으면 빈 문자열이다.
+# 경과 문서가 구현 단계 기록 조건을 채우지 못한 첫 위반 위치와 템플릿 이름을 반환한다. 위반이 없으면 빈 문자열이다.
 def implement_reason(status: Path) -> str:
     from sub_document import Document
     from sub_docs import constraint_reason, structure_reason

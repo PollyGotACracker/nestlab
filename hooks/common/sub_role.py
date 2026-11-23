@@ -55,7 +55,7 @@ def director_main(data: dict) -> bool:
     return resolve_role(data) == "director" and main_session(data)
 
 
-# director 메인 세션과, 이번 호출로 작업 문서를 쓰는 세션은 역할과 관계없이 문서 양식 검사를 적용한다.
+# director 메인 세션과, 이번 호출로 작업 문서를 쓰는 세션은 역할과 관계없이 문서 템플릿 검사를 적용한다.
 def project_session(data: dict, runner: str = "claude") -> bool:
     if director_main(data):
         return True

@@ -31,7 +31,7 @@ TARGET_PATTERNS = [
 # 런타임에 다른 파일의 절을 합쳐 쓰는 파일과 그 절을 찾을 추가 파일.
 # Discord 채팅 프롬프트는 런타임 프롬프트의 `Response control` 절을 붙여 만든다.
 SECTION_EXTRA_FILES = {"discord/prompts/CHAT.md": ["discord/prompts/RUNTIME.md"]}
-# 절 참조에 파일이 없을 때 현재 파일과 CORE_FILES 다음으로 찾는 양식 파일의 glob 패턴.
+# 절 참조에 파일이 없을 때 현재 파일과 CORE_FILES 다음으로 찾는 템플릿 파일의 glob 패턴.
 SCHEMA_PATTERN = paths.TEMPLATE_GLOB
 
 RULE_ID_SCOPE = "discord/prompts/"

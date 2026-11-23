@@ -1,8 +1,8 @@
-"""응답 본문의 양식(조사·실측·완료 승인 요청, 계획 보고, 중단 판정 요청)과 양식 줄 출처를 검사한다.
+"""응답 본문의 템플릿(조사·실측·완료 승인 요청, 계획 보고, 중단 판정 요청)과 템플릿 줄 출처를 검사한다.
 
 호출자: hooks/check_workflow_response.py, hooks/show_approval_request.py
 입력: 응답 본문 문자열, 저장소 루트
-반환: 누락 항목 목록 또는 양식 이름
+반환: 누락 항목 목록 또는 템플릿 이름
 한계: 정규식 판정이므로 자연어 의미는 판정하지 않는다.
 """
 
@@ -29,13 +29,13 @@ def body_of(message: str) -> str:
     return "\n".join(out)
 
 
-# 응답 본문 제목이 가리키는 양식 이름이다. 없으면 None이다.
+# 응답 본문 제목이 가리키는 템플릿 이름이다. 없으면 None이다.
 def form_of(body: str) -> str | None:
     return next((name for name, heading in FORM_HEADINGS.items()
                  if re.search(rf"(?m)^#{{1,6}} {heading}\s*$", body)), None)
 
 
-# 양식의 필수 제목과 `- 항목:` 줄 중 응답 본문에 없거나 값이 빈 것의 목록을 반환한다.
+# 템플릿의 필수 제목과 `- 항목:` 줄 중 응답 본문에 없거나 값이 빈 것의 목록을 반환한다.
 # 절 채움은 코드 블록을 포함한 원문(raw)으로, 항목 줄은 코드 블록을 뺀 본문으로 판정한다.
 def form_gap(body: str, form: str, raw: str | None = None) -> list[str]:
     from sub_docs import structure_reason, constraint_reason
@@ -44,7 +44,7 @@ def form_gap(body: str, form: str, raw: str | None = None) -> list[str]:
     constraint = constraint_reason(raw or body, label="응답")
     invalid = ([structure.split(":")[0] + " 제목 구조"] if structure else []) + (
         [constraint.split(":")[0] + " 출처와 값"] if constraint else [])
-    # 양식 주석을 뺀 본문에서 필수 제목과 항목 이름을 구한다.
+    # 템플릿 주석을 뺀 본문에서 필수 제목과 항목 이름을 구한다.
     template = re.sub(r"<!--.*?-->", "", template_text(form), flags=re.S)
     heading = FORM_HEADINGS[form]
     own = [t for t in template_titles(form) if not re.fullmatch(heading, t)]
@@ -61,6 +61,12 @@ def form_gap(body: str, form: str, raw: str | None = None) -> list[str]:
             r"(?m)^- [^\s:<>\n][^:<>\n]*:[ \t]+요구사항 [^\s<>.]+\.[ \t]+[^\s<>]",
             re.split(r"(?m)^#{1,6} ", (section(body, "모델 호출 실측 항목") or section(body, "실측 항목")), maxsplit=1)[0]):
         missing.append("모델 호출 실측 항목의 항목명과 요구사항")
+    # 확정안의 한계 줄은 명세 문서 한계 칸처럼 `없음`이 아니면 출처와 확인 방법을 갖춰야 한다.
+    if form == "info-confirmed":
+        for value in re.findall(r"(?m)^- 한계: *(.*)$", body):
+            if value.strip() != "없음" and not ("출처:" in value and "확인 방법:" in value):
+                missing.append("한계 출처와 확인 방법")
+                break
     return invalid + missing + [g for g in repeat_gaps(body, form) if g not in missing]
 
 
@@ -111,7 +117,7 @@ def completed_response(data: dict, runner: str, message: str) -> str:
         headings = [(len(match[1]), match[2]) for line in body_of(fragment).splitlines() if (match := HEADING.match(line))]
         if not headings:
             return original
-        # 양식 밖 제목이 있는 응답은 보완이 아닌 새 전체 응답이므로 이전 응답을 대체한다.
+        # 템플릿 밖 제목이 있는 응답은 보완이 아닌 새 전체 응답이므로 이전 응답을 대체한다.
         if any(title not in allowed for _, title in headings):
             return fragment
         level = min(depth for depth, _ in headings)
@@ -145,10 +151,11 @@ FENCE = re.compile(r"^\s*(```|~~~)")
 APPROVAL_BLOCK = re.compile(r"^#{1,6} (?:작업 승인 필요|구현 승인 요청)\s*$", re.M)
 
 
-# 응답 본문 양식을 가리키는 제목이다. 제목이 있는 응답은 해당 양식의 필수 제목과 항목을 갖춰야 한다.
+# 응답 본문 템플릿을 가리키는 제목이다. 제목이 있는 응답은 해당 템플릿의 필수 제목과 항목을 갖춰야 한다.
 FORM_HEADINGS = {"request-stop": "중단 판정 요청", "info-plan": "계획 보고",
                  "approval-complete": "완료 승인 요청", "approval-research": "조사 승인 요청",
-                 "approval-measure": "(?:모델 호출 )?실측 승인 요청", "info-review": "검토 표시"}
+                 "approval-measure": "(?:모델 호출 )?실측 승인 요청", "info-review": "검토 표시",
+                 "info-confirmed": r"확정안 \d+\. .+"}
 
 
 # 값이 없을 때 `없음`만 쓰는 절이다.
@@ -207,7 +214,7 @@ def split_sections(text: str) -> list[tuple[int, str, list[str]]]:
     return out
 
 
-# 양식 줄을 응답 줄과 대조하는 정규식 본문으로 바꾼다. 자리표시자는 임의의 내용에, 나머지는 문자 그대로 대응한다.
+# 템플릿 줄을 응답 줄과 대조하는 정규식 본문으로 바꾼다. 자리표시자는 임의의 내용에, 나머지는 문자 그대로 대응한다.
 def shape(text: str) -> str:
     return "".join(".+?" if i % 2 else re.escape(part) for i, part in enumerate(re.split(r"(<[^<>\n]+>)", text)))
 
@@ -219,7 +226,7 @@ def label_of(line: str) -> tuple[int, str, str] | None:
     return (len(item[1]), label[1].strip(), label[2].strip()) if label else None
 
 
-# 양식 구간 줄에서 반복 항목(자리표시자가 든 목록 줄과 그 아래 하위 항목 줄)과 반복에 속하지 않는 최상위 항목을 나눈다.
+# 템플릿 구간 줄에서 반복 항목(자리표시자가 든 목록 줄과 그 아래 하위 항목 줄)과 반복에 속하지 않는 최상위 항목을 나눈다.
 # 반환은 ([(들여쓰기, 목록 기호, 줄 본문, 하위 항목 이름 목록)], 구간 항목 이름 목록)이다.
 def template_groups(lines: list[str]) -> tuple[list[tuple[int, str, str, list[str]]], list[str]]:
     groups, labels = [], []
@@ -268,12 +275,12 @@ def label_gaps(lines: list[str], labels: list[str], where: str) -> list[str]:
     return gaps
 
 
-# 양식 원본을 읽어 응답의 반복 블록(제목에 번호 자리표시자가 든 구간, 목록 항목)마다 모든 항목 줄을 검사한다.
+# 템플릿 원본을 읽어 응답의 반복 블록(제목에 번호 자리표시자가 든 구간, 목록 항목)마다 모든 항목 줄을 검사한다.
 def repeat_gaps(body: str, form: str) -> list[str]:
     return block_gaps(template_text(form), body, re.compile(FORM_HEADINGS.get(form, r"(?:작업 승인 필요|구현 승인 요청)")))
 
 
-# 양식 본문(template)과 응답 본문(body)을 구간 단위로 대조한다. top이 있으면 양식의 첫 제목은 그 패턴의 응답 제목과 대응하는 양식 제목이다.
+# 템플릿 본문(template)과 응답 본문(body)을 구간 단위로 대조한다. top이 있으면 템플릿의 첫 제목은 그 패턴의 응답 제목과 대응하는 템플릿 제목이다.
 # 번호 자리표시자 제목은 같은 수준에서 같은 형태의 응답 제목마다, 목록 항목은 같은 들여쓰기의 같은 형태 줄마다 검사한다.
 def block_gaps(template_body: str, body: str, top: re.Pattern | None = None) -> list[str]:
     template = split_sections(re.sub(r"<!--.*?-->", "", template_body, flags=re.S))
@@ -286,7 +293,7 @@ def block_gaps(template_body: str, body: str, top: re.Pattern | None = None) -> 
             pattern = re.compile(shape(title) + "$")
             matched = [(t, l) for lv, t, l in response if lv == level and pattern.match(t)]
             if not matched:
-                # 양식의 자리표시자 제목은 번호와 이름 칸을 뺀 블록 이름만 알린다.
+                # 템플릿의 자리표시자 제목은 번호와 이름 칸을 뺀 블록 이름만 알린다.
                 gaps.append(f"`{' '.join(re.sub(r'<[^<>]*>[.]?', '', title).split())}` 블록이 없습니다")
         elif top is not None and position == 0:
             matched = [(t, l) for lv, t, l in response if top.fullmatch(t)]
@@ -294,7 +301,7 @@ def block_gaps(template_body: str, body: str, top: re.Pattern | None = None) -> 
             continue
         else:
             matched = [(t, l) for lv, t, l in response if t == title]
-            # 양식 전체 대조(top 없음)에서는 응답에 없는 절도 누락이다. top이 있는 양식은 제목 누락 검사가 맡는다.
+            # 템플릿 전체 대조(top 없음)에서는 응답에 없는 절도 누락이다. top이 있는 템플릿은 제목 누락 검사가 맡는다.
             if top is None and not matched:
                 gaps.append(f"`{title}` 절이 없습니다")
         for name, inner in matched:
@@ -314,8 +321,8 @@ def block_gaps(template_body: str, body: str, top: re.Pattern | None = None) -> 
     return gaps
 
 
-# 양식 줄 중 `(출처: …)` 칸이 있는 항목의 응답 줄이 실재하는 출처를 갖췄는지 검사한다.
-# 값이 `없음`이면 출처를 요구하지 않고, 양식 칸이 `<URL>`뿐이면 URL만 허용한다.
+# 템플릿 줄 중 `(출처: …)` 칸이 있는 항목의 응답 줄이 실재하는 출처를 갖췄는지 검사한다.
+# 값이 `없음`이면 출처를 요구하지 않고, 템플릿 칸이 `<URL>`뿐이면 URL만 허용한다.
 def source_gaps(body: str, form: str, root: Path) -> list[str]:
     gaps = []
     for line in re.sub(r"<!--.*?-->", "", template_text(form), flags=re.S).splitlines():

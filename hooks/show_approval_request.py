@@ -20,7 +20,7 @@ def batch_file(message_id: str) -> Path:
     return Path(tempfile.gettempdir()) / f"nestlab-display-{re.sub(r'[^A-Za-z0-9-]', '', message_id)}.txt"
 
 
-# transcript 끝 20줄에서 text와 같은 assistant text 항목 중 마지막 항목의 stop_reason을 반환한다. 읽기 실패는 None, 항목 없음은 ""이다.
+# transcript 끝 20줄에서 text와 같은 에이전트 text 항목 중 마지막 항목의 stop_reason을 반환한다. 읽기 실패는 None, 항목 없음은 ""이다.
 def find_stop_reason(path: str, text: str):
     try:
         with open(path, "rb") as f:

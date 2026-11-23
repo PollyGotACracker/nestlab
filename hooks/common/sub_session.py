@@ -10,7 +10,7 @@
 - read_session은 항목 dict 목록, 
 - session_path와 agent_transcript는 경로 문자열
 - answered_questions는 (질문 문장, 답 문자열) 목록, question_answers는 (질문 dict, 답 문자열) 목록
-- turn은 (마지막 사용자 메시지, 직전 assistant 텍스트, 현재 턴 항목) 튜플
+- turn은 (마지막 사용자 메시지, 직전 에이전트 텍스트, 현재 턴 항목) 튜플
 - user_messages는 세션 전체 사용자 메시지 문자열 목록
 - denied_calls는 현재 턴에서 hook이 거부한 (도구 이름, 입력) 목록
 - 차단 사유 문자열은 없음
@@ -156,7 +156,7 @@ def _codex_entry(d: dict) -> dict | None:
                 "ids": [], "replies": {p.get("call_id"): {"": out}} if out.strip() and not p.get("is_error") else {},
                 "outcomes": {p.get("call_id"): not p.get("is_error", False)}}
 
-    # 사용자와 assistant 메시지는 텍스트 항목으로 바꾸고, 주입된 지침과 hook 알림 요소는 뺀다.
+    # 사용자와 에이전트 메시지는 텍스트 항목으로 바꾸고, 주입된 지침과 hook 알림 요소는 뺀다.
     if p.get("type") == "message" and p.get("role") in ("user", "assistant"):
         meta = p.get("internal_chat_message_metadata_passthrough") or {}
         meta = meta if isinstance(meta, dict) else {}
@@ -343,7 +343,7 @@ def handback_report(path: str) -> str:
     return str(calls[-1][1].get("message") or "").strip() if calls else ""
 
 
-# (턴을 시작한 사용자 메시지, 그 직전 assistant 텍스트, 그 뒤 현재 턴 항목)을 반환한다.
+# (턴을 시작한 사용자 메시지, 그 직전 에이전트 텍스트, 그 뒤 현재 턴 항목)을 반환한다.
 def turn(entries: list[dict]) -> tuple[str, str, list[dict]]:
     # 턴을 시작한 마지막 사용자 발화 위치를 찾는다.
     # 작업 중 받은 메시지(Claude queued 항목, Codex의 같은 turn_id 메시지)는 턴 시작으로 보지 않는다.
@@ -354,7 +354,7 @@ def turn(entries: list[dict]) -> tuple[str, str, list[dict]]:
             continue
         last, turn_id = i, e.get("turn_id")
 
-    # 그 직전 턴의 assistant 텍스트를 결합한다.
+    # 그 직전 턴의 에이전트 텍스트를 결합한다.
     before = entries[:last]
     first = max((i for i, e in enumerate(before) if e["role"] == "user" and e["text"].strip()), default=-1)
     previous = "\n".join(e["text"] for e in before[first + 1:] if e["role"] == "assistant")

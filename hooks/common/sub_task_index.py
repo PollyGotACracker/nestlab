@@ -47,13 +47,13 @@ def stamp_status(path: Path, text: str, completed: bool = False) -> str:
     return re.sub(r"(?m)^- 작업 ID:.*$", lambda m: m[0] + f"\n- 생성 시각: {start}\n- 완료 시각: {end}", text, count=1)
 
 
-# 색인 본문을 반환한다. 색인이 없으면 양식 본문이다.
+# 색인 본문을 반환한다. 색인이 없으면 템플릿 본문이다.
 def index_text(root: Path) -> str:
     index = local(root, root / TASK_INDEX_REL)
     return (index if index.is_file() else INDEX_TEMPLATE).read_text(encoding="utf-8-sig").replace("\r\n", "\n")
 
 
-# 본문을 (머리말 줄, {절 제목: 절 줄 목록}) 으로 나눈다. 양식의 절이 없으면 ValueError이다.
+# 본문을 (머리말 줄, {절 제목: 절 줄 목록}) 으로 나눈다. 템플릿의 절이 없으면 ValueError이다.
 def split_index(text: str) -> tuple[list[str], dict[str, list[str]]]:
     lines = text.rstrip("\n").split("\n")
     marks = [lines.index(title) if title in lines else -1 for title in SECTIONS]

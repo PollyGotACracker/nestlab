@@ -105,13 +105,13 @@ def target_statuses(data: dict) -> list[Path]:
     return list(dict.fromkeys(p for p in (call_status(data), selected_status(project_root(data.get("cwd")))) if p))
 
 
-# 검토 필요 항목의 구분 키이다. `검토 <번호>.` 항목은 번호로, 그 밖의 항목은 이름 전체로 구분한다.
+# 요구사항 확인 항목의 구분 키이다. `요구사항 <번호>.` 항목은 번호로, 그 밖의 항목은 이름 전체로 구분한다.
 def review_key(name: str) -> str:
     m = REVIEW_KEY.match(name)
     return m[1] if m else name
 
 
-# 검토 필요 절 본문에 (키, 항목 본문) 항목들을 넣는다. 같은 키는 바꾸고 새 키는 끝에 덧붙이며 양식 자리표시 항목은 지운다.
+# 요구사항 확인 절 본문에 (키, 항목 본문) 항목들을 넣는다. 같은 키는 바꾸고 새 키는 끝에 덧붙이며 템플릿 자리표시 항목은 지운다.
 def put_reviews(body: str, blocks: dict[str, str]) -> str:
     starts = list(re.finditer(r"(?m)^- (.+)$", body))
     items = {review_key(m.group(1).strip()): body[m.start():(starts[i + 1].start() if i + 1 < len(starts) else len(body))].strip("\n")
@@ -176,7 +176,7 @@ def record_times(data: dict, runner: str) -> str:
     return "\n".join(notices)
 
 
-# 재구현 요청 절 본문에 항목 하나를 추가한다. 양식 자리표시 항목과 `없음` 항목은 지우고 같은 항목은 다시 추가하지 않는다.
+# 재구현 요청 절 본문에 항목 하나를 추가한다. 템플릿 자리표시 항목과 `없음` 항목은 지우고 같은 항목은 다시 추가하지 않는다.
 def put_reimplement(body: str, item: str) -> str:
     starts = list(re.finditer(r"(?m)^- (.+)$", body))
     items = [body[m.start():(starts[i + 1].start() if i + 1 < len(starts) else len(body))].strip("\n")
@@ -189,15 +189,15 @@ def put_reimplement(body: str, item: str) -> str:
     return head + "\n".join(items) + ("\n\n" if body.endswith("\n\n") else "\n")
 
 
-# 확정 질문의 선택지 답을 path 경과 문서 검토 필요 절에 한 줄로 기록한다. 확정 답은 직전 확정안(info-confirmed 응답)의 줄 원문을
+# 확정 질문의 선택지 답을 path 경과 문서 요구사항 확인 절에 한 줄로 기록한다. 확정 답은 직전 확정안(info-confirmed 응답)의 줄 원문을
 # 같은 작업 폴더 명세 문서 요구사항 절의 사용자 확인 시각, 문제, 목표, 기대 결과, 한계, 잠재 위험 칸에 기록하고, 폐기 답은 그 절을 폐기 절로 바꾼다.
-# 재구현 질문의 승인 답은 명세 문서 재구현 요청 절에 기록한다. 직접 입력 답과 양식 밖 질문은 기록하지 않는다.
+# 재구현 질문의 승인 답은 명세 문서 재구현 요청 절에 기록한다. 직접 입력 답과 템플릿 밖 질문은 기록하지 않는다.
 def record_to(path: Path, answers: list, confirmed: list | None = None) -> None:
     now = f"{datetime.now():%Y-%m-%d %H:%M:%S}"
     reviews, ops, names, requests = {}, [], {}, []
     flat = lambda text: " ".join(str(text).split())
     spec = path.with_name("spec.md")
-    line = lambda number, name, label: f"- 검토 {number}. {name}: {label} (사용자 검토 시각: {now})"
+    line = lambda number, name, label: f"- 요구사항 {number}. {name}: {label} (사용자 확인 시각: {now})"
     for q, answer in answers:
         # 선택지 답이 아니면 기록하지 않는다.
         question = flat(q.get("question") or "")
@@ -206,9 +206,9 @@ def record_to(path: Path, answers: list, confirmed: list | None = None) -> None:
             continue
         rev, redo = REQUIREMENT.match(question), REIMPLEMENT.match(question)
 
-        # 폐기 답은 검토 필요 절에 `폐기`를 기록하고 명세 절을 폐기 절로 바꾼다.
+        # 폐기 답은 요구사항 확인 절에 `폐기`를 기록하고 명세 절을 폐기 절로 바꾼다.
         if rev and picked == ["폐기"]:
-            reviews[f"검토 {rev[1]}"] = line(rev[1], rev[2].strip(), "폐기")
+            reviews[f"요구사항 {rev[1]}"] = line(rev[1], rev[2].strip(), "폐기")
             ops.append(("drop", int(rev[1]), ""))
         elif rev and picked == ["확정"]:
             # 확정안과 확정 설명이 같을 때만 확정안 원문을 명세 칸에 기록한다.
@@ -216,7 +216,7 @@ def record_to(path: Path, answers: list, confirmed: list | None = None) -> None:
             found = find_confirmed(confirmed or [], number, name, rev[3].strip())
             if found and norm(found["fields"]["기대 결과"]) == norm(description_of(q, "확정")):
                 cell = found["fields"]
-                reviews[f"검토 {number}"] = line(number, name, "확정")
+                reviews[f"요구사항 {number}"] = line(number, name, "확정")
                 names[number] = name
                 ops.append(("confirm", number, name, cell["목표"], cell["기대 결과"], cell["한계"], cell["잠재 위험"], now,
                             cell["문제"]))
@@ -238,13 +238,13 @@ def record_to(path: Path, answers: list, confirmed: list | None = None) -> None:
         except (OSError, ValueError):
             pass
 
-    # 검토 필요 한 줄과 구현 승인 및 작업 단계를 갱신한다. 요구사항 목록이 바뀌었으면 구현 승인을 승인 대기로 되돌린다.
+    # 요구사항 확인 한 줄과 구현 승인 및 작업 단계를 갱신한다. 요구사항 목록이 바뀌었으면 구현 승인을 승인 대기로 되돌린다.
     def edit(text: str) -> str:
         if spec_changed:
             text = splice(text, "구현 승인 범위", lambda body: re.sub(
                 r"(?m)^(\s*-\s*(?:사용자 )?승인 상태:\s*)승인\s*$", r"\1승인 대기", body))
         if reviews:
-            text = splice(text, "검토 필요", lambda body: put_reviews(body, reviews))
+            text = splice(text, "요구사항 확인", lambda body: put_reviews(body, reviews))
         # 단계가 있는 문서는 단일 항목으로 갱신하고 상태만 있는 기존 문서는 보존한다.
         from sub_approval import normalize_stage, stage_of
         return normalize_stage(text, work_stage(path, text)) if stage_of(text) else text
@@ -252,10 +252,10 @@ def record_to(path: Path, answers: list, confirmed: list | None = None) -> None:
 UNRESOLVED = "중단 판정 미해결"
 
 
-REVIEW_KEY = re.compile(r"(검토 \d+)(?=[. ])")
+REVIEW_KEY = re.compile(r"(요구사항 \d+)(?=[. ])")
 STATUS_PATH = re.compile(rf"{re.escape(TASK_REL)}/[\w.\-]+/(?:status|spec|research|refute)\.md")
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "apply_patch", "exec")
-TIME_LINE = re.compile(r"\(사용자 검토 시각: [^)]*\)")
+TIME_LINE = re.compile(r"\(사용자 확인 시각: [^)]*\)")
 APPLY_CALL = re.compile(r"tools\.apply_patch\(")
 
 

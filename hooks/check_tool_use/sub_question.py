@@ -4,7 +4,7 @@
 입력: 질문 도구(AskUserQuestion, request_user_input)의 hook 입력 dict
 반환: check_question은 deny 사유 문자열 또는 통과 시 None
 한계:
-- 양식 머리말(`요구사항 <번호>`, `재구현 요청 <번호>` 등)로 시작하지 않는 질문은 검사하지 않고, 머리말로 시작해 양식을 어긴 질문만 차단한다.
+- 템플릿 머리말(`요구사항 <번호>`, `재구현 요청 <번호>` 등)로 시작하지 않는 질문은 검사하지 않고, 머리말로 시작해 템플릿을 어긴 질문만 차단한다.
 - 확정 질문은 번호, 이름, 목표와 확정 설명이 직전 확정안의 줄 원문과 같은지만 판정하고, 확정안 내용이 합의된 것인지는 판정하지 않는다.
 - 작업은 질문 문장 끝 `(작업 MMDD-HHMMSS)`로 정하고, 없으면 진행 중인 작업이 하나일 때 그 작업, 여럿이면 세션이 마지막으로 쓴 경과 문서이다.
 """
@@ -33,15 +33,15 @@ RECOMMENDED = re.compile(r"\s*\(Recommended\)\s*$")
 CONFIRMED_FORM = "question-confirmed"
 CONFIRM_LABELS = ("확정", "폐기")
 REIMPLEMENT_LABELS = ("승인", "보류")
-# 어긴 양식 줄의 원문이다. 차단 사유에 위반한 줄만 보인다.
+# 어긴 템플릿 줄의 원문이다. 차단 사유에 위반한 줄만 보인다.
 QUESTION_LINE = "요구사항 <번호>. <요구사항 이름>: <목표>."
 REIMPLEMENT_LINE = "재구현 요청 <요구사항 번호>. <수정 대상 경로>: <수정 위치>"
-REASON_FORMAT = f"확정 질문 문장 형식 `{QUESTION_LINE}`: {CONFIRMED_FORM} 양식을 따르십시오."
-REASON_KIND = "`{kind} <번호>` 질문 종류는 쓸 수 없습니다. " + CONFIRMED_FORM + " 양식의 확정 질문을 쓰십시오."
-REASON_LABELS = f"확정 질문 선택지 라벨은 `확정`, `폐기` 두 개여야 합니다: {CONFIRMED_FORM} 양식을 따르십시오."
+REASON_FORMAT = f"확정 질문 문장 형식 `{QUESTION_LINE}`: {CONFIRMED_FORM} 템플릿을 따르십시오."
+REASON_KIND = "`{kind} <번호>` 질문 종류는 쓸 수 없습니다. " + CONFIRMED_FORM + " 템플릿의 확정 질문을 쓰십시오."
+REASON_LABELS = f"확정 질문 선택지 라벨은 `확정`, `폐기` 두 개여야 합니다: {CONFIRMED_FORM} 템플릿을 따르십시오."
 REASON_NO_DISPLAY = ("질문의 번호, 이름과 목표가 직전 확정안의 번호, 이름과 목표 줄 원문과 같지 않습니다. 확정안 원문을 그대로 쓰십시오.\n"
                      "확정안 원문:\n{shown}")
-REASON_NO_SHOWN = "직전 응답에 확정안이 없습니다. 확정 질문 전에 info-confirmed 양식의 확정안을 응답에 작성하십시오."
+REASON_NO_SHOWN = "직전 응답에 확정안이 없습니다. 확정 질문 전에 info-confirmed 템플릿의 확정안을 응답에 작성하십시오."
 REASON_DESCRIPTION = ("`확정` 선택지 설명이 직전 확정안의 기대 결과 줄 원문과 같지 않습니다. 기대 결과 줄을 그대로 쓰십시오.\n"
                       "확정안 원문:\n{shown}")
 REASON_REIMPLEMENT_FORMAT = f"재구현 질문 문장 형식 `{REIMPLEMENT_LINE}`을 따르십시오. 승인 선택지 설명에 기대 결과를 쓰십시오."
@@ -55,8 +55,8 @@ SELECT_FORM = "question-task"
 TASK_SELECT = re.compile(r"^\[작업 선택\] \S")
 TASK_ID = re.compile(r"\d{8}-\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*")
 NEW_TASK_LABEL = "신규 작업"
-REASON_SELECT_NEW = f"작업 선택 질문 선택지에 `{NEW_TASK_LABEL}` 라벨이 없습니다. {SELECT_FORM} 양식을 따르십시오."
-REASON_SELECT_LABEL = "작업 선택 질문 선택지 라벨 `{label}`: 작업 폴더가 있는 작업 ID나 `" + NEW_TASK_LABEL + "`만 쓸 수 있습니다. " + SELECT_FORM + " 양식을 따르십시오."
+REASON_SELECT_NEW = f"작업 선택 질문 선택지에 `{NEW_TASK_LABEL}` 라벨이 없습니다. {SELECT_FORM} 템플릿을 따르십시오."
+REASON_SELECT_LABEL = "작업 선택 질문 선택지 라벨 `{label}`: 작업 폴더가 있는 작업 ID나 `" + NEW_TASK_LABEL + "`만 쓸 수 있습니다. " + SELECT_FORM + " 템플릿을 따르십시오."
 REASON_SELECT_DONE = "작업 선택 질문 선택지 `{label}`: 완료된 작업입니다. 미완료 작업만 선택지로 쓰십시오."
 
 
@@ -195,7 +195,7 @@ def task_select_gap(question: dict, data: dict) -> str | None:
     return None
 
 
-# 질문 하나가 양식 머리말로 시작해 양식(확정, 재구현, 작업 선택)을 어기면 사유를 반환한다. 머리말이 없는 질문과 통과한 질문은 None이다.
+# 질문 하나가 템플릿 머리말로 시작해 템플릿(확정, 재구현, 작업 선택)을 어기면 사유를 반환한다. 머리말이 없는 질문과 통과한 질문은 None이다.
 def check_one(question: dict, data: dict, runner: str) -> str | None:
     # 문장 끝 작업 식별자는 형식 검사 전에 뗀다.
     text, tag = split_tag(question.get("question") or "")
@@ -268,7 +268,7 @@ def check_question(data: dict, runner: str = "claude") -> str | None:
     if found:
         return REASON_SOURCE_PATH.format(found=found)
 
-    # 질문마다 양식 검사를 한다.
+    # 질문마다 템플릿 검사를 한다.
     for question in questions_of(data.get("tool_input") or {}):
         reason = check_one(question, data, runner)
         if reason:
