@@ -3,7 +3,7 @@ title: Nestlab Discord 봇 GCP 운영
 description: "GCP VM에 설치한 Discord 봇의 업데이트와 점검 절차이다."
 type: document
 created: 2026-10-03
-modified: 2026-11-12
+modified: 2026-11-24
 ---
 
 # Discord 봇 GCP 운영
@@ -21,6 +21,50 @@ modified: 2026-11-12
 Secret:        DISCORD_BOT_CONFIG
 Zone:          us-west1-b
 서비스:        discord-bot
+```
+
+## 저장소 갱신
+
+원격 저장소의 변경을 VM에 반영한다.
+
+- 실행 위치: VM SSH
+
+1. 저장소 루트로 이동한다.
+
+```bash
+cd ~/nestlab
+```
+
+2. sparse checkout 범위에 `shared/rules`가 없는 VM에서는 한 번만 추가한다.
+
+```bash
+git sparse-checkout add shared/rules
+```
+
+3. 변경을 받는다.
+
+```bash
+git pull
+```
+
+4. 봇을 재시작한다.
+
+```bash
+sudo systemctl restart discord-bot
+```
+
+5. 기동 로그를 확인한다.
+
+```bash
+sudo journalctl -u discord-bot -n 50 --no-pager
+```
+
+### Claude Agent SDK 버전 업데이트
+
+```shell
+cd ~/nestlab/discord
+source .venv/bin/activate
+python -m pip install --upgrade claude-agent-sdk
 ```
 
 ### Cloud Shell 업로드

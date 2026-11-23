@@ -3,7 +3,7 @@ title: Nestlab Discord 봇 GCP 배포 절차
 description: "Discord 봇을 GCP Compute Engine VM에서 실행하도록 설치하는 절차이다."
 type: document
 created: 2026-10-03
-modified: 2026-10-16
+modified: 2026-11-24
 ---
 
 # Discord 봇 GCP 배포 절차
@@ -140,13 +140,14 @@ VM에서 저장소를 clone한다.
 `--filter=blob:none`으로 파일 내용을 처음부터 모두 다운로드하지 않는다.
 `--sparse`로 일부 경로만 checkout할 수 있게 한다.
 저장소 루트로 이동한 후 checkout할 폴더 및 파일을 지정한다.
+`shared/rules`는 봇이 서식 예시를 읽는 폴더이므로 `shared`의 다른 폴더 없이 이 폴더만 지정한다.
 
 ```bash
 cd ~
 git clone --filter=blob:none --sparse https://github.com/PollyGotACracker/nestlab.git
 cd ~/nestlab
 
-git sparse-checkout set .claude discord
+git sparse-checkout set .claude discord shared/rules
 ```
 
 필요한 프로젝트 파일과 디렉터리가 있는지 확인한다.
