@@ -21,7 +21,7 @@ class CreateTaskDocs(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    # 문서 종류와 파일 이름은 스킬 설치 없이 같은 독립 양식 원본을 읽는다.
+    # 문서 종류와 파일 이름은 스킬 설치 없이 같은 독립 템플릿 원본을 읽는다.
     def test_document_templates_match_independent_sources(self):
         templates = Path(__file__).resolve().parents[2] / "templates" / "workflow"
         with patch.object(sub_docs, "SKILLS", self.root / "missing-skills"):
@@ -91,7 +91,7 @@ class CreateTaskDocs(unittest.TestCase):
         self.assertEqual(sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*")), before)
         self.assertFalse((self.root / "shared").exists())
 
-    # 작업 ID를 주면 통합 구조 명세의 폐기되지 않은 항목마다 제목, 목표, 기대 결과, 한계, 잠재 위험 원문만 출력하고, 다른 양식은 거부한다.
+    # 작업 ID를 주면 통합 구조 명세의 폐기되지 않은 항목마다 제목, 목표, 기대 결과, 한계, 잠재 위험 원문만 출력하고, 다른 템플릿은 거부한다.
     def test_render_approval_from_task_docs(self):
         script = Path(__file__).resolve().parents[1] / "create_task_docs.py"
         folder = self.root / ".agent-logs" / "task" / TASK
@@ -124,6 +124,28 @@ class CreateTaskDocs(unittest.TestCase):
         out = render("approval-implement", self.root, TASK)
         self.assertIn("### 1. 첫 요구\n\n#### 목표\n\n- 목표이다.\n\n#### 결과\n\n- 결과이다.\n\n#### 한계\n\n- 기록 없음", out)
         self.assertNotIn("기준이다.", out)
+
+    # --select는 색인의 현재 진행 작업만 지정 작업으로 바꾸고 작업 단계는 유지하며, 없는 작업은 종료 코드 2이다.
+    def test_select_current_task(self):
+        script = Path(__file__).resolve().parents[1] / "create_task_docs.py"
+        other = "20261106-140000-other"
+        create(self.root, TASK, "첫 작업", "plan")
+        create(self.root, other, "둘째 작업", "plan")
+        index = self.root / ".agent-logs/task/index.md"
+        self.assertIn(f"- [둘째 작업]({other}/status.md), 계획", index.read_text(encoding="utf-8").split("## 미완료 작업")[0])
+        status = self.root / ".agent-logs/task/{}/status.md".format(TASK)
+        before = status.read_bytes()
+        run = lambda *args: subprocess.run([sys.executable, "-B", "-X", "utf8", str(script), *args, "--root", str(self.root)],
+                                           capture_output=True, text=True, encoding="utf-8")
+        result = run("--task", TASK, "--select")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        current = index.read_text(encoding="utf-8").split("## 미완료 작업")[0]
+        self.assertIn(f"- [첫 작업]({TASK}/status.md), 계획", current)
+        self.assertNotIn(other, current)
+        self.assertEqual(status.read_bytes(), before)
+        missing = run("--task", "20261106-150000-missing", "--select")
+        self.assertEqual(missing.returncode, 2)
+        self.assertIn("경과 문서가 없는 작업", missing.stderr)
 
     def test_external_directory_link(self):
         with tempfile.TemporaryDirectory() as outside:

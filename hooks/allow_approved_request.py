@@ -69,9 +69,12 @@ def task_docs_command(command: str, cwd: str | Path | None = None) -> bool:
             return True
         if len(args) == 2 and args[0] == "--print-template":
             return args[1] in RESPONSE_TEMPLATES
-        # 구현 승인 양식은 작업 문서 원문으로 채워 출력할 수 있다. 읽기만 하는 출력이다.
+        # 구현 승인 템플릿은 작업 문서 원문으로 채워 출력할 수 있다. 읽기만 하는 출력이다.
         if len(args) == 4 and args[:3] == ["--print-template", "approval-implement", "--task"]:
             return bool(TASK_ID.fullmatch(args[3]))
+        # 기존 작업을 색인의 현재 진행 작업으로 지정한다. 작업 단계는 바꾸지 않는다.
+        if len(args) == 3 and args[0] == "--task" and args[2] == "--select":
+            return bool(TASK_DOCS_ID.fullmatch(args[1]))
         if len(args) not in (6, 8):
             return False
         options = {}
