@@ -33,17 +33,26 @@ Obsidian 기반 지식저장소: [Nodebase](https://github.com/PollyGotACracker/
 - nodebase/: pepper
 
 에이전트는 Git bash에서 다음과 같이 호출할 수 있다.
+한다.
 
 ```bash
 # claude code
 # claude agent <에이전트_이름>
 claude agent rio
+
+# worktree에서 작업 (단축 옵션 -w)
+claude agent rio --worktree
+# 특정 이름의 worktree에서 작업
+claude agent rio -w <WORKTREE_이름>
 ```
 
 ```bash
 # codex
 # codex agent <에이전트_이름>
 codex agent rio
+
+# worktree에서 작업
+codex agent rio --worktree
 ```
 
 ## Discord
@@ -130,7 +139,7 @@ Discord 채널의 웹훅 봇 목록
 │   ├── rules/                     # 공통 상세 규칙
 │   ├── settings/                  # 공통 설정(권한 등)
 │   ├── skills/<skill>/SKILL.md    # 공통 skill
-│   ├── templates/workflow/        # 작업 문서와 질문, 보고, 승인 요청 양식 원본
+│   ├── templates/workflow/        # 작업 문서와 질문, 보고, 승인 요청 템플릿 원본
 │   └── tools/                     # 공통 실행 스크립트 도구
 ├── tools/                         # 현재 저장소의 실행 스크립트 도구
 ├── AGENTS.global.md               # 전역 지침

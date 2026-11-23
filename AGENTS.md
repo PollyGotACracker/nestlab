@@ -21,25 +21,25 @@ modified: 2026-11-23
 
 아래 목록의 경로는 지정된 명칭으로 언급 및 작성한다.
 
-| **명칭**            | **경로**                        |
-| :------------------ | :------------------------------ |
-| Claude 사용자 설정  | ~/.claude/settings.json         |
-| Codex 사용자 설정   | ~/.codex/config.toml            |
-| 전역 지침           | AGENTS.global.md                |
-| 에이전트 지침       | .claude/agents/<role>/AGENTS.md |
-| 스킬 원본           | shared/skills/<name>/SKILL.md   |
-| 작업 문서 양식 원본 | shared/templates/workflow/      |
-| 설정 원본           | shared/settings/                |
-| 경로 상수 파일      | hooks/common/sub_paths.py       |
-| Hooks 설치 도구     | tools/set_hooks.py              |
-| 스킬 연결 도구      | tools/set_skills.py             |
-| Agents 연결 도구    | tools/set_agents.py             |
-| 지침 검사 도구      | tools/check_doc_rule.py         |
+| **명칭**              | **경로**                        |
+| :-------------------- | :------------------------------ |
+| Claude 사용자 설정    | ~/.claude/settings.json         |
+| Codex 사용자 설정     | ~/.codex/config.toml            |
+| 전역 지침             | AGENTS.global.md                |
+| 에이전트 지침         | .claude/agents/<role>/AGENTS.md |
+| 스킬 원본             | shared/skills/<name>/SKILL.md   |
+| 작업 문서 템플릿 원본 | shared/templates/workflow/      |
+| 설정 원본             | shared/settings/                |
+| 경로 상수 파일        | hooks/common/sub_paths.py       |
+| Hooks 설치 도구       | tools/set_hooks.py              |
+| 스킬 연결 도구        | tools/set_skills.py             |
+| Agents 연결 도구      | tools/set_agents.py             |
+| 지침 검사 도구        | tools/check_doc_rule.py         |
 
 ## 설계 규칙
 
 - 외부 저장소에 영향을 주지 않는 nestlab 저장소 고유 지침은 이 문서에 둔다.
-- 핵심 기능은 hook과 공용 모듈, 작업 절차 스킬과 양식, 설치와 연결 도구 및 설정, Discord 봇과 그 테스트이다.
+- 핵심 기능은 hook과 공용 모듈, 작업 절차 스킬과 템플릿, 설치와 연결 도구 및 설정, Discord 봇과 그 테스트이다.
 - 전역 지침은 가로선으로 일반 및 프로젝트 지침을 나누고 특정 스킬명과 경로 및 에이전트명은 해당 범위에 둔다.
 - 기능을 제안하거나 구현하기 전에 관련 상세 규칙 문서를 먼저 읽고, 대상 항목의 목적과 고정 구조를 확인한다.
 - 제안과 구현을 마친 뒤에는 결과를 관련 상세 규칙 문서의 해당 항목과 대조하고, 일치 여부와 불일치 위치를 보고한다.
