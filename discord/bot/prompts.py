@@ -28,7 +28,6 @@ from config import (
     POLL_ANSWER_MAX,
     POLL_HOURS_MAX,
     POLL_QUESTION_MAX,
-    ROLE_MAIN_FILE,
     ROLE_RULES_FILE,
     THREAD_NAME_MAX,
     TURN_PROMPT_PATH,
@@ -170,7 +169,7 @@ def prompt_source_signature(
     # 프롬프트에 쓰는 원본 파일을 선별해 서명을 계산한다.
     role_dir = canonical_role_dir(root, role)
     paths = [
-        root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / ROLE_MAIN_FILE, role_dir / "SOUL.md",
+        root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / "SOUL.md",
         RUNTIME_PROMPT_PATH, TURN_PROMPT_PATH, CHAT_PROMPT_PATH,
     ]
     if (root / FORMAT_EXAMPLES_FILE).is_file():
@@ -398,17 +397,21 @@ def build_request_system_prompt(
     )
 
 
-# 역할 폴더의 AGENTS.md 본문(frontmatter 제외)과 MAIN.md를 이어 반환한다.
+# 역할 폴더의 AGENTS.md 본문(frontmatter 제외)을 반환한다.
 def read_role_rules(role_dir: Path) -> str:
     common = (role_dir / ROLE_RULES_FILE).read_text(encoding="utf-8").strip()
     if common.startswith("---"):
         common = common.split("---", 2)[2].strip()
-    return common + "\n\n" + (role_dir / ROLE_MAIN_FILE).read_text(encoding="utf-8").strip()
+    return common
 
 
-# Discord 공통 규칙은 COMMON_RULES_FILE 전체에 서식 예시 문서 본문(frontmatter 제외)을 이어 붙인 값이다.
+# Discord 공통 규칙은 COMMON_RULES_FILE 본문(frontmatter 제외)의 첫 가로선 앞까지에 서식 예시 문서 본문(frontmatter 제외)을 이어 붙인 값이다.
+# 본문에 가로선이 없으면 본문 전체를 쓴다.
 def read_common_rules(root: Path) -> str:
     text = (root / COMMON_RULES_FILE).read_text(encoding="utf-8").strip()
+    if text.startswith("---"):
+        text = text.split("---", 2)[2].strip()
+    text = re.split(r"^---[ \t]*$", text, maxsplit=1, flags=re.MULTILINE)[0].strip()
     examples = root / FORMAT_EXAMPLES_FILE
     if not examples.is_file():
         return text

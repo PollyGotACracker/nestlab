@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -45,20 +46,40 @@ def build_prompt(agent, agents: list) -> str:
 
 
 class BotPromptPathTests(unittest.TestCase):
-    # 시스템 프롬프트에 역할 폴더의 MAIN.md가 들어가고 SUB.md는 들어가지 않는지 확인한다.
-    def test_system_prompt_includes_main_guideline(self) -> None:
+    # 모든 역할의 역할 지침이 AGENTS.md 본문과 같고 서명이 계산되는지 확인한다.
+    def test_role_rules_are_agents_body(self) -> None:
         agents = roster_agents()
         for agent in agents:
             with self.subTest(role=agent.role):
                 prompt = build_prompt(agent, agents)
                 role_dir = PROJECT_ROOT / ".claude" / "agents" / agent.role
-                main_body = (role_dir / "MAIN.md").read_text(encoding="utf-8").strip()
-                self.assertIn(main_body, prompt)
-                if (role_dir / "SUB.md").is_file():
-                    self.assertNotIn((role_dir / "SUB.md").read_text(encoding="utf-8").strip(), prompt)
+                body = (role_dir / "AGENTS.md").read_text(encoding="utf-8").strip().split("---", 2)[2].strip()
+                self.assertEqual(prompts_module.read_role_rules(role_dir), body)
+                self.assertIn(f"# Role\n\n{body}\n\n---", prompt)
                 self.assertIn("# Global rules", prompt)
                 self.assertIn("# Persona", prompt)
                 self.assertIn("# Discord chat runtime", prompt)
+                paths = {entry[0] for entry in bot.prompt_source_signature(PROJECT_ROOT, agent.role)}
+                for name in ("AGENTS.global.md", "AGENTS.md", "SOUL.md"):
+                    self.assertTrue(any(Path(p).name == name for p in paths), name)
+
+    # AGENTS.md나 SOUL.md가 없는 역할 폴더는 기동 검사가 종료하는지 확인한다.
+    def test_check_role_files_exits_on_missing_file(self) -> None:
+        for missing in ("AGENTS.md", "SOUL.md"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
+                role_dir = Path(tmp) / ".claude" / "agents" / "x"
+                role_dir.mkdir(parents=True)
+                for name in ("AGENTS.md", "SOUL.md"):
+                    if name != missing:
+                        (role_dir / name).write_text("x", encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    bot.check_role_files(Path(tmp), ["x"])
+        with tempfile.TemporaryDirectory() as tmp:
+            role_dir = Path(tmp) / ".claude" / "agents" / "x"
+            role_dir.mkdir(parents=True)
+            for name in ("AGENTS.md", "SOUL.md"):
+                (role_dir / name).write_text("x", encoding="utf-8")
+            bot.check_role_files(Path(tmp), ["x"])
 
     # 시스템 프롬프트에 공통 원칙이 들어가는지 확인한다.
     def test_system_prompt_includes_global_principles(self) -> None:

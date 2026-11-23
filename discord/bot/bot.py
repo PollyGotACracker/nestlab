@@ -23,7 +23,6 @@ from config import (
     CHAT_STATE_DIR,
     COMMON_RULES_FILE,
     HERE,
-    ROLE_MAIN_FILE,
     ROLE_RULES_FILE,
     TURN_PROMPT_PATH,
     WEEKDAY_NAMES,
@@ -1610,6 +1609,15 @@ class AgentBot(discord.Client):
         return next_name
 
 
+# 역할 폴더마다 AGENTS.md와 SOUL.md가 있는지 확인하고, 없으면 SystemExit로 종료한다.
+def check_role_files(root: Path, roles) -> None:
+    for role in roles:
+        role_dir = canonical_role_dir(root, role)
+        for filename in (ROLE_RULES_FILE, "SOUL.md"):
+            if not (role_dir / filename).is_file():
+                raise SystemExit(f"{role_dir / filename}가 없습니다.")
+
+
 # 설정과 에이전트 파일을 검증하고, 모든 Discord 봇과 채팅 스케줄러를 함께 실행한다.
 async def main() -> None:
     # 설정 파일이 없으면 안내하며 종료한다.
@@ -1633,11 +1641,7 @@ async def main() -> None:
         raise SystemExit(f"{RULES_ROOT / '.claude' / 'agents'}에 에이전트 폴더가 없습니다.")
 
     # 역할마다 지침과 SOUL 파일이 있는지 확인한다.
-    for role in known_agents:
-        role_dir = canonical_role_dir(RULES_ROOT, role)
-        for filename in (ROLE_RULES_FILE, ROLE_MAIN_FILE, "SOUL.md"):
-            if not (role_dir / filename).is_file():
-                raise SystemExit(f"{role_dir / filename}가 없습니다.")
+    check_role_files(RULES_ROOT, known_agents)
 
     # 설정한 에이전트의 역할과 이름이 유효한지 확인한다.
     if not config.agents:

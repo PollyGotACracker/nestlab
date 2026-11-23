@@ -30,7 +30,6 @@ COMMON_RULES_FILE = "AGENTS.global.md"
 # 공통 지침의 서식 규칙에서 분리한 예시 문서이다. 공통 지침 뒤에 이어 붙인다.
 FORMAT_EXAMPLES_FILE = "shared/rules/format-examples.md"
 ROLE_RULES_FILE = "AGENTS.md"
-ROLE_MAIN_FILE = "MAIN.md"
 ARCHIVE_RULES_FILE = "AGENTS.md"
 DISCORD_LIMIT = 2000
 CHAT_STATE_DIR = HERE / "chat_state"
