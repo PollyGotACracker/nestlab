@@ -903,7 +903,7 @@ class PlanRecordStop(unittest.TestCase):
 
     # 실제 질문·확정 답 뒤 차단된 문서 작성 시도를 두 runner 형식으로 구성한다.
     def data(self, runner, attempt=True, user="[착수]\n입력 오류의 문제와 범위를 확인해 주세요."):
-        question = {"id": "problem", "question": "문제 정의 확인: 입력 오류와 수정 범위 (작업 1110-160000)",
+        question = {"id": "problem", "question": "요구사항 1. 입력 오류 처리: 입력 오류와 수정 범위 (작업 1110-160000)",
                     "options": [{"label": "확정"}, {"label": "수정 요청"}]}
         if runner == "claude":
             rows = [{"type": "user", "timestamp": "2026-11-10T07:54:26Z", "message": {"content": user}},
@@ -1331,10 +1331,10 @@ class UnfinishedStop(unittest.TestCase):
             self.assertIn("20261105-060000-other/status.md", self.stop(data, runner)["reason"])
             self.assertEqual(other_status.read_bytes(), original)
 
-    # 실제 답 완료와 취소 및 다른 작업의 문제 질문은 미응답으로 오판하지 않는다.
-    def test_problem_question_answered_cancelled_or_unrelated(self):
+    # 실제 답 완료와 취소 및 다른 작업의 확정 질문은 미응답으로 오판하지 않는다.
+    def test_confirm_question_answered_cancelled_or_unrelated(self):
         for runner in ("claude", "codex"):
-            question = {"id": "scope", "question": f"문제 정의 확인: 입력 오류와 수정 범위 (작업 {self.folder.name[4:15]})",
+            question = {"id": "scope", "question": f"요구사항 1. 입력 오류 처리: 입력 오류와 수정 범위 (작업 {self.folder.name[4:15]})",
                         "options": [{"label": "확인"}, {"label": "수정 요청"}, {"label": "작업 중단"}, {"label": "취소"}]}
             for answer in ("확인", "수정 요청", "작업 중단", "취소"):
                 with self.subTest(runner=runner, answer=answer):
@@ -1343,13 +1343,13 @@ class UnfinishedStop(unittest.TestCase):
             other = self.root / ".agent-logs/task/20261105-091010-other/status.md"
             other.parent.mkdir(parents=True, exist_ok=True)
             other.write_text("# 다른 작업\n", encoding="utf-8")
-            question["question"] = "문제 정의 확인: 다른 작업의 범위 (작업 1105-091010)"
+            question["question"] = "요구사항 1. 입력 오류 처리: 다른 작업의 범위 (작업 1105-091010)"
             data = self.finish_question(self.data(runner, GOOD, user="문제 정의와 범위를 설명해 주세요.", question=question), runner, question, empty_answers=True)
             self.assertIsNone(self.stop(data, runner))
 
-    # 문제 정의 확인 질문의 답이 비었거나 실패해도 Stop은 대기 안내를 요구하지 않는다.
-    def test_empty_problem_answer_does_not_block(self):
-        question = {"id": "scope", "question": f"문제 정의 확인: 문제 1. 입력 오류와 수정 범위 (작업 {self.folder.name[4:15]})",
+    # 확정 질문의 답이 비었거나 실패해도 Stop은 대기 안내를 요구하지 않는다.
+    def test_empty_confirm_answer_does_not_block(self):
+        question = {"id": "scope", "question": f"요구사항 1. 입력 오류 처리: 입력 오류와 수정 범위 (작업 {self.folder.name[4:15]})",
                     "options": [{"label": "확정"}, {"label": "보류"}]}
         for runner in ("claude", "codex"):
             for failed in (False, True):

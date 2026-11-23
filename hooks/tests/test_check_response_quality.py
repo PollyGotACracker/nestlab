@@ -142,7 +142,7 @@ class Check(unittest.TestCase):
     # 입력 특성의 관형형은 작업 불가 주장과 구분하고 실제 불가 판정과 확인 주장 검사는 유지한다.
     def test_input_properties_are_not_inaccessible_claims(self):
         for text in ("변환 불가능한 문자열을 입력 오류로 처리한다.", "읽을 수 없는 문자열을 오류로 처리한다.",
-                     "문제 정의 확인: 변환 불가능한 문자열의 오류 처리 범위 (작업 1110-160000)"):
+                     "요구사항 1. 입력 오류 처리: 변환 불가능한 문자열의 오류 처리 범위 (작업 1110-160000)"):
             self.assertEqual(hook.unsourced_claims(text, text), [])
         for text in ("현재 환경에서 변환은 불가능합니다.", "현재 실행은 불가능한 상태입니다.", "이 파일을 읽을 수 없습니다.",
                      "입력을 확인했습니다.", "동작을 측정했습니다."):

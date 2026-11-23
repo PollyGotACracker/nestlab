@@ -768,7 +768,7 @@ class WriteScope(unittest.TestCase):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "status.md").write_text(STATE_APPROVED, encoding="utf-8")
         spec = folder / "spec.md"
-        example = "  - 설명: 문제 정의 확인: <보고한 문제 정의와 범위> (작업 MMDD-HHMMSS)\n"
+        example = "  - 설명: 요구사항 <번호>. <요구사항 이름>: <목표>. (작업 MMDD-HHMMSS)\n"
         valid = "- hooks/a.py: 입력 검사 수정 (요구사항 1)\n  - 기대 결과: 올바른 입력을 처리한다\n"
         for kind in sub_approval.RESTORED_WORK:
             prompt = f"{kind}\ninput: .agent-logs/task/20261104-234558-test/spec.md"
