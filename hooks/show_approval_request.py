@@ -1,28 +1,5 @@
 #!/usr/bin/env python3
-"""MessageDisplay hook: 구현 승인 요청 줄을 생성 본문으로 바꿔 표시한다.
-
-차단될 응답을 포함해 그 밖의 응답은 원문 그대로 표시한다. Stop hook은 차단 시 누락 내용만 이어서 작성하게 한다.
-
-호출자:
-- Claude Code의 MessageDisplay hook 설정 원본(Claude 설정)
-- 호출 커맨드는 `python replace_blocked_response.py`
-입력: hook 입력 JSON(message_id, final, delta, cwd, transcript_path)을 stdin으로 받는다.
-반환:
-- stdout에 `{"hookSpecificOutput": {"hookEventName": "MessageDisplay", "displayContent": ...}}` JSON을 출력한다.
-- final이 아닌 batch: 같은 message_id의 delta를 OS 임시 폴더 파일에 누적하고 빈 displayContent를 출력한다.
-- final batch: 누적한 원문을 last_assistant_message로 check_workflow_response.check에 넣어 판정한다.
-  누적한 원문 전체를 displayContent로 출력하고 임시 파일을 지운다.
-  통과한 원문의 `구현 승인 요청: <작업 ID>` 줄은 생성한 구현 승인 요청 본문으로 바꿔 표시한다.
-  transcript 끝 20줄에서 원문과 같은 assistant text 항목의 stop_reason이 tool_use이면 도구 호출 앞의 중간 메시지로 보고 검사 없이 원문을 출력한다.
-  stop_reason이 tool_use가 아니어도 transcript 전체에 완료 알림(`<task-id>`)이 없는 백그라운드 작업(async_launched agentId, backgroundTaskId)이 있으면 검사 없이 원문을 출력한다.
-한계:
-- 완료 알림이 기록되지 않은 작업이 있으면 그 세션의 이후 최종 응답도 교체 없이 표시된다. transcript 기록 형식에 의존한다.
-- 중간 메시지는 transcript(파일 끝 256KB)의 stop_reason으로 판별한다. 항목이 없으면 0.2초 간격으로 최대 3초 다시 읽으므로 최종 응답 표시가 최대 3초 늦어진다.
-- transcript_path가 없거나 읽기에 실패하면 중간 메시지 판별 없이 기존 판정을 적용한다.
-- 화면 표시만 바꾸고 대화 기록은 원문 그대로이다.
-- 판정에 stop_hook_active를 알 수 없어 재작성 응답도 같은 기준으로 판정한다.
-- 응답이 끝날 때까지 화면에 글이 나오지 않는다. 오류는 원문을 표시한다(fail-open).
-"""
+"""MessageDisplay hook: 구현 승인 요청 줄을 생성 본문으로 바꿔 표시한다."""
 from __future__ import annotations
 
 import json

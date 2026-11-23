@@ -1,6 +1,6 @@
 """작업 문서 본문을 절과 칸 단위로 읽고 요구사항 목록과 번호 대응을 판정하는 공용 모듈이다.
 
-호출자: hooks/common/sub_gate.py, hooks/check_tool_use 하위 모듈, hooks/check_workflow_response.py, hooks/save_subagent_result.py, tools/run_workflow.py
+호출자: hooks/common/sub_gate.py, hooks/check_tool_use 하위 모듈, hooks/check_workflow_response.py, hooks/save_subagent_result.py, tools/run_incident_analysis.py
 입력: 작업 문서 본문 문자열
 반환: Document, 칸 값 목록, 요구사항 (이름, 본문) 목록이며 미달이면 사유 문자열을 담은 ValueError를 던진다.
 한계: 문서의 구조와 칸 형식만 읽고 자연어 내용은 판정하지 않는다.

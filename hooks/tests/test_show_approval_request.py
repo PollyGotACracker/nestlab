@@ -1,4 +1,4 @@
-"""replace_blocked_response.py 동작 테스트"""
+"""show_approval_request.py 동작 테스트"""
 import sys
 from pathlib import Path
 
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 import unittest.mock
 
-import replace_blocked_response as hook
+import show_approval_request as hook
 
 PLAIN = tempfile.mkdtemp()  # 질문 문장 검사는 .agent-logs/state가 있는 저장소에서만 적용된다.
 (Path(PLAIN) / ".agent-logs" / "state").mkdir(parents=True)

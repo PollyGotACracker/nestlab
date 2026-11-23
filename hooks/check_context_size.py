@@ -1,9 +1,4 @@
-"""컨텍스트 기준에 도달한 메인 세션에 작업 기록과 compact 안내를 지시한다.
-
-입력: stdin의 Stop hook JSON과 --runner 인자이다.
-반환: 기록이 필요하면 block JSON을 출력하고, 나머지는 출력 없이 0을 반환한다.
-한계: 세션 기록을 읽을 수 없거나 토큰 정보가 없으면 통과한다.
-"""
+"""컨텍스트 기준에 도달한 메인 세션에 작업 기록과 compact 안내를 지시한다."""
 from __future__ import annotations
 
 import argparse

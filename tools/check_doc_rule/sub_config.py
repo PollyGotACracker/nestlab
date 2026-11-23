@@ -24,6 +24,7 @@ TARGET_PATTERNS = [
     paths.SKILL_GLOB,
     "hooks/**/*.py",
     "tools/**/*.py",
+    "shared/tools/**/*.py",
     "discord/**/*.py",
 ]
 

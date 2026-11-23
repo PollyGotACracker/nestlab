@@ -276,6 +276,15 @@ class RecordIncident(unittest.TestCase):
         for text in ("제가 확인하지 않고 진행했습니다.", "제가 임의로 바꿨습니다."):
             self.assertTrue(hook.admissions(text), text)
 
+    # `제가 ... 않고 ... 했어요|했습니다` 서술은 감지하고, 1인칭이 아니거나 `했` 종결이 아니거나 조건 서술이면 감지하지 않는다.
+    def test_first_person_not_done_then_did_detected(self):
+        for text in ("제가 비교하지 않고 처리했어요.", "제가 원문을 열지 않고 판정했습니다.", "제가 수정하지 않고 보고했습니다."):
+            with self.subTest(text=text):
+                self.assertTrue(hook.admissions(text), text)
+        for text in ("수정하지 않고 보고했습니다.", "제가 수정하지 않고 둡니다.", "제가 검토하지 않고 처리했다면 문제입니다."):
+            with self.subTest(text=text):
+                self.assertEqual(hook.admissions(text), [], text)
+
     # 감지 목록이 정규식 조각 대신 응답 어절을 보이고 같은 줄을 한 번만 쓰는지 확인한다.
     def test_hit_list_shows_words_once_per_line(self):
         line = "대조를 빠뜨렸습니다. 제 잘못입니다."

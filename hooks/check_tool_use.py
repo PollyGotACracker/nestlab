@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: 서브에이전트 호출과 쓰기 도구 사용을 검사한다.
-
-호출자:
-- Claude Code와 Codex의 PreToolUse hook 설정(설정 원본)
-- 호출 커맨드는 `python check_tool_use.py --runner <claude|codex>`
-입력: hook 입력 JSON을 stdin으로 받는다.
-반환:
-- 위반이면 stdout에 `hookSpecificOutput`(`permissionDecision: deny`, `permissionDecisionReason`) JSON을 출력한다.
-- 승인 창을 띄우는 `ask`는 출력하지 않는다.
-- 통과하면 아무것도 출력하지 않는다.
-- check()는 사유 문자열 또는 None을 반환한다.
-한계:
-- 검사 오류는 쓰기 도구(Edit, Write, NotebookEdit, apply_patch, 쓰기 Bash)만 deny하고 나머지는 통과한다.
-- 대기 메시지와 같은 턴 재실행 검사는 Claude 메인 세션만 판정한다. Codex Tab 대기 입력은 hook 입력에 정보가 없어 차단하지 못한다.
-"""
+"""PreToolUse hook: 서브에이전트 호출과 쓰기 도구 사용을 검사한다."""
 from __future__ import annotations
 
 import argparse

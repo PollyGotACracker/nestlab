@@ -100,7 +100,9 @@ class Gates(unittest.TestCase):
                         patch.object(sub_docs, "project_root", return_value=self.root),
                         patch.object(sub_docs, "TEMPLATES", self.templates),
                         patch.object(sub_path, "TEMP", self.root / "ostemp"),
-                        patch.object(sub_scope, "skill_called", return_value=True)]
+                        patch.object(sub_scope, "skill_called", return_value=True),
+                        # 상세 규칙 문서 읽기 검사는 test_check_tool_use의 test_rules_doc_read만 다룬다.
+                        patch.object(sub_scope, "rules_read", return_value=True)]
         for p in self.patches:
             p.start()
         (self.doc("t", "research.md")).write_text(LOOP.format(stop="정지(반증 0건)"), encoding="utf-8")

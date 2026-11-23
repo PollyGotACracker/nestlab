@@ -47,9 +47,15 @@ statusMessage = "Nestlab 메인 에이전트 지침 및 공통 지침"
 
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/hooks/record_stage.py"'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/record_stage.py"'
+command = '"<PYTHON>" "<NESTLAB>/hooks/record_workflow_stage.py"'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/record_workflow_stage.py"'
 statusMessage = "Nestlab 작업 단계 기록"
+
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/load_incident_link.py"'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/load_incident_link.py"'
+statusMessage = "Nestlab 사건 문서 링크 주입"
 
 [[hooks.SubagentStart]]
 
@@ -103,8 +109,8 @@ matcher = "apply_patch"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
+command = '"<PYTHON>" "<NESTLAB>/hooks/record_task_state.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/record_task_state.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 작업 상태 기록"
 
@@ -113,8 +119,8 @@ matcher = "request_user_input"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex --record'
+command = '"<PYTHON>" "<NESTLAB>/hooks/record_task_state.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/record_task_state.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 질문 답 기록"
 
@@ -123,8 +129,8 @@ matcher = ".*spawn_agent|.*followup_task"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
-command = '"<PYTHON>" "<NESTLAB>/hooks/return_research_path.py" --runner codex'
-commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/return_research_path.py" --runner codex'
+command = '"<PYTHON>" "<NESTLAB>/hooks/return_subagent_path.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/return_subagent_path.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 조사 문서 경로 반환"
 
@@ -143,6 +149,13 @@ command = '"<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner code
 commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_workflow_response.py" --runner codex'
 timeout = 10
 statusMessage = "Nestlab 응답 검사"
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = '"<PYTHON>" "<NESTLAB>/hooks/check_response_quality.py" --runner codex'
+commandWindows = '& "<PYTHON>" "<NESTLAB>/hooks/check_response_quality.py" --runner codex'
+timeout = 10
+statusMessage = "Nestlab 응답 품질 검사"
 
 [[hooks.Stop.hooks]]
 type = "command"

@@ -149,8 +149,7 @@ def saved_report(report: str, cwd: str | Path | None = None, refute: bool = Fals
 SKILLS = SKILL_DIR
 TEMPLATES = TEMPLATE_DIR
 TEMPLATE_NAMES = {"state": "log-status", "input": "log-spec", "research": "log-research", "refute": "log-refute",
-                  "nestlab-log-incident": "log-incident", "nestlab-approval": "approval-implement",
-                  "nestlab-plan": "info-plan"}
+                  "nestlab-log-incident": "log-incident"}
 # 응답 양식 이름이다. 생성기의 `--print-template` 인자와 같다.
 RESPONSE_TEMPLATES = ("question-confirmed", "question-task", "request-stop", "approval-complete", "info-plan", "info-review",
                       "info-confirmed", "approval-research", "approval-implement", "approval-measure")

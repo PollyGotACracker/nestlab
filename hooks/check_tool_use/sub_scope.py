@@ -20,7 +20,7 @@ from sub_role import director_main, first_prompt, main_session
 from sub_session import agent_transcript, question_answers, read_session, turn, user_messages
 from sub_spec import blank_cells, cells, template_block
 from sub_judgment import check_judgment, check_raw, check_stage, confirmed_by, early_items
-from sub_write import APPROVAL_RETRY, RETRY, added_lines, bash_command, bash_write_reason, is_write_bash, read, strings
+from sub_write import APPROVAL_RETRY, RETRY, SHELLS, added_lines, bash_command, bash_write_reason, is_write_bash, read, strings
 from sub_document import Document, bare, filled, integrated
 from sub_gate import R_SOURCE_FORMAT, bad_source, measurement_targets, transition_reason
 from sub_task_docs import document_stage_reason
@@ -384,6 +384,25 @@ def skill_called(data: dict, skill: str, runner: str = "claude", whole: bool = F
     return False
 
 
+RULE_DOCS = (("hooks/", "rules/harness-rules.md"), ("tools/", "rules/tool-rules.md"), ("shared/tools/", "rules/tool-rules.md"))
+
+
+# 쓰기 대상이 hooks/, tools/ 또는 shared/tools/ 아래 .py 파일이면 먼저 읽어야 하는 상세 규칙 문서 경로를 반환한다. 대상이 아니면 None이다.
+def rules_for(r: str) -> str | None:
+    return next((doc for prefix, doc in RULE_DOCS if r.startswith(prefix) and r.endswith(".py")), None)
+
+
+# 세션 기록에 상세 규칙 문서를 읽은 호출이 있으면 True이다. Read 도구 호출이거나 읽기 커맨드가 문서 경로를 포함한 호출을 읽은 것으로 본다.
+def rules_read(data: dict, doc: str) -> bool:
+    entries = read_session(agent_transcript(data) or data.get("transcript_path") or "")
+    for e in entries:
+        for name, args in e["calls"]:
+            text = "\n".join(strings(args)).replace("\\", "/")
+            if doc in text and (name == "Read" or (name in SHELLS and READ_CMD.search(text))):
+                return True
+    return False
+
+
 # Bash 쓰기 커맨드의 경로 토큰 중 작업 문서와 사건 문서 경로를 반환한다.
 def bash_log_docs(data: dict, root: Path) -> list[Path]:
     cwd = Path(data.get("cwd") or ".")
@@ -451,6 +470,7 @@ REASON_LOG_PATH = (".agent-logs/ 아래에는 .agent-logs/task/<작업-id>/의 s
                    "대상 경로: {path}")
 REASON_SCRIPT_FILE = "승인 전에는 .agent-logs/에 스크립트 파일을 쓸 수 없습니다. 파일을 쓰는 대신 명령 출력으로 즉시 처리하십시오."
 REASON_NO_SKILL = "{skill} 스킬을 이번 턴에 호출하지 않았습니다. " + RETRY
+REASON_NO_RULES = "{path}를 쓰기 전에 {doc}를 읽지 않았습니다. 문서를 읽고 대상 항목의 목적과 고정 구조를 확인한 뒤 같은 쓰기를 다시 실행하십시오."
 SCRIPT_EXT = (".py", ".sh", ".ps1", ".js", ".bat", ".cmd")
 
 
@@ -492,6 +512,11 @@ def check_write(data: dict, role: str | None, paths: list[Path], main: bool = Fa
     for path in paths:
         r = rel(path, root)
         kind = doc_kind(r)
+
+        # hooks/와 tools/의 .py 파일은 상세 규칙 문서를 읽은 뒤에만 쓸 수 있다.
+        doc = rules_for(r)
+        if doc and not rules_read(data, doc):
+            return REASON_NO_RULES.format(path=r, doc=doc)
         if kind:
             from sub_docs import structure_reason, constraint_reason, mask_results
             new = added_lines(data, path)[1]

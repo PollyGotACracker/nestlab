@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""에이전트 지침 및 성향 원본 Markdown을 Claude Code나 Codex hook context에 넣는다.
-지침 원본은 이 스크립트가 있는 hooks 폴더의 상위 폴더에서 읽는다.
-
-호출자: SessionStart, SubagentStart hook 설정(설정 원본)
-반환:
-- stdout에 `hookSpecificOutput`(`additionalContext`) JSON을 출력한다.
-- 에이전트가 정해지지 않으면 출력이 없다.
-원본 문서가 없으면 stderr에 오류 문구를 쓰고 종료 코드 1을 반환한다.
-한계: 에이전트 이름이나 역할을 알 수 없으면 아무것도 주입하지 않는다.
-"""
+"""에이전트 지침 및 성향 원본 Markdown을 Claude Code나 Codex hook context에 넣는다."""
 from __future__ import annotations
 import argparse
 import json

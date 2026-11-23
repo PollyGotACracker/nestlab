@@ -1,4 +1,4 @@
-"""save_handback_report.py 동작 테스트"""
+"""save_subagent_report.py 동작 테스트"""
 import sys
 from pathlib import Path
 
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import save_handback_report as hook
+import save_subagent_report as hook
 import save_subagent_result
 import sub_docs
 from test_save_subagent_result import REFUTE_DOC, RESEARCH, refute_report, research_report

@@ -147,9 +147,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/record_stage.py\"",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/record_workflow_stage.py\"",
             "timeout": 10,
             "statusMessage": "Nestlab 작업 단계 기록"
+          },
+          {
+            "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/load_incident_link.py\"",
+            "timeout": 10,
+            "statusMessage": "Nestlab 사건 문서 링크 주입"
           }
         ]
       }
@@ -182,7 +188,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_handback_report.py\"",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/save_subagent_report.py\"",
             "timeout": 10,
             "statusMessage": "Nestlab 조사 결과 저장"
           }
@@ -230,7 +236,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_workflow_response.py\" --runner claude --record",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/record_task_state.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 작업 상태 기록"
           }
@@ -241,7 +247,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_workflow_response.py\" --runner claude --record",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/record_task_state.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 질문 답 기록"
           }
@@ -252,7 +258,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/return_research_path.py\" --runner claude",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/return_subagent_path.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 조사 문서 경로 반환"
           }
@@ -276,6 +282,12 @@
           },
           {
             "type": "command",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_response_quality.py\" --runner claude",
+            "timeout": 10,
+            "statusMessage": "Nestlab 응답 품질 검사"
+          },
+          {
+            "type": "command",
             "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/check_context_size.py\" --runner claude",
             "timeout": 10,
             "statusMessage": "Nestlab 컨텍스트 기록 안내"
@@ -294,7 +306,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/replace_blocked_response.py\"",
+            "command": "\"<PYTHON>\" \"<NESTLAB>/hooks/show_approval_request.py\"",
             "timeout": 10
           }
         ]

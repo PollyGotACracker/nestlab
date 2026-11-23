@@ -1,4 +1,4 @@
-"""return_research_path.py 동작 테스트"""
+"""return_subagent_path.py 동작 테스트"""
 import sys
 from pathlib import Path
 
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import return_research_path as hook
+import return_subagent_path as hook
 import sub_docs
 
 DOC = "# t\n\n## 조사 및 반증 루프\n\n| 회차 | 반증 건수 | 정지 여부 |\n| ---- | --------- | --------- |\n| 1 | 1 | 계속 |\n"

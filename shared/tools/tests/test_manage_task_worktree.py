@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-HOOKS = Path(__file__).resolve().parents[2] / "hooks"
+HOOKS = Path(__file__).resolve().parents[3] / "hooks"
 sys.path[:0] = [str(HOOKS), str(HOOKS / "common"), str(HOOKS / "check_tool_use")]
 import sub_worktree as transfer
 import sub_path
@@ -111,7 +111,7 @@ class TaskWorktree(unittest.TestCase):
 
     # director의 apply 호출만 원본과 worktree 루트에서 경로 검사 예외로 인정한다.
     def test_apply_command_allowed_for_director_only(self):
-        script = Path(transfer.__file__).resolve().parents[2] / "tools/manage_task_worktree.py"
+        script = Path(transfer.__file__).resolve().parents[2] / "shared/tools/manage_task_worktree.py"
         command = f'python -B "{script}" apply --source "{self.source}" --worktree "{self.tree}"'
         for root in (self.source, self.tree):
             self.assertTrue(transfer.transfer_command(command, root))
@@ -127,7 +127,7 @@ class TaskWorktree(unittest.TestCase):
 
     # --source 생략 시 원본 추론, 비 worktree 거부, CLI의 반영과 보류 출력을 확인한다.
     def test_origin_and_cli(self):
-        script = Path(transfer.__file__).resolve().parents[2] / "tools/manage_task_worktree.py"
+        script = Path(transfer.__file__).resolve().parents[2] / "shared/tools/manage_task_worktree.py"
         self.assertEqual(transfer.origin(self.tree), self.source)
         with self.assertRaisesRegex(ValueError, "지원 범위"):
             transfer.origin(self.source)

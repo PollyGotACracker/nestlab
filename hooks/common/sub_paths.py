@@ -17,13 +17,14 @@ SKILL_DIR = SHARED_DIR / "skills"
 SETTINGS_DIR = SHARED_DIR / "settings"
 AGENT_DIR = ROOT / ".claude" / "agents"
 TOOLS_DIR = ROOT / "tools"
+SHARED_TOOLS_DIR = SHARED_DIR / "tools"
 LOG_DIR = ROOT / ".agent-logs"
 INCIDENT_DIR = LOG_DIR / "incident"
 LOCAL_SETTINGS = SETTINGS_DIR / "local.json"
 WIKI_SKILL = SKILL_DIR / "wiki" / "SKILL.md"
-CREATE_TASK_DOCS = TOOLS_DIR / "create_task_docs.py"
-RUN_WORKFLOW = TOOLS_DIR / "run_workflow.py"
-MANAGE_WORKTREE = TOOLS_DIR / "manage_task_worktree.py"
+CREATE_TASK_DOCS = SHARED_TOOLS_DIR / "create_task_docs.py"
+RUN_INCIDENT_ANALYSIS = TOOLS_DIR / "run_incident_analysis.py"
+MANAGE_WORKTREE = SHARED_TOOLS_DIR / "manage_task_worktree.py"
 
 # 저장소 루트 기준 상대 경로 문자열이다. 정규식과 안내 문구, glob에 쓴다.
 SHARED_NAME = SHARED_DIR.name

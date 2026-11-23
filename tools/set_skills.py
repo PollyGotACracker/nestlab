@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""공용 skill 원본을 사용자 전역 skill 폴더에 연결하고 연결 상태를 확인한다.
-
-check: 연결 상태, 중복, Hermes 설정을 출력한다. 파일을 바꾸지 않는다.
-link:  빈 자리에 링크를 만들고, 원본이 없어진 shared 링크를 지운다.
-       실제 폴더와 다른 곳을 가리키는 링크는 건드리지 않는다.
-unlink: 공용 skill 원본을 가리키는 링크와 원본이 없어진 링크를 지운다.
-        실제 폴더와 다른 곳을 가리키는 링크는 건드리지 않는다.
-
-모듈(set_skills/): sub_check 확인, sub_link 연결, sub_unlink 제거, sub_config 경로, sub_status 연결 상태
-공용 모듈(common/): sub_symlink
-"""
+"""공용 skill 원본을 사용자 전역 skill 폴더에 연결하고 연결 상태를 확인한다."""
 from __future__ import annotations
 
 import sys

@@ -1,6 +1,6 @@
 """hook 입력에서 역할을 판별하고 대화 기록 위치를 찾는다. 판별 실패는 None이다.
 
-호출자: hooks/check_tool_use.py, hooks/check_invalid_response.py, hooks/check_workflow_response.py, hooks/save_subagent_result.py, hooks/save_handback_report.py
+호출자: hooks/check_tool_use.py, hooks/check_invalid_response.py, hooks/check_workflow_response.py, hooks/save_subagent_result.py, hooks/save_subagent_report.py
 입력: hook 입력 dict, rollout 경로, thread id
 반환:
 - resolve_role, to_role은 역할 이름 또는 None

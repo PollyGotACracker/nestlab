@@ -21,6 +21,7 @@ from claude_agent_sdk import (
 from config import (
     COMMON_RULES_FILE,
     DISCORD_LIMIT,
+    FORMAT_EXAMPLES_FILE,
     HERE,
     POLL_ANSWERS_MAX,
     POLL_ANSWERS_MIN,
@@ -172,6 +173,8 @@ def prompt_source_signature(
         root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / ROLE_MAIN_FILE, role_dir / "SOUL.md",
         RUNTIME_PROMPT_PATH, TURN_PROMPT_PATH, CHAT_PROMPT_PATH,
     ]
+    if (root / FORMAT_EXAMPLES_FILE).is_file():
+        paths.append(root / FORMAT_EXAMPLES_FILE)
     paths += [canonical_role_dir(root, other) / "SOUL.md" for other in roster_roles if other != role]
     if role == "documenter":
         paths.append(ARCHIVE_PROMPT_PATH)
@@ -403,9 +406,16 @@ def read_role_rules(role_dir: Path) -> str:
     return common + "\n\n" + (role_dir / ROLE_MAIN_FILE).read_text(encoding="utf-8").strip()
 
 
-# Discord 공통 규칙은 COMMON_RULES_FILE 전체이다.
+# Discord 공통 규칙은 COMMON_RULES_FILE 전체에 서식 예시 문서 본문(frontmatter 제외)을 이어 붙인 값이다.
 def read_common_rules(root: Path) -> str:
-    return (root / COMMON_RULES_FILE).read_text(encoding="utf-8").strip()
+    text = (root / COMMON_RULES_FILE).read_text(encoding="utf-8").strip()
+    examples = root / FORMAT_EXAMPLES_FILE
+    if not examples.is_file():
+        return text
+    body = examples.read_text(encoding="utf-8").strip()
+    if body.startswith("---"):
+        body = body.split("---", 2)[2].strip()
+    return text + "\n\n" + body
 
 
 # 채팅은 `## 서식 규칙` 절(하위 `###` 절 포함)을 시스템 프롬프트 대신 턴 프롬프트 끝에 둔다.

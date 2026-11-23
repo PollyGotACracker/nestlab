@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""프로젝트의 에이전트 원본 폴더를 사용자 전역 경로에 연결한다.
-
-호출자: 사용자(`python tools/set_agents.py check|link|unlink`)
-입력: 커맨드라인 인자 하나(check, link, unlink)
-반환: 연결 상태를 줄 단위로 stdout에 출력하고, 문제가 있으면 종료 코드 1을 반환한다.
-한계: 링크 생성은 OS 권한에 따라 실패할 수 있고, 실패하면 결과 줄에 오류를 출력한다.
-"""
+"""프로젝트의 에이전트 원본 폴더를 사용자 전역 경로에 연결한다."""
 from __future__ import annotations
 
 import sys

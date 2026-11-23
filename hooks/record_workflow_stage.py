@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook: 미전달 사건 문서 링크와 계획 단계 지침을 주입하고, 머리줄의 단계 키워드를 대상 작업의 경과 문서에 기록한다.
-
-호출자: Claude Code와 Codex의 UserPromptSubmit hook 설정(설정 원본)
-입력: hook 입력 JSON(prompt, transcript_path, cwd)을 stdin으로 받는다.
-반환:
-- 이 세션의 사건 문서 중 세션 기록에 링크가 아직 없는 것이 있으면 그 링크를 `additionalContext`로 stdout에 출력한다.
-- 머리줄이 있으면 기록 결과나 수행할 행동을 `additionalContext`에 더한다.
-  `[plan new]`는 신규 작업 생성 절차를, `[작업ID]`는 단계 변경 없이 그 작업을 현재 진행 작업으로 선택한 결과를 더한다.
-  작업 문서가 없는 작업ID는 해당 작업이 없음을 알리게 한다.
-- 머리줄 없이 `승인`을 보낸 메시지가 hook이 표시한 구현 승인 요청 바로 뒤이면 그 작업의 구현 승인과 구현 단계를 기록한다.
-- 현재 진행 작업이 없으면 미완료 작업 목록과 작업 선택 질문 안내를 더한다.
-- 색인의 현재 진행 작업이 계획 단계이면 계획 단계 지침과 계획 스킬의 `## 출력 검사` 절 원문을 더한다.
-- 출력할 내용이 없으면 아무것도 출력하지 않고, 어느 경우에도 사용자 메시지를 차단하지 않는다.
-한계:
-- 첫 줄 시작의 `[plan new]`, `[작업ID]`, `[plan|implement|complete]`, `[키워드 작업ID]`를 머리줄로 인정한다.
-- 작업ID 없는 키워드는 작업 색인(.agent-logs/task/index.md)의 현재 진행 작업을 대상으로 한다.
-"""
+"""UserPromptSubmit hook: 머리줄의 단계 키워드를 대상 작업의 경과 문서에 기록하고, 현재 단계가 계획이면 계획 단계 지침을 주입한다."""
 from __future__ import annotations
 
 import json
@@ -26,10 +10,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "check_tool_use"))
 
-import check_invalid_response
 from sub_approval import NEW_TASK as NEW_TASK_ID, apply_stage, head_line, stage_completion_reason
 from sub_docs import project_root
-from sub_paths import INCIDENT_REL, SKILL_DIR, TASK_REL
+from sub_paths import TASK_REL
 from sub_role import director_main
 from sub_task_index import selected_status, refresh_index
 from sub_session import read_session
@@ -47,55 +30,23 @@ NEW_TASK = ("신규 작업: director 지침의 계획 단계 절차대로 KST �
 RECORDED = "작업 {task}의 작업 단계를 `{stage}`로 기록했습니다."
 SELECTED = "작업 {task}를 현재 진행 작업으로 선택했습니다. 작업 단계는 `{stage}`로 유지합니다."
 RECORDED_APPROVAL = "작업 {task}의 구현 승인과 작업 단계 `구현`을 기록했습니다. 명세 요구사항대로 구현을 배정하십시오."
-NOTICE_AGENT = ("직전 응답에서 문제가 있거나 문제를 인정한 표현을 찾았습니다.\n"
-                "별도의 세션이 해당 문제를 분석하는 중입니다. 사건 문서 링크: {link}.\n"
-                "감지 기록의 응답 발췌를 읽고, 누락된 정보를 작성하거나 작업을 수행하여 문제를 수정하십시오.\n"
-                "현재 진행 중인 작업은 중단하지 않고 계속 진행하십시오. 응답으로 이미 전달된 내용을 재응답하지 마십시오.")
 PLAN_NOTICE = ("열지 않은 코드와 확인하지 않은 외부 사실은 추측하지 않는다. 답하기 전에 관련 파일을 읽고, "
                "설계 판단에 필요한 외부 사실은 자료 유형에 맞는 원문(공식 문서, 공개 구현, 이슈)과 반대 자료 본문을 직접 열어 확인한다.\n"
                "병렬로 실행할 수 있는 독립 작업은 서브에이전트에 나눠 동시에 실행한다.\n"
                "몇 번의 도구 호출로 끝나는 확인은 서브에이전트를 기다리지 않고 직접 처리한다.")
-# 계획 스킬 경로
-PLAN_SKILL = SKILL_DIR / "nestlab-plan" / "SKILL.md"
 
-
-# 이 세션의 사건 문서 중 세션 기록에 링크가 아직 없는 문서의 안내 문장 목록이다.
-def undelivered_incidents(data: dict) -> list[str]:
-    sid = (data.get("session_id") or "unknown")[:8]
-    folder = check_invalid_response.INCIDENT_ROOT / INCIDENT_REL
-    try:
-        sent = Path(data.get("transcript_path") or "").read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        sent = ""
-    notices = []
-    for path in sorted(folder.glob(f"*-{sid}.md")):
-        notice = NOTICE_AGENT.format(link=check_invalid_response.incident_link(path, data.get("cwd")))
-        # 세션 기록의 줄바꿈은 이스케이프되므로 첫 줄로 전달 여부를 판정한다.
-        if notice.splitlines()[0] not in sent:
-            notices.append(notice)
-    return notices
-
-
-# 계획 스킬의 `## 출력 검사` 절 원문을 반환한다. 스킬이나 절이 없으면 빈 문자열이다.
-def plan_checks() -> str:
-    text = PLAN_SKILL.read_text(encoding="utf-8-sig") if PLAN_SKILL.is_file() else ""
-    found = re.search(r"(?ms)^## 출력 검사[ \t]*\n.*?(?=^## |\Z)", text)
-    return found[0].strip() if found else ""
-
-
-# 색인의 현재 진행 작업이 계획 단계이면 계획 단계 지침과 출력 검사 절을 반환한다. 아니면 None이다.
+# 색인의 현재 진행 작업이 계획 단계이면 계획 단계 지침을 반환한다. 아니면 None이다.
 def plan_context(data: dict) -> str | None:
     from sub_approval import stage_of
     status = selected_status(project_root(data.get("cwd")))
     if status is None or stage_of(status.read_text(encoding="utf-8-sig")) != "계획":
         return None
-    return "\n\n".join(part for part in (PLAN_NOTICE, plan_checks()) if part)
+    return PLAN_NOTICE
 
 
-# 미전달 사건 문서 링크, 머리줄 단계 기록 결과, 계획 단계 지침을 이은 additionalContext 문장을 반환한다. 모두 없으면 None이다.
-# 단계 기록과 계획 지침은 director 메인 세션에만 적용하고, 사건 문서 링크는 모든 역할에 주입한다.
+# 머리줄 단계 기록 결과와 계획 단계 지침을 이은 additionalContext 문장을 반환한다. 모두 없으면 None이다.
+# 단계 기록과 계획 지침은 director 메인 세션에만 적용한다.
 def decide(data: dict) -> str | None:
-    parts = undelivered_incidents(data)
     lead = director_main(data)
     # 사용자 메시지마다 작업 폴더의 경과 문서로 색인 목록을 다시 구성한다.
     root = project_root(data.get("cwd"))
@@ -106,7 +57,7 @@ def decide(data: dict) -> str | None:
             pass
     staged = (decide_stage(data) or record_approval(data) or unselected(data)) if lead else None
     plan = plan_context(data) if lead else None
-    return "\n".join(parts + [part for part in (staged, plan) if part]) or None
+    return "\n".join(part for part in (staged, plan) if part) or None
 
 
 # 직전 응답의 마지막 assistant 텍스트에 hook이 표시한 구현 승인 요청 줄이 있고 사용자 메시지가 승인이면,

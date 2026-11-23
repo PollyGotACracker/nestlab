@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""bashrc 블록 설치, 설정 원본 자리표시 채우기, 전역 설정 병합을 한다.
-
-호출자: 사용자(`python tools/set_hooks.py install`)
-입력: 커맨드라인 인자 install 하나
-반환: 설치 결과 줄을 stdout에 출력하고, 실패하면 stderr에 사유를 쓰고 종료 코드 1을 반환한다.
-한계: 설치한 설정이 Claude Code와 Codex에서 실제로 동작하는지는 설치 후 세션에서 확인해야 한다.
-"""
+"""bashrc 블록 설치, 설정 원본 자리표시 채우기, 전역 설정 병합을 한다."""
 from __future__ import annotations
 
 import json

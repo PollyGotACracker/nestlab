@@ -32,6 +32,13 @@ REMINDERS_CONFIG = config_module.RemindersConfig(
 )
 
 
+# 서식 예시 문서 본문이 공통 규칙에 이어 붙는지 확인한다.
+class FormatExamplesTests(unittest.TestCase):
+    def test_common_rules_include_format_examples(self):
+        body = (PROJECT_ROOT / config_module.FORMAT_EXAMPLES_FILE).read_text(encoding="utf-8").split("---", 2)[2].strip()
+        self.assertTrue(prompts_module.read_common_rules(PROJECT_ROOT).endswith(body))
+
+
 # 저장소의 역할 목록으로 에이전트 설정 목록을 만든다.
 def roster_agents() -> list:
     return [

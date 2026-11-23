@@ -1,6 +1,6 @@
 """응답 본문의 양식(조사·실측·완료 승인 요청, 계획 보고, 중단 판정 요청)과 양식 줄 출처를 검사한다.
 
-호출자: hooks/check_workflow_response.py, hooks/replace_blocked_response.py
+호출자: hooks/check_workflow_response.py, hooks/show_approval_request.py
 입력: 응답 본문 문자열, 저장소 루트
 반환: 누락 항목 목록 또는 양식 이름
 한계: 정규식 판정이므로 자연어 의미는 판정하지 않는다.

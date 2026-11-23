@@ -1,11 +1,4 @@
-"""Stop hook: 메인 에이전트 응답에서 실수 및 위반을 인정하는 표현을 찾아 사건 문서 초안에 기록한다.
-
-입력: hook 입력 JSON을 stdin으로 받는다(last_assistant_message, transcript_path, session_id).
-반환: 감지하면 사건 문서에 기록하고 분석 세션을 띄운 뒤 사용자 경고를 systemMessage JSON으로 출력한다. Claude Stop은 차단하지 않는다.
-Codex는 systemMessage를 대화 기록에 표시하지 않아 경고를 block reason으로 출력한다.
-  에이전트에는 단계 기록 hook이 다음 사용자 메시지 때 사건 문서 링크를 주입한다.
-한계: 표현 목록 기반 감지라 목록 밖 표현은 놓치고, 목록 안 표현은 문맥을 오판할 수 있다.
-"""
+"""Stop hook: 메인 에이전트 응답에서 실수 및 위반을 인정하는 표현을 찾아 사건 문서 초안에 기록한다."""
 from __future__ import annotations
 
 import argparse
@@ -21,7 +14,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
 from sub_docs import project_root, task_id
-from sub_paths import INCIDENT_REL, ROOT, RUN_WORKFLOW, TASK_REL
+from sub_paths import INCIDENT_REL, ROOT, RUN_INCIDENT_ANALYSIS, TASK_REL
 from sub_role import first_line, main_session, resolve_role
 from sub_session import _claude_entry, _codex_entry, norm, read_session, session_path, turn
 from save_subagent_result import fence_for
@@ -51,7 +44,7 @@ ADMIT_TYPES = {
         r"|임의로|(?<![가-힣])제 판단으로|다르게 하시려면"
         r"|(?:절차|Skill|스킬|지침|규칙|양식|승인|기록|지시)들?(?:을|를|도|은|는)?"
         r"\s[^.\n]{0,20}?(?:묻|입증되|입증하|적용하|따르|지키|받|작성하|읽|검토하)지 않(?!으면|도록|는|게|을)"
-        r"|확인(?:하지 않고| 안 하고)"
+        r"|확인(?:하지 않고| 안 하고)|(?<![가-힣])제가 [^.\n]{0,40}?않고[^.\n]{0,30}?했(?:어요|습니다)"
         r"|확인한 사실이 아니|다만 이것이|사실과 다|(?:근거|이유|출처)가 없었|근거 없는"
         r"|놓(?:쳤|치고)|빠뜨|빼먹|누락(?:했|입니다|시켰)|건너뛰었(?!을 (?:수|가능성|지도))"
         r"|(?<![가-힣])제가 생략|안 했(?:습니다|어요)|했어야 했|지 않은 채|야 했(?:는데|습니다|어요)"
@@ -223,7 +216,7 @@ def context(path: str, message: str, cwd: str | Path | None = None) -> tuple[str
 
 # 사건 분석 세션을 hook 종료 뒤에도 살아남는 분리 프로세스로 띄운다. 실행 실패는 무시한다.
 def launch_analysis(path: Path, runner: str) -> None:
-    command = [sys.executable, str(INCIDENT_ROOT / RUN_WORKFLOW.relative_to(ROOT)),
+    command = [sys.executable, str(INCIDENT_ROOT / RUN_INCIDENT_ANALYSIS.relative_to(ROOT)),
                "--incident", str(path), "--runner", runner]
     quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
 

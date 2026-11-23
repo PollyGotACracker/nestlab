@@ -33,7 +33,7 @@ class Mode(unittest.TestCase):
             context = json.loads(output.stdout)["hookSpecificOutput"]["additionalContext"]
             self.assertNotIn("# 작업 문서 도구", context)
             self.assertNotIn(f"Python 실행 파일: `{Path(sys.executable).resolve()}`", context)
-            self.assertNotIn(f"작업 문서 생성기: `{(HOOKS.parent / 'tools' / 'create_task_docs.py').resolve()}`", context)
+            self.assertNotIn(f"작업 문서 생성기: `{(HOOKS.parent / 'shared' / 'tools' / 'create_task_docs.py').resolve()}`", context)
             self.assertNotIn("# 작업 문서 도구", run("SessionStart", "worker"))
 
     # 작업 색인은 director 메인 세션에만 주입하고 다른 역할과 서브에이전트에는 주입하지 않는다.

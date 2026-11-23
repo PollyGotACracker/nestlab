@@ -24,7 +24,7 @@ from pathlib import Path
 # 리다이렉트 대상이 &(2>&1)거나 null 장치(/dev/null, $null, NUL)면 쓰기로 보지 않는다.
 SHELLS = ("Bash", "PowerShell")
 RETRY = "사유에 맞게 호출을 고쳐 다시 실행하십시오. 승인으로 풀리는 차단은 직접 수행할 조작의 승인을 요청하십시오."
-APPROVAL_RETRY = "승인이 필요한 변경이면 nestlab-approval 스킬로 작업 문서와 변경 diff를 갖춘 승인 요청을 작성하십시오."
+APPROVAL_RETRY = "승인이 필요한 변경이면 변경 대상, 내용과 영향 범위를 설명해 사용자에게 승인을 요청하십시오."
 QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", re.S)
 WRITE_BASH = re.compile(r"(^|[;&|]\s*)(rm|rmdir|mv|cp|mkdir|touch|tee|Set-Content|Out-File|New-Item|Remove-Item)\b"

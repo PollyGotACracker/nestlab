@@ -1,39 +1,5 @@
 #!/usr/bin/env python3
-"""지침 문서의 끊어진 경로 및 절 참조와 금지 패턴을 검사한다.
-
-사용법: 저장소 루트나 다른 위치에서 실행한다.
-    python tools/check_doc_rule.py
-    python tools/check_doc_rule.py --hook   (PreToolUse hook: stdin hook 입력의 쓰기 뒤 파일 내용만 검사)
-
-검사1: 백틱 안의 저장소 경로가 있는지 확인한다.
-       `<...>` 자리표시자가 있는 경로는 건너뛴다.
-검사2: "`<제목>` 절" 참조가 대상 파일의 제목과 일치하는지 확인한다.
-       대상 파일은 같은 줄 앞쪽에 적힌 파일이다.
-       적힌 파일이 없으면 현재 파일, SECTION_EXTRA_FILES, SCHEMA_PATTERN 파일에서 찾는다.
-       제목은 코드 블록 밖에서 읽는다.
-       SCHEMA_PATTERN 파일은 예시 코드 블록이 절 이름을 정의하므로 코드 블록 안에서도 읽는다.
-검사3: discord/prompts 파일에서 ASCII 단어 경계의 Rule ID 패턴 [AHT]\\d{3}을 찾는다.
-검사4: 부정형 표현(않는다|하지 마|금지)을 찾는다.
-검사6: 다른 지침 파일 참조를 찾는다.
-       같은 줄에 .md 경로를 적고 그 파일의 절을 부르는 참조와 CROSS_REF 표현이 대상이다.
-       같은 파일 절과 양식 파일 절 참조는 허용한다.
-검사7: 스킬 본문(shared/skills/*/SKILL.md)에서 에이전트 역할명과 이름(director, nico 등)을 찾는다.
-       작업 ID와 경로처럼 앞뒤에 단어 문자, `-`, `/`, `.`이 붙은 일치는 제외한다.
-
-검사8: hooks, tools, discord의 .py 파일에서 주석과 docstring만 읽어 작업 기록 식별자를 찾는다.
-       사건 ID, 작업 ID, 특정 작업 문서 경로, `(요구사항 N)`과 `(문제 N)` 표기가 대상이며 문자열 리터럴은 허용한다.
-
-검사 대상 파일은 TARGET_PATTERNS로 찾는다.
-결과는 파일별로 출력한다.
-위반은 `파일:행` 형식으로 출력한다.
-일치하는 파일이 없는 패턴은 `없음:`으로 출력한다.
-위반이나 없는 대상 파일이 하나라도 있으면 종료 코드 1을 반환한다.
-
-설정과 패턴은 같은 폴더의 config.py에 있다.
-
-모듈(check_doc_rule/): sub_config 설정 및 경로 값, sub_paths 경로 판정, sub_rules 지침 검사, sub_sections 절 읽기
-공용 모듈: hooks/common/sub_write (hook 입력의 쓰기 대상 경로)
-"""
+"""지침 문서의 끊어진 경로 및 절 참조와 금지 패턴을 검사한다."""
 from __future__ import annotations
 
 import json

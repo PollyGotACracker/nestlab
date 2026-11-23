@@ -13,7 +13,7 @@ import isolate_incidents  # noqa: F401 사건 문서를 저장소에 쓰지 않�
 import allow_approved_request
 import check_tool_use
 import check_workflow_response
-import return_research_path
+import return_subagent_path
 import sub_docs
 import sub_role
 import sub_scope
@@ -142,12 +142,12 @@ class DirectorBoundaries(unittest.TestCase):
         with patch.object(sub_docs, "project_root", return_value=self.root):
             for body in ("", "### 조사 <번호>. <항목명> 결과\n\n- 결론: <내용>\n"):
                 document.write_text(f"# 조사\n\n## 조사 결과\n\n{body}", encoding="utf-8")
-                self.assertIsNone(return_research_path.replace(data, "claude"))
+                self.assertIsNone(return_subagent_path.replace(data, "claude"))
             document.write_text("# 조사\n\n## 조사 결과\n\n### 조사 1. 구조 결과\n\n- 결론: 일반 응답\n", encoding="utf-8")
-            self.assertIsNotNone(return_research_path.replace(data, "claude"))
-            self.assertIsNone(return_research_path.replace({**data, "tool_response": {"status": "running"}}, "claude"))
-            self.assertIsNone(return_research_path.replace({**data, "agent_type": "assistant"}, "claude"))
-            self.assertIsNone(return_research_path.replace({**data, "tool_response": {"status": "completed", "content": "다른 응답"}}, "claude"))
+            self.assertIsNotNone(return_subagent_path.replace(data, "claude"))
+            self.assertIsNone(return_subagent_path.replace({**data, "tool_response": {"status": "running"}}, "claude"))
+            self.assertIsNone(return_subagent_path.replace({**data, "agent_type": "assistant"}, "claude"))
+            self.assertIsNone(return_subagent_path.replace({**data, "tool_response": {"status": "completed", "content": "다른 응답"}}, "claude"))
 
 
 if __name__ == "__main__":

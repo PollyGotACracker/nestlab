@@ -135,15 +135,15 @@ class AllowApprovedRequest(unittest.TestCase):
 
     # 승인 전 원본 생성기는 두 hook을 통과하고 출력 탈출과 임의 스크립트는 거부한다.
     def test_task_docs_pretool_and_permission_entry(self):
-        script = self.root / "tools" / "create_task_docs.py"
-        base = 'python tools/create_task_docs.py --task 20261107-130000-example --title "한글 제목" --stage plan'
+        script = self.root / "shared" / "tools" / "create_task_docs.py"
+        base = 'python shared/tools/create_task_docs.py --task 20261107-130000-example --title "한글 제목" --stage plan'
         transcript = self.root / "before-approval.jsonl"
         transcript.write_text(claude_line("user", "문서를 준비해 주세요.") + "\n", encoding="utf-8")
         with patch.object(hook, "TASK_DOCS_SCRIPT", script), patch.object(sub_path, "TEMP", self.root / "os-temp"):
             for runner, shell in (("claude", "Bash"), ("codex", "PowerShell")):
                 data = {"agent_type": "director", "cwd": str(self.root), "transcript_path": str(transcript),
                         "tool_name": shell, "tool_input": {"command": base, "description": "검토 문서 생성"}}
-                for command in (base, base + ' --root "."', base.replace("tools/create_task_docs.py", f'"{script}"'),
+                for command in (base, base + ' --root "."', base.replace("shared/tools/create_task_docs.py", f'"{script}"'),
                                 base.replace("python ", "python -B -X utf8 ", 1),
                                 base.replace('"한글 제목"', '"*"'), base.replace('"한글 제목"', "'{a,b}'"),
                                 base.replace('"한글 제목"', "title") + " && git status"):
@@ -151,7 +151,7 @@ class AllowApprovedRequest(unittest.TestCase):
                     with self.subTest(runner=runner, command=command):
                         self.assertIsNone(check_tool_use.check(event, runner))
                         self.assertEqual(verdict(event, runner), "allow")
-                rejected = (base + ' --root ".."', base.replace("tools/create_task_docs.py", "tools/other.py"),
+                rejected = (base + ' --root ".."', base.replace("shared/tools/create_task_docs.py", "tools/other.py"),
                             base + " && python tools/other.py", base + " --unknown x",
                             base.replace('"한글 제목"', "title") + ' --root ".."',
                             base + ' --root "$HOME"', base + " --root *", base + " --root ~/.codex",
@@ -189,7 +189,7 @@ class AllowApprovedRequest(unittest.TestCase):
                     event = {**data, "tool_input": {**data["tool_input"], "command": prefix + command}}
                     self.assertIsNotNone(check_tool_use.check(event, runner))
                     self.assertEqual(verdict(event, runner), "deny")
-                template = hook.TASK_DOCS_SCRIPT.parents[1] / "shared" / "templates" / "workflow" / "approval.md"
+                template = hook.TASK_DOCS_SCRIPT.parents[2] / "shared" / "templates" / "workflow" / "approval.md"
                 self.assertIsNotNone(check_tool_use.check({**data, "tool_name": "Read",
                                                           "tool_input": {"file_path": str(template)}}, runner))
                 self.assertIsNotNone(check_tool_use.check({**data, "agent_type": "worker", "agent_id": "child",
@@ -236,7 +236,7 @@ class AllowApprovedRequest(unittest.TestCase):
             fixed = ["cmd", "/d", "/c", "nestlab-task-docs"] if sys.platform == "win32" else ["nestlab-task-docs"]
             result = subprocess.run(fixed + ["--print-template", "approval-research"], cwd=self.root,
                                     env={**os.environ, "PATH": path_value}, check=True, capture_output=True)
-            expected = hook.TASK_DOCS_SCRIPT.parents[1] / "shared" / "templates" / "workflow" / "approval-research.md"
+            expected = hook.TASK_DOCS_SCRIPT.parents[2] / "shared" / "templates" / "workflow" / "approval-research.md"
             self.assertEqual(result.stdout.decode("utf-8").replace("\r\n", "\n").strip(),
                              expected.read_text(encoding="utf-8").strip())
 

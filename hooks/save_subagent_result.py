@@ -1,14 +1,4 @@
-"""SubagentStop hook: researcher 최종 결과를 조사 문서의 조사 결과 절에, reviewer 반증 결과를 반증 문서의 회차 결과 절에 쓴다.
-보고는 결과 양식의 블록과 칸을 모두 채웠을 때만 코드 블록 없이 절 본문으로 삽입한다.
-조사 결과의 주장 목록은 반증 문서의 주장 목록 절에 쓴다.
-
-호출자: SubagentStop hook 설정(설정 원본), hooks/save_handback_report.py와 tools/run_workflow.py(write_result)
-반환:
-- stdout에 `{"decision": "block", "reason": ...}` JSON을 출력하거나 아무것도 출력하지 않는다.
-- write_result는 차단 사유 문자열 또는 저장했거나 건너뛴 경우 None이다.
-입력: SubagentStop hook 입력 JSON을 stdin으로 받는다(agent_id, transcript_path, session_id).
-한계: Codex 하위 thread의 기록 위치는 rollout 파일명에 의존한다. 칸 검사는 빈 값과 자리표시자만 판정하고 내용의 정확성은 판정하지 않는다.
-"""
+"""SubagentStop hook: researcher 최종 결과를 조사 문서의 조사 결과 절에, reviewer 반증 결과를 반증 문서의 회차 결과 절에 쓴다."""
 from __future__ import annotations
 
 import argparse

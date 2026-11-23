@@ -1,11 +1,4 @@
-"""PostToolUse hook: researcher 및 reviewer 호출 결과를 조사 문서와 반증 문서 경로 한 줄로 바꾼다.
-
-호출자: PostToolUse hook 설정(설정 원본), hooks/save_handback_report.py(RESEARCH_LINE)
-반환:
-- stdout에 `updatedToolOutput` JSON(Claude) 또는 `{"decision": "block", "reason": <한 줄>}`(Codex)을 출력하거나 아무것도 출력하지 않는다.
-- saved_line은 결과 한 줄 문자열 또는 None이다.
-입력: PostToolUse hook 입력 JSON을 stdin으로 받는다(tool_input, tool_response).
-"""
+"""PostToolUse hook: researcher 및 reviewer 호출 결과를 조사 문서와 반증 문서 경로 한 줄로 바꾼다."""
 from __future__ import annotations
 
 import json

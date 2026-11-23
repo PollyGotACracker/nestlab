@@ -23,7 +23,7 @@ class CreateTaskDocs(unittest.TestCase):
 
     # 문서 종류와 파일 이름은 스킬 설치 없이 같은 독립 양식 원본을 읽는다.
     def test_document_templates_match_independent_sources(self):
-        templates = Path(__file__).resolve().parents[2] / "shared" / "templates" / "workflow"
+        templates = Path(__file__).resolve().parents[2] / "templates" / "workflow"
         with patch.object(sub_docs, "SKILLS", self.root / "missing-skills"):
             for kind, name in {"state": "status", "input": "spec", "research": "research", "refute": "refute"}.items():
                 with self.subTest(kind=kind, name=name):

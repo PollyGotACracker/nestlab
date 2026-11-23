@@ -323,7 +323,7 @@ class SaveResult(unittest.TestCase):
 
     # Handback 저장 뒤 SubagentStop이 와도 회차 1개만 기록하는지 확인한다.
     def test_refute_recorded_once_with_followup_stop(self):
-        import save_handback_report
+        import save_subagent_report
         report = refute_report()
         for stop_message in (report, "다른 문구의 마지막 응답"):
             with self.subTest(stop_message=stop_message[:10]):
@@ -334,7 +334,7 @@ class SaveResult(unittest.TestCase):
                             {"type": "tool_use", "name": "SubagentHandback", "input": {"message": report}}]}}]
                 path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
                 base = {"agent_type": "ricky", "agent_transcript_path": str(path), "session_id": "s1", "transcript_path": str(self.parent)}
-                self.assertIsNotNone(save_handback_report.replace({**base, "tool_name": "SubagentHandback", "tool_input": {"message": report}}))
+                self.assertIsNotNone(save_subagent_report.replace({**base, "tool_name": "SubagentHandback", "tool_input": {"message": report}}))
                 hook.save({**base, "last_assistant_message": stop_message}, "claude")
                 text = self.refute.read_text(encoding="utf-8")
                 self.assertEqual(text.count("회차 반증 결과"), 1)

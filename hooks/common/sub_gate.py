@@ -4,7 +4,7 @@
 호출자:
 - hooks/check_tool_use.py
 - hooks/check_tool_use/sub_judgment.py
-- hooks/save_handback_report.py, hooks/save_subagent_result.py, tools/run_workflow.py
+- hooks/save_subagent_report.py, hooks/save_subagent_result.py, tools/run_incident_analysis.py
 입력: 작업 문서 본문 또는 저장소 루트, 작업 ID, 단계 이름
 반환:
 - 검사 함수(validate, check_plan, research_items, check_complete 등)는 통과하면 None을 반환하고

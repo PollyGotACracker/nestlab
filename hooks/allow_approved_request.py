@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""PermissionRequest hook에서 세션별 자동 허용 범위를 판정한다.
-
-입력: runner 인자와 stdin의 hook 입력 JSON이다.
-반환: PreToolUse를 통과한 하위 실행, 메인 읽기와 director 작업 문서 쓰기는 allow JSON이다.
-그 밖의 호출과 질문 도구, 오류는 출력 없이 runner 권한 판정을 따른다.
-한계: 보안 위험과 외부 경로는 PreToolUse와 runner의 deny 규칙으로 검사한다.
-"""
+"""PermissionRequest hook에서 세션별 자동 허용 범위를 판정한다."""
 from __future__ import annotations
 
 import argparse

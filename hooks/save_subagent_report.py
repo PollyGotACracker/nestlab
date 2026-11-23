@@ -1,12 +1,4 @@
-"""PreToolUse hook(SubagentHandback): researcher 보고는 조사 문서에, reviewer 반증 보고는 반증 문서에 저장하고 보고를 경로 한 줄로 바꾼다.
-
-호출자: SubagentHandback PreToolUse hook 설정(설정 원본)
-반환: 
-- stdout에 `hookSpecificOutput` JSON(allow와 updatedInput, 또는 deny와 사유)을 출력한다.
-- replace()는 그 dict 또는 None을 반환한다.
-입력: SubagentHandback PreToolUse hook 입력 JSON을 stdin으로 받는다.
-한계: 보고 원문의 사실 여부는 판정하지 않고 저장 형식만 검사한다.
-"""
+"""PreToolUse hook(SubagentHandback): researcher 보고는 조사 문서에, reviewer 반증 보고는 반증 문서에 저장하고 보고를 경로 한 줄로 바꾼다."""
 from __future__ import annotations
 
 import json
@@ -16,7 +8,7 @@ from pathlib import Path
 # 공용 모듈 폴더를 불러온다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
 
-from return_research_path import RESEARCH_LINE, SLOT_FINAL, SLOT_ROUND
+from return_subagent_path import RESEARCH_LINE, SLOT_FINAL, SLOT_ROUND
 from save_subagent_result import write_result
 from sub_call import refute_mode
 from sub_docs import SAVED_LINE, doc, loop_count, saved_report, task_id

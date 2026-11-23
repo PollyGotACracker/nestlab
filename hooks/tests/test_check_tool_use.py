@@ -99,6 +99,10 @@ PLAN_OK = """# t 입력
 
 
 # Claude 대화 기록 한 줄을 JSON 문자열로 만든다.
+# patch 전의 원래 읽기 판정 함수이다.
+REAL_RULES_READ = sub_scope.rules_read
+
+
 def claude_line(role: str, text: str) -> str:
     content = text if role == "user" else [{"type": "text", "text": text}]
     return json.dumps({"type": role, "message": {"content": content}}, ensure_ascii=False)
@@ -145,7 +149,9 @@ class WriteScope(unittest.TestCase):
                         # 템플릿 필수 절 검사는 test_template_titles만 다룬다. 다른 테스트는 빈 스킬 폴더를 쓴다.
                         patch.object(sub_docs, "TEMPLATES", self.templates),
                         # 스킬 호출 검사는 test_workflow_gates의 스킬Call만 다룬다.
-                        patch.object(sub_scope, "skill_called", return_value=True)]
+                        patch.object(sub_scope, "skill_called", return_value=True),
+                        # 상세 규칙 문서 읽기 검사는 test_rules_doc_read만 다룬다.
+                        patch.object(sub_scope, "rules_read", return_value=True)]
         for p in self.patches:
             p.start()
 
@@ -486,6 +492,26 @@ class WriteScope(unittest.TestCase):
                     self.assertIsNone(self.write(rel, "x"))
                 self.assertIsNone(self.write(rel, "x"))
         self.assertEqual(sub_scope.skill_for(".claude/agents/director/SOUL.md"), None)
+
+    # hooks/와 tools/ 아래 .py 쓰기는 상세 규칙 문서를 읽은 뒤에만 통과한다.
+    def test_rules_doc_read(self):
+        with patch.object(sub_scope, "rules_read", return_value=False):
+            self.assertIn("rules/harness-rules.md", self.write("hooks/a.py", "x") or "")
+            self.assertIn("rules/tool-rules.md", self.write("tools/a.py", "x") or "")
+            self.assertIsNone(self.write("docs/a.py", "x"))
+        self.assertIsNone(self.write("hooks/a.py", "x"))
+
+    # 읽기 판정은 Read 도구와 셸 읽기 커맨드만 인정하고 다른 호출과 다른 문서는 인정하지 않는다.
+    def test_rules_read_detection(self):
+        doc = "rules/harness-rules.md"
+        read = lambda *calls: patch.object(sub_scope, "read_session", return_value=[{"role": "assistant", "text": "", "calls": list(calls)}])
+        with read(("Read", {"file_path": "C:\\repo\\rules\\harness-rules.md"})):
+            self.assertTrue(REAL_RULES_READ({}, doc))
+        with read(("Bash", {"command": "cat rules/harness-rules.md"})):
+            self.assertTrue(REAL_RULES_READ({}, doc))
+        with read(("Bash", {"command": "ls rules/harness-rules.md"}), ("Edit", {"file_path": doc, "new_string": "cat"}),
+                  ("Read", {"file_path": "rules/tool-rules.md"})):
+            self.assertFalse(REAL_RULES_READ({}, doc))
 
     # 새 조사 문서는 빈 원문 칸일 때만 허용되는지 확인한다.
     def test_new_research_doc_allows_empty_raw_only(self):
@@ -1610,14 +1636,14 @@ class ApprovalGate(unittest.TestCase):
     # 승인 전 메인 세션은 git 쓰기, 쓰기 호출이 있는 인라인 코드, 허용 목록 밖 스크립트, 세션 밖 경로를 deny한다.
     def test_approval_turn_before_denies(self):
         for cmd in ("git commit -m x", "git push", "git add a.py", "python -c \"open('a.txt','w').write('x')\"",
-                    "python tools/run_workflow.py", "python -m pytest", "cat /etc/hosts"):
+                    "python tools/run_incident_analysis.py", "python -m pytest", "cat /etc/hosts"):
             self.assertTrue((self.shell(cmd) or "").endswith((sub_write.RETRY, sub_write.APPROVAL_RETRY, hook.REASON_EDIT_GUIDE)), cmd)
 
     # 승인 필요 차단 사유 7개가 APPROVAL_RETRY로 끝나고 RETRY를 포함하지 않으며, 일반 차단은 RETRY를 유지한다.
     def test_approval_reasons_use_approval_retry(self):
         for reason in (sub_scope.REASON_NO_APPROVAL, sub_scope.REASON_OUTSIDE_LOG, hook.REASON_SCRIPT,
                        sub_write.REASON_GIT_WRITE, sub_approval.REASON_APPROVAL):
-            self.assertIn("nestlab-approval", reason)
+            self.assertIn("사용자에게 승인을 요청하십시오", reason)
             self.assertNotIn("권한 일시 우회", reason)
         self.assertTrue(sub_scope.REASON_NO_APPROVAL.endswith(sub_write.APPROVAL_RETRY))
         self.assertTrue(sub_write.REASON_INLINE.endswith(sub_write.RETRY))
@@ -1638,7 +1664,7 @@ class ApprovalGate(unittest.TestCase):
 
     # 승인 턴에는 git 쓰기와 스크립트 실행이 통과하고, git -c와 저장소 밖 git -C만 deny한다.
     def test_approval_turn_after(self):
-        for cmd in ("git commit -m x", "python tools/run_workflow.py", "git -C hooks log -1"):
+        for cmd in ("git commit -m x", "python tools/run_incident_analysis.py", "git -C hooks log -1"):
             self.assertIsNone(self.shell(cmd, approved=True), cmd)
         temp = Path(self.ostemp.name).resolve() / "a.json"
         self.assertIn(hook.REASON_EDIT_GUIDE, self.shell("cp a.txt b.txt", approved=True) or "")

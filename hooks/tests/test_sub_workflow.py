@@ -221,7 +221,7 @@ class Gate(StageConditions):
     # 구현 문서는 실행과 완료 검사를 유지하며 실패한 완료 요청은 구현에 남긴다.
     def test_single_stage_completion(self):
         from sub_approval import apply_stage
-        import record_stage
+        import record_workflow_stage
         status = self.folder / "status.md"
         body = STATE
         status.write_text(body, encoding="utf-8")
@@ -230,7 +230,7 @@ class Gate(StageConditions):
         self.assertRegex(status.read_text(encoding="utf-8"), r"- 완료 시각: \d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d")
         sub_gate.validate(self.root, TASK, "complete")
         status.write_text(body.replace("  - PASS:", "  - FAIL:"), encoding="utf-8")
-        message = record_stage.decide_stage({"prompt": f"[complete {TASK}]", "cwd": str(self.root)})
+        message = record_workflow_stage.decide_stage({"prompt": f"[complete {TASK}]", "cwd": str(self.root)})
         self.assertIn("구현 단계를 유지합니다", message)
         self.assertEqual(apply_stage(status, None), "구현")
         stopped = body.replace("## 중단 사유\n", "## 중단 사유\n- 중단 유형: 선택 필요\n")

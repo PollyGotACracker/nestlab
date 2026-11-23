@@ -3,7 +3,7 @@
 호출자:
 - hooks/check_tool_use.py
 - hooks/save_subagent_result.py
-- hooks/save_handback_report.py
+- hooks/save_subagent_report.py
 - hooks/common/sub_gate.py
 입력: hook 입력 dict, 호출 본문 문자열
 반환:

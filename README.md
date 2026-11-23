@@ -125,14 +125,16 @@ Discord 채널의 웹훅 봇 목록
 │   └── config.example.json        # config.json 예시
 ├── docs/                          # 환경별 연결 문서
 ├── hooks/                         # 훅 스크립트
-├── rules/                         # 저장소 상세 규칙
+├── rules/                         # 현재 저장소의 상세 규칙 및 작업 명세
 ├── shared/
+│   ├── rules/                     # 공통 상세 규칙
 │   ├── settings/                  # 공통 설정(권한 등)
 │   ├── skills/<skill>/SKILL.md    # 공통 skill
-│   └── templates/workflow/        # 작업 문서와 질문, 보고, 승인 요청 양식 원본
-├── tools/                         # 실행 스크립트
+│   ├── templates/workflow/        # 작업 문서와 질문, 보고, 승인 요청 양식 원본
+│   └── tools/                     # 공통 실행 스크립트 도구
+├── tools/                         # 현재 저장소의 실행 스크립트 도구
 ├── AGENTS.global.md               # 전역 지침
-├── AGENTS.md                      # 저장소 지침
+├── AGENTS.md                      # 현재 저장소 지침
 ├── CLAUDE.md                      # AGENTS.md를 읽는 Claude Code 진입점
 └── README.md                      # 저장소 정보 문서
 ```

@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-"""runner가 생성한 worktree의 변경 결과를 원본 checkout에 반영한다.
-
-입력: apply 동작과 worktree 경로(원본 경로는 생략하면 worktree에서 구한다).
-반환: 반영한 경로 목록은 stdout, 보류한 경로 목록은 stderr에 출력하고 종료 코드 0, 실패 원문과 종료 코드 1.
-한계: worktree 생성은 runner의 기본 기능으로 완료해야 하며, 원본 내용이 기준 커밋과 다른 파일은 보류한다.
-"""
+"""runner가 생성한 worktree의 변경 결과를 원본 checkout에 반영한다."""
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 import sys
 
-HOOKS = Path(__file__).resolve().parents[1] / "hooks"
+HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 sys.path[:0] = [str(HOOKS / "common"), str(HOOKS / "check_tool_use")]
 from sub_worktree import apply, origin
 

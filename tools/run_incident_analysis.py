@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""사건 문서의 분석을 hook을 끈 director 세션으로 실행하는 사건 분석 실행기이다.
-조사와 반증은 director의 Agent 도구 호출로 하며 이 실행기에 단계 실행 경로가 없다.
-
-호출자:
-- hooks/check_invalid_response.py(`python tools/run_workflow.py --incident <사건 문서> --runner <claude|codex>`, 분리 프로세스)
-입력:
-- 사건 문서 경로와 runner 이름(claude 또는 codex).
-- 사건 분석은 hook을 끈 director 세션이며 Bash를 거부하고 문서 및 웹 도구만 허용한다.
-반환:
-- 성공하면 최종 메시지를 stdout에 출력하고 종료 코드 0을 반환한다.
-- 사건 문서 없음, 실행 실패는 사유와 수행할 행동을 stderr에 출력하고 종료 코드 1을 반환한다.
-한계: 외부 CLI 실행은 인증과 런타임 설치 상태에 영향을 받는다.
-"""
+"""사건 문서의 분석을 hook을 끈 director 세션으로 실행하는 사건 분석 실행기이다."""
 from __future__ import annotations
 
 import argparse
