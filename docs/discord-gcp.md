@@ -209,19 +209,60 @@ python -m pip show aiohttp discord.py claude-agent-sdk google-cloud-secret-manag
 
 ## Claude Code 로그인
 
-- 실행 위치: VM SSH (디렉터리 무관)
+- 실행 위치: VM SSH (봇 서비스 사용자, 디렉터리 무관)
 
-claude CLI를 설치하고 로그인한다.
+claude CLI를 설치하고, 상시 실행용 장기 토큰을 발급해 파일에 저장한다.
+장기 토큰은 발급일부터 1년간 유효하고 모델 요청만 할 수 있다.
+`claude setup-token`은 토큰을 저장하지 않으므로 봇 서비스가 재시작해도 읽을 수 있게 파일에 저장한다.
+토큰 전체가 화면에 보이는 새 SSH 창에서 진행한다.
+
+1. claude CLI를 설치한다.
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
-~/.local/bin/claude
 ```
 
-AI 응답을 확인한다.
+2. 터미널 창을 최대한 넓힌 뒤 토큰을 발급한다.
 
 ```bash
-~/.local/bin/claude -p "hi"
+~/.local/bin/claude setup-token
+```
+
+- 터미널에 출력된 URL을 PC 브라우저에서 열어 승인한다.
+- 브라우저에 표시된 인증 코드를 복사해 터미널의 `Paste code here if prompted >` 프롬프트에 붙여넣는다. 인증 코드는 토큰이 아니다.
+- 터미널에 `Long-lived authentication token created successfully!`가 나오면 그 아래에 출력된 토큰을 복사한다. 이 문자열을 3단계에서 저장한다.
+- 토큰이 두 줄로 나뉘어 출력되면 창을 더 넓혀 다시 발급한다.
+  줄바꿈이 섞이거나 인증 코드를 저장한 토큰은 `401 Invalid bearer token`으로 거부된다.
+
+3. 토큰을 소유자만 읽을 수 있는 파일에 저장한다.
+   아래 명령은 `Ctrl+D`를 누를 때까지 입력을 기다린다.
+
+```bash
+umask 077; mkdir -p ~/.config/discord-bot
+cat > ~/.config/discord-bot/claude.env
+```
+
+입력창에 아래 한 줄을 입력한다. `=` 뒤에 복사한 토큰을 붙여넣고 `Enter`를 누른 뒤, 새 줄에서 `Ctrl+D`를 눌러 저장한다.
+입력을 잘못했으면 `Ctrl+C`로 중단하고 이 단계를 다시 한다.
+
+```text
+CLAUDE_CODE_OAUTH_TOKEN=<토큰>
+```
+
+4. 토큰이 한 줄이고 공백이 없는지 확인한다.
+   `줄수`가 1이 아니거나 `길이`가 발급한 토큰보다 짧으면 2단계부터 다시 한다.
+
+```bash
+wc -l < ~/.config/discord-bot/claude.env
+awk -F= '{print "길이=" length($2) " 앞=" substr($2,1,13)}' ~/.config/discord-bot/claude.env
+```
+
+5. AI 응답을 확인한다.
+   괄호 안에서 실행하므로 토큰이 현재 셸의 환경변수로 남지 않는다.
+   환경변수가 남으면 이후 로그인보다 먼저 쓰인다.
+
+```bash
+( set -a; . ~/.config/discord-bot/claude.env; set +a; ~/.local/bin/claude -p "hi" )
 ```
 
 ## 수동 실행
@@ -233,7 +274,7 @@ cd ~/nestlab/discord
 - 실행 위치: VM SSH → `discord/`
 
 ```bash
-.venv/bin/python bot/run_gcp.py
+( set -a; . ~/.config/discord-bot/claude.env; set +a; exec .venv/bin/python bot/run_gcp.py )
 ```
 
 Discord에서 봇이 접속했는지 확인하고 `Ctrl+C`로 종료한다.
@@ -264,6 +305,7 @@ ExecStart=$REPO_ROOT/discord/.venv/bin/python $REPO_ROOT/discord/bot/run_gcp.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/$VM_USER/.config/discord-bot/claude.env
 
 [Install]
 WantedBy=multi-user.target

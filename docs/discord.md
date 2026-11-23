@@ -605,7 +605,7 @@ python -c "import sys; sys.path.insert(0, 'discord/bot'); import bot; print('ok'
 ## Claude 인증 확인
 
 봇을 실행할 사용자 계정에서 Claude Code를 설치하고 로그인한 뒤 응답을 확인한다.
-GCP VM의 설치와 로그인은 [Claude Code 로그인](discord-gcp.md#claude-code-로그인)을 따른다.
+GCP VM의 설치와 장기 토큰 설정은 [Claude Code 로그인](discord-gcp.md#claude-code-로그인)을 따른다.
 
 ```bash
 claude -p "hi"

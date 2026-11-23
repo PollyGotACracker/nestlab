@@ -178,6 +178,134 @@ systemd가 5초마다 재시작을 반복하므로 `status`가 잠깐 `active`�
 
 로그 확인 커맨드는 [discord-debug.md](discord-debug.md)를 따른다.
 
+## Claude 인증 만료
+
+봇은 서비스 환경변수 `CLAUDE_CODE_OAUTH_TOKEN`의 장기 토큰으로 인증한다.
+토큰은 발급일부터 1년간 유효하고, 사용해도 연장되지 않는다.
+토큰 발급과 서비스 설정은 [discord-gcp.md](discord-gcp.md#claude-code-로그인)를 따른다.
+
+### 증상
+
+`discord-bot` 서비스는 `active`로 보이지만 채팅 턴마다 응답이 없다.
+로그에 `ProcessError`가 남고, 실제 원인은 같은 시각의 `claude cli stderr:` 줄에 있다.
+로그 확인 커맨드는 [discord-debug.md](discord-debug.md)를 따른다.
+
+e.g. 브라우저 로그인 세션이 만료된 경우
+
+```text
+claude cli stderr: Failed to authenticate: OAuth session expired and could not be refreshed
+claude_agent_sdk._errors.ProcessError: Command failed with exit code 1
+```
+
+### 토큰 재발급
+
+- 실행 위치: VM SSH (봇 서비스 사용자, 새 SSH 창)
+
+토큰 만료 전 점검에서 재발급 시점이 되었거나 위 증상이 나오면 진행한다.
+
+1. 토큰을 발급하고 파일에 저장한다. [discord-gcp.md](discord-gcp.md#claude-code-로그인)의 2~3단계를 따른다.
+2. 토큰 형식과 AI 응답을 확인한다. [discord-gcp.md](discord-gcp.md#claude-code-로그인)의 4~5단계를 따른다.
+3. 봇을 재시작하고 Discord 채팅 채널에서 응답을 확인한다.
+
+```bash
+sudo systemctl restart discord-bot
+sudo systemctl status discord-bot
+```
+
+### 서비스 설정 보완
+
+`EnvironmentFile`이 없는 기존 서비스에 추가한다.
+`sudo` 없이 봇 서비스 사용자로 접속한 셸에서 실행한다.
+
+- 실행 위치: VM SSH
+
+1. 토큰 파일이 있는지 확인한다. `있음`이 나오지 않으면 [discord-gcp.md](discord-gcp.md#claude-code-로그인)의 2~3단계로 파일을 먼저 만든다.
+
+```bash
+test -s ~/.config/discord-bot/claude.env && echo 있음 || echo 없음
+```
+
+2. 서비스 설정을 추가한다.
+
+```bash
+sudo mkdir -p /etc/systemd/system/discord-bot.service.d
+sudo tee /etc/systemd/system/discord-bot.service.d/claude-token.conf >/dev/null <<EOF
+[Service]
+EnvironmentFile=$HOME/.config/discord-bot/claude.env
+EOF
+```
+
+3. 서비스 설정의 경로와 파일 경로가 같은지 확인한다.
+
+```bash
+sudo systemctl cat discord-bot | grep EnvironmentFile
+ls -l ~/.config/discord-bot/claude.env
+```
+
+4. 설정을 적용하고 재시작한다.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart discord-bot
+```
+
+### 기동 실패
+
+`systemctl restart` 결과가 `Job for discord-bot.service failed because of unavailable resources or another system error`이면 `EnvironmentFile`을 읽지 못한 것이다.
+systemd는 `EnvironmentFile`의 파일이 없거나 읽을 수 없거나 내용이 잘못되면 서비스를 시작하지 않는다.
+
+- 실행 위치: VM SSH
+
+1. 원인 줄을 확인한다. `Failed to load environment files`가 나온다.
+
+```bash
+sudo journalctl -xeu discord-bot -n 20 --no-pager
+```
+
+2. 서비스가 가리키는 경로와 파일을 비교한다. 파일이 없거나 경로의 사용자 이름이 다르면 `discord-gcp.md`의 3단계로 파일을 만들거나 서비스 설정의 경로를 고친다.
+
+```bash
+sudo systemctl cat discord-bot | grep EnvironmentFile
+ls -l ~/.config/discord-bot/claude.env
+```
+
+3. 수정 후 재시작한다.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart discord-bot
+```
+
+### 401 Invalid bearer token
+
+토큰 파일이 있는데 로그에 `401 Invalid bearer token`이 나오면 토큰 값이 거부된 것이다.
+원인은 브라우저의 인증 코드를 토큰으로 저장한 경우, 토큰의 줄바꿈 혼입, 잘린 토큰, 셸이나 서비스에 남은 다른 인증 변수이다.
+저장할 값은 터미널에 출력된 토큰이다.
+
+- 실행 위치: VM SSH
+
+1. 토큰이 한 줄인지 확인한다. 값은 출력하지 않는다. [discord-gcp.md](discord-gcp.md#claude-code-로그인)의 4단계를 따른다.
+2. 다른 인증 변수가 있는지 확인한다. `0`이 아니면 그 변수가 토큰보다 먼저 쓰인다.
+
+```bash
+env | grep -c '^ANTHROPIC'
+sudo systemctl show discord-bot -p Environment | grep -c ANTHROPIC
+```
+
+3. 문제가 있으면 [discord-gcp.md](discord-gcp.md#claude-code-로그인)의 2단계부터 토큰을 다시 발급한다.
+
+### 만료 전 점검
+
+- 토큰 파일의 저장 시각이 발급일이다. 11개월이 지나기 전에 토큰을 재발급한다.
+
+```bash
+stat -c %y ~/.config/discord-bot/claude.env
+```
+
+- 서비스 환경에 `ANTHROPIC_API_KEY`가 있으면 토큰보다 먼저 쓰인다. 키가 만료되었거나 비활성이면 인증이 실패한다.
+
+cf. [Authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)
+
 ## 계정과 Secret 점검
 
 ### VM 서비스 계정
