@@ -17,7 +17,7 @@ modified: 2026-11-24
 프로젝트 루트: nestlab/
 가상환경:      nestlab/discord/.venv
 봇 코드:       nestlab/ 아래 로컬 저장소와 같은 상대경로
-규칙 원본:     nestlab/AGENTS.global.md, nestlab/.claude/agents/
+규칙 원본:     nestlab/AGENTS.global.md, nestlab/.claude/agents/<role>/SOUL.md
 Secret:        DISCORD_BOT_CONFIG
 Zone:          us-west1-b
 서비스:        discord-bot
@@ -107,8 +107,8 @@ sudo systemctl restart discord-bot
 sudo systemctl status discord-bot
 ```
 
-- `AGENTS.global.md`, 에이전트의 `AGENTS.md`, 자기 및 동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
-  공통 규칙과 Persona는 프롬프트에 넣고 에이전트 `AGENTS.md`는 캐릭터 이름을 읽는 원본으로 쓴다.
+- `AGENTS.global.md`, 자기 및 동료의 `SOUL.md`는 다음 발언에서 수정 시각이나 크기 변경을 감지한다.
+  공통 규칙과 Persona는 프롬프트에 넣고, 캐릭터 내부 ID는 `SOUL.md` 제목에서 읽는다.
 - `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`와 자기 에이전트의 `MEMORY.md`도 같은 방식으로 감지한다.
 - documenter는 `discord/prompts/ARCHIVE.md`도 감지한다.
 - 에이전트 이름, 역할, 채널 등 설정 변경은 아래 설정 변경 절에 따라 재시작한다.

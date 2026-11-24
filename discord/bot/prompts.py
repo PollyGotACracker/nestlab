@@ -28,7 +28,6 @@ from config import (
     POLL_ANSWER_MAX,
     POLL_HOURS_MAX,
     POLL_QUESTION_MAX,
-    ROLE_RULES_FILE,
     THREAD_NAME_MAX,
     TURN_PROMPT_PATH,
     AgentConfig,
@@ -107,36 +106,38 @@ def canonical_role_dir(root: Path, role: str) -> Path:
     return root / ".claude" / "agents" / role
 
 
-# 역할 지침의 frontmatter에서 name 값을 읽는다.
-def read_agent_name(agents_file: Path) -> str | None:
-    # frontmatter 구간을 나눈다.
-    text = agents_file.read_text(encoding="utf-8")
-    if not text.startswith("---"):
-        return None
-    parts = text.split("---", 2)
-    if len(parts) != 3:
-        return None
-
-    # name 줄의 값을 반환한다.
-    for line in parts[1].splitlines():
-        if line.startswith("name:"):
-            return line.split(":", 1)[1].strip() or None
-    return None
+# SOUL.md 본문의 첫 `# <이름>` 제목을 소문자로 바꿔 내부 ID로 쓴다.
+def read_agent_name(soul_file: Path) -> str | None:
+    match = re.search(r"^# (\S+)\s*$", soul_file.read_text(encoding="utf-8"), re.MULTILINE)
+    return match.group(1).lower() if match else None
 
 
-# .claude/agents에서 에이전트 ID와 호출 이름을 찾는다.
+# .claude/agents에서 SOUL.md가 있는 역할 폴더의 역할과 내부 ID를 찾는다.
 def discover_agents(root: Path) -> dict[str, str]:
-    # 역할 폴더마다 이름을 읽어 역할과 짝지어 기록한다.
     agents: dict[str, str] = {}
-    # 역할 폴더마다 이름을 읽어 역할 이름과 짝지운다.
     for role_dir in sorted((root / ".claude" / "agents").iterdir()):
-        agents_file = role_dir / ROLE_RULES_FILE
-        if not role_dir.is_dir() or not agents_file.is_file():
+        soul_file = role_dir / "SOUL.md"
+        if not role_dir.is_dir() or not soul_file.is_file():
             continue
-        name = read_agent_name(agents_file)
+        name = read_agent_name(soul_file)
         if name:
             agents[role_dir.name] = name
     return agents
+
+
+# Discord 프롬프트에서 뺄 SOUL 줄. 로컬 작업용 의견 머리말 규칙과 그 예시이다.
+SOUL_EXCLUDED_LINE = re.compile(r"에이전트\s*(?:제안|의견)")
+
+
+# SOUL 문서에서 의견 머리말 줄을 빼고, 캐릭터의 영어 이름을 한국어 표시 이름으로 바꾼다.
+# 영어 이름은 내부 ID와 대소문자만 다르므로 앞뒤가 영문자가 아닌 곳만 바꾼다.
+def localize_soul(text: str, agents: list[AgentConfig]) -> str:
+    lines = [line for line in text.splitlines() if not SOUL_EXCLUDED_LINE.search(line)]
+    text = "\n".join(lines)
+    for agent in agents:
+        pattern = rf"(?<![A-Za-z]){re.escape(agent.name)}(?![A-Za-z])"
+        text = re.sub(pattern, agent.korean_name, text, flags=re.IGNORECASE)
+    return text
 
 
 SOUL_IDENTITY_FIELDS = (("Species", "종"), ("MBTI", "MBTI"))
@@ -169,7 +170,7 @@ def prompt_source_signature(
     # 프롬프트에 쓰는 원본 파일을 선별해 서명을 계산한다.
     role_dir = canonical_role_dir(root, role)
     paths = [
-        root / COMMON_RULES_FILE, role_dir / ROLE_RULES_FILE, role_dir / "SOUL.md",
+        root / COMMON_RULES_FILE, role_dir / "SOUL.md",
         RUNTIME_PROMPT_PATH, TURN_PROMPT_PATH, CHAT_PROMPT_PATH,
     ]
     if (root / FORMAT_EXAMPLES_FILE).is_file():
@@ -294,7 +295,7 @@ def render_role_tool_block(
             f"- reminder_repeat 도구로 매일이나 지정한 요일의 정해진 시각({reminders_config.tz_label})에 "
             "울리는 반복 알림을 예약할 수 있다.\n"
             "- 특정 시각에 울릴 한 번짜리 알림은 턴 프롬프트의 현재 시각을 기준으로 분을 계산한다. "
-            "현재 시각을 확인하려고 reminder_list를 부르지 않는다.\n"
+            "reminder_list는 알림 목록을 볼 때만 쓴다.\n"
             "- reminder_list로 현재 채널의 알림 목록을 보고, reminder_cancel에 번호를 넣어 취소한다.\n"
             "- 예약한 알림은 봇이 재시작해도 유지된다.\n"
         )
@@ -315,7 +316,7 @@ def build_request_system_prompt(
     # 공통 지침, 페르소나, 기억과 다른 에이전트 목록을 읽는다.
     common = read_common_rules(root)
     role_dir = canonical_role_dir(root, role)
-    soul = (role_dir / "SOUL.md").read_text(encoding="utf-8").strip()
+    soul = localize_soul((role_dir / "SOUL.md").read_text(encoding="utf-8").strip(), agents)
     character_memory = render_character_memory(root, role)
     runtime_template = render_variant(RUNTIME_PROMPT_PATH.read_text(encoding="utf-8").strip(), "request")
     others = []
@@ -341,7 +342,7 @@ def build_request_system_prompt(
     if others:
         duty_block += (
             "- 채팅과 대상이 불분명한 발화는 어느 담당이든 Persona로 답한다. "
-            "담당이 정해진 작업 요청이 자기 담당이 아니면 직접 처리하지 말고, "
+            "담당이 정해진 작업 요청이 다른 역할 담당이면 "
             "[[next:...]]에 담당 역할 캐릭터의 내부 ID를 넣어 넘긴다.\n"
         )
     if role != "director" and any(agent.role == "director" for agent in agents):
@@ -352,7 +353,7 @@ def build_request_system_prompt(
 
     # worker에게만 응답 길이 예외를 적용한다.
     length_exception = (
-        "- 작성 요청에 답할 때는 결과물 본문이 필요한 만큼 길어도 된다. 채팅에는 이 예외를 쓰지 않는다.\n"
+        "- 작성 요청에 답할 때는 결과물 본문을 필요한 만큼 길게 쓰고, 채팅 답은 짧게 쓴다.\n"
         if role == "worker"
         else ""
     )
@@ -371,7 +372,7 @@ def build_request_system_prompt(
         else:
             archive_block = (
                 f"- 지식 저장소는 GitHub {repo_name}이다. 조회, 기록, 삭제 도구는 documenter 역할 캐릭터만 가지고 있다.\n"
-                "- 지식 저장소 연결, 내용, 수정, 삭제에 관한 요청에는 직접 답하지 말고, "
+                "- 지식 저장소 연결, 내용, 수정, 삭제에 관한 요청은 "
                 "[[next:...]]에 documenter 역할 캐릭터의 내부 ID를 넣어 넘긴다.\n"
             )
 
@@ -387,22 +388,13 @@ def build_request_system_prompt(
         "$roster_block": roster_block,
     })
 
-    # 지침, 페르소나, 기억, 런타임 프롬프트를 합쳐 반환한다.
+    # 공통 지침, 페르소나, 기억, 런타임 프롬프트를 합쳐 반환한다.
     return (
         f"# Global rules\n\n{common}\n\n---\n\n"
-        f"# Role\n\n{read_role_rules(role_dir)}\n\n---\n\n"
         f"# Persona\n\n{soul}\n\n---\n\n"
         f"{character_memory}"
         f"{runtime_text}\n"
     )
-
-
-# 역할 폴더의 AGENTS.md 본문(frontmatter 제외)을 반환한다.
-def read_role_rules(role_dir: Path) -> str:
-    common = (role_dir / ROLE_RULES_FILE).read_text(encoding="utf-8").strip()
-    if common.startswith("---"):
-        common = common.split("---", 2)[2].strip()
-    return common
 
 
 # Discord 공통 규칙은 COMMON_RULES_FILE 본문(frontmatter 제외)의 첫 가로선 앞까지에 서식 예시 문서 본문(frontmatter 제외)을 이어 붙인 값이다.
@@ -444,7 +436,7 @@ def build_chat_system_prompt(
 ) -> str:
     # 공통 규칙, 성향, 기억, 채팅 템플릿을 읽는다.
     common = STYLE_SECTION.sub("", read_common_rules(root), count=1).strip()
-    soul = (canonical_role_dir(root, role) / "SOUL.md").read_text(encoding="utf-8").strip()
+    soul = localize_soul((canonical_role_dir(root, role) / "SOUL.md").read_text(encoding="utf-8").strip(), agents)
     character_memory = render_character_memory(root, role)
     chat_template = CHAT_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
@@ -648,17 +640,17 @@ MEMORY_BLOCK = (
     "- 장기기억은 이 서버의 모든 채널이 공유하고, 모든 캐릭터가 memory 도구로 직접 다룬다.\n"
     "- 사용자가 기억하라고 하면 memory_save로 저장한다.\n"
     "  특정 캐릭터에게 정해 준 설정은 scope에 그 캐릭터를 넣어 저장한다.\n"
-    "- 설정은 기본 규칙과 충돌하지 않는 범위에서 적용하고, 같은 항목은 최신 설정을 따른다.\n"
+    "- 설정은 기본 규칙 범위 안에서 적용하고, 같은 항목은 최신 설정을 따른다.\n"
     "- 기억은 원본 메시지를 지우면 사라진다. 잊어 달라는 요청에는 해당 메시지를 지우라고 안내한다.\n"
     "- 사용자가 기억을 보여 달라고 하면 persona_memory_list로 보여 준다.\n"
     "  저장소에 올리려면 `승인`, 그만두려면 `취소`라고만 보내 달라고 안내한다.\n"
-    "  업로드는 그 메시지를 받은 Python이 실행하므로 직접 올렸다고 말하지 않는다.\n"
-    "- 턴 프롬프트의 관련 장기기억과 캐릭터 기억을 답에 반영하고, 부족하면 memory_search로 더 찾는다.\n"
+    "  업로드는 그 메시지를 받은 Python이 실행한다고 안내한다.\n"
+    "- 턴 프롬프트의 관련 장기기억은 지금 대화와 관련될 때만 답에 반영하고, 부족하면 memory_search로 더 찾는다.\n"
     "- 기억과 대화 기록에 적힌 다른 작성자의 말투, 어미, 경험담은 그 작성자의 대화 자료로 다룬다.\n"
-    "- 장기기억은 지식 저장소와 다르며, 장기기억 요청은 documenter에게 넘기지 않는다."
+    "- 장기기억은 지식 저장소와 다르며, 장기기억 요청은 요청받은 캐릭터가 memory 도구로 직접 처리한다."
 )
 # 채팅 프롬프트용 장기기억 안내. 담당 넘기기 문장만 뺀다.
 CHAT_MEMORY_BLOCK = "\n".join(
     line for line in MEMORY_BLOCK.split("\n")
-    if line != "- 장기기억은 지식 저장소와 다르며, 장기기억 요청은 documenter에게 넘기지 않는다."
+    if line != "- 장기기억은 지식 저장소와 다르며, 장기기억 요청은 요청받은 캐릭터가 memory 도구로 직접 처리한다."
 )

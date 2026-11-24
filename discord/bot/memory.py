@@ -90,23 +90,6 @@ def render_prompt_memories(runtime: Any, guild_id: int | None, query_text: str) 
     return render_memory_items(rows, settings.prompt_max_chars)
 
 
-# 턴 프롬프트의 캐릭터 기억: 이 서버에서 이 캐릭터가 겪은 일. 낱말이 맞는 순, 같으면 최신 순이다.
-def render_prompt_persona_events(runtime: Any, guild_id: int | None, agent: str, query_text: str) -> str:
-    # 런타임에서 기억 저장소를 꺼낸다.
-    store = getattr(runtime, "memory", None)
-    # 저장소나 서버 정보가 없으면 없음 표시를 반환한다.
-    if store is None or guild_id is None:
-        return "(없음)"
-
-    # 검색어와 일치하는 캐릭터 사건을 한도만큼 찾아 렌더링한다.
-    settings = memory_settings(runtime.config)
-    rows = store.search(
-        guild_id, (KIND_PERSONA_EVENT,), search_terms(query_text), settings.persona_prompt_max_items,
-        agent=agent, require_match=False,
-    )
-    return render_memory_items(rows, settings.persona_prompt_max_chars)
-
-
 # 시스템 프롬프트 끝에 붙일 이 캐릭터의 설정. 최신 순으로 persona_setting_max_chars까지 넣는다.
 def render_persona_settings_block(runtime: Any, guild_id: int | None, agent: str) -> str:
     # 런타임에서 기억 저장소를 꺼낸다.
@@ -247,69 +230,6 @@ def register_saved_attachments(runtime: Any, message_id: int, channel_id: int) -
     if runtime.memory is not None:
         runtime.memory.add_attachment_source(message_id, channel_id)
     return True
-
-
-# 채널 ID로 서버 ID를 찾는다. 실행 중인 봇이 그 채널을 볼 수 없으면 None이다.
-def channel_guild_id(runtime: Any, channel_id: int) -> int | None:
-    # 클라이언트마다 채널을 찾아 서버 ID를 돌려준다.
-    for client in runtime.clients.values():
-        channel = client.get_channel(channel_id)
-        guild = getattr(channel, "guild", None)
-        if guild is not None:
-            return guild.id
-    return None
-
-
-# 요약 호출이 낸 persona 항목을 검증해 저장한다.
-# 로스터 밖 캐릭터, 요약 묶음 밖 출처, 출처 없는 항목은 버리고, 저장 직전에 원본 삭제를 다시 확인한다.
-def save_persona_events(
-    runtime: Any, channel_id: int, entries: list[tuple], events: list[Any]
-) -> int:
-    # 저장소나 사건이 없으면 저장하지 않는다.
-    store = getattr(runtime, "memory", None)
-    if store is None or not events:
-        return 0
-
-    # 채널의 서버 id를 구한다.
-    guild_id = channel_guild_id(runtime, channel_id)
-    if guild_id is None:
-        log.warning("persona events skipped: guild unknown channel=%s", channel_id)
-        return 0
-
-    # 명단, 이번 배치와 현재 기록의 메시지 id, 글자 수 한도를 구한다.
-    roster = {agent.name for agent in runtime.config.agents}
-    batch_ids = {entry[4] for entry in entries if entry[4] is not None}
-    present_ids = {entry[4] for entry in runtime.chat_history_for(channel_id) if entry[4] is not None}
-    max_chars = memory_settings(runtime.config).persona_setting_max_chars
-    kinds = {"event": KIND_PERSONA_EVENT, "setting": KIND_PERSONA_SETTING}
-
-    # 사건마다 형식과 출처 메시지를 확인하고 저장한다.
-    saved = 0
-    for item in events:
-        if not isinstance(item, dict):
-            continue
-        agent = str(item.get("agent", "")).strip().removeprefix("agent:")
-        kind = kinds.get(str(item.get("kind", "")).strip())
-        content = " ".join(str(item.get("content", "")).split())[:max_chars]
-        raw_ids = item.get("source_message_ids")
-        source_ids = {parse_message_id(value) for value in raw_ids} if isinstance(raw_ids, list) else set()
-        if agent not in roster or kind is None or not content:
-            continue
-        if not source_ids or None in source_ids or not source_ids <= batch_ids:
-            continue
-        expanded = runtime.expand_message_group(source_ids)
-        if expanded & runtime.recent_deleted_ids or not source_ids <= present_ids:
-            continue
-        store.add(
-            guild_id, kind, content, agent=agent, author="summary", channel_id=channel_id,
-            sources=[(message_id, channel_id) for message_id in expanded],
-        )
-        saved += 1
-
-    # 저장 건수를 로그로 남기고 반환한다.
-    if saved:
-        log.info("persona events saved channel=%s count=%s", channel_id, saved)
-    return saved
 
 
 # MEMORY.md 내용을 저장소에 올린 기억 목록으로 다시 만든다.

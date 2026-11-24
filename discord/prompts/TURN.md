@@ -13,7 +13,6 @@ $now_line
 $history
 
 관련 장기기억: $memory
-캐릭터 기억: $persona_memory
 
 리액션 대상: $react_target_label
 {{request:이번 캐릭터 발언은 최대 $turn_limit턴 중 $turn_index번째다.}}

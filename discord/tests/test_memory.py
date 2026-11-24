@@ -372,9 +372,6 @@ class GuildIsolationTests(MemoryTestBase):
         store = self.runtime.memory
         store.add(GUILD, memory_store.KIND_PERSONA_EVENT, "젤리가 매운 라면을 먹었다", agent="jelly", sources=[(3, CHANNEL)])
         store.add(GUILD, memory_store.KIND_PERSONA_SETTING, "젤리는 사투리를 쓴다", agent="jelly", sources=[(4, CHANNEL)])
-        self.assertIn("매운 라면", bot.render_prompt_persona_events(self.runtime, GUILD, "jelly", "라면"))
-        self.assertEqual(bot.render_prompt_persona_events(self.runtime, GUILD, "rio", "라면"), "(없음)")
-        self.assertEqual(bot.render_prompt_persona_events(self.runtime, OTHER_GUILD, "jelly", "라면"), "(없음)")
         self.assertIn("사투리", bot.render_persona_settings_block(self.runtime, GUILD, "jelly"))
         self.assertEqual(bot.render_persona_settings_block(self.runtime, GUILD, "rio"), "")
         self.assertEqual(bot.render_persona_settings_block(self.runtime, OTHER_GUILD, "jelly"), "")
@@ -546,38 +543,24 @@ class DeleteTests(MemoryTestBase):
         self.assertEqual(self.persona_contents(), ["권한 오류"])
 
 
-class PersonaExtractionTests(MemoryTestBase):
-    # C4: 요약 호출의 가짜 persona_events 출력 저장, 재시도 및 포기, 잘못된 항목 거부, 저장 직전 재확인.
+class SummaryNoMemoryTests(MemoryTestBase):
+    # 요약은 이전 대화 요약만 갱신한다.
     def setUp(self) -> None:
         super().setUp()
         add_line(self.runtime, 1, 3, "user7", "젤리야 떡볶이 먹으러 가자", 11)
         add_line(self.runtime, 2, 3, "jelly", "캬~ 떡볶이 좋슴다", 12)
         add_line(self.runtime, 3, 0.1, "user7", "최근 대화", 15)
 
-    # 요약 출력 dict를 만든다.
-    def output(self, *events):
-        return {"summary": "떡볶이 약속", "persona_events": list(events)}
-
-    # 캐릭터 사건 dict를 만든다.
-    def event(self, agent="jelly", source=("12",), content="사용자와 떡볶이를 먹었다", kind="event"):
-        return {"agent": agent, "kind": kind, "content": content, "source_message_ids": list(source)}
-
-    # 올바른 캐릭터 사건은 저장하고 잘못된 사건은 거부하는지 확인한다.
-    async def test_valid_events_saved_and_invalid_rejected(self) -> None:
-        await self.run_summary([self.output(
-            self.event(),
-            self.event(kind="setting", content="떡볶이는 매운 맛을 고른다"),
-            self.event(agent="stranger", content="로스터 밖"),
-            self.event(source=("15",), content="묶음 밖"),
-            self.event(source=(), content="출처 없음"),
-            self.event(source=("abc",), content="잘못된 출처"),
-        )])
-        self.assertEqual(self.persona_contents(), ["떡볶이는 매운 맛을 고른다", "사용자와 떡볶이를 먹었다"])
+    # 요약 출력에 예전 persona_events가 섞여 와도 기억 목록이 비어 있는지 확인한다.
+    async def test_summary_does_not_store_memory(self) -> None:
+        event = {"agent": "jelly", "kind": "event", "content": "사용자와 떡볶이를 먹었다", "source_message_ids": ["12"]}
+        await self.run_summary([{"summary": "떡볶이 약속", "persona_events": [event]}])
+        self.assertEqual(self.persona_contents(), [])
+        self.assertEqual(self.runtime.chat_summaries[CHANNEL], "떡볶이 약속")
 
     # 실패 뒤 재시도로 성공하는지 확인한다.
     async def test_retry_then_success(self) -> None:
-        await self.run_summary([RuntimeError("1"), {"summary": ""}, self.output(self.event())])
-        self.assertEqual(self.persona_contents(), ["사용자와 떡볶이를 먹었다"])
+        await self.run_summary([RuntimeError("1"), {"summary": ""}, {"summary": "떡볶이 약속"}])
         self.assertEqual(self.runtime.chat_summaries[CHANNEL], "떡볶이 약속")
 
     # 최대 시도 횟수 뒤에 포기하는지 확인한다.
@@ -586,21 +569,8 @@ class PersonaExtractionTests(MemoryTestBase):
         with self.assertLogs("agent_team", logging.WARNING) as captured:
             await self.run_summary([RuntimeError("1"), RuntimeError("2"), RuntimeError("3")])
         self.assertTrue(any("summary_not_updated" in line for line in captured.output))
-        self.assertEqual(self.persona_contents(), [])
         self.assertEqual(self.runtime.chat_summaries[CHANNEL], "이전 요약")
         self.assertEqual([entry[4] for entry in self.runtime.chat_history_for(CHANNEL)], [15])
-
-    # 저장 전에 원본이 지워지면 저장하지 않는지 확인한다.
-    async def test_source_deleted_before_save_is_not_stored(self) -> None:
-        # 질의 도중 원본 메시지를 삭제 처리한다.
-        def delete_during_call():
-            bot.handle_deleted_messages(self.runtime, {12})
-            with patch.object(bot, "save_chat_state"):
-                self.runtime.remove_message(CHANNEL, 12)
-
-        # 요약 중 원본이 삭제되면 저장하지 않는지 확인한다.
-        await self.run_summary([self.output(self.event())], before=delete_during_call)
-        self.assertEqual(self.persona_contents(), [])
 
 
 class AttachmentTests(MemoryTestBase):
@@ -736,7 +706,7 @@ class ToolAndPromptTests(MemoryTestBase):
         self.assertIn("떡볶이 $turn_index $history", prompt)
         self.assertIn("이전 대화 요약: 요약 $memory", prompt)
         self.assertEqual(prompt.count("[user7] (메시지 ID 50) 떡볶이 이야기"), 1)
-        self.assertIn("캐릭터 기억: (없음)", prompt)
+        self.assertNotIn("캐릭터 기억:", prompt)
         append = options["system_prompt"]["append"]
         self.assertTrue(append.startswith("SYSTEM"))
         self.assertIn("젤리 설정 $self_name", append)
@@ -1108,8 +1078,8 @@ class SummaryTests(MemoryTestBase):
         self.assertNotIn("old.example", rendered)
         self.assertIn("new.example", rendered)
         prompts: list[str] = []
-        await self.run_summary([{"summary": "요" * 3000, "persona_events": []}], prompts)
-        self.assertIn("[user:user7] (메시지 ID 11) 오래된 사용자 줄", prompts[0])
+        await self.run_summary([{"summary": "요" * 3000}], prompts)
+        self.assertIn("[user7(사용자)] (메시지 ID 11) 오래된 사용자 줄", prompts[0])
         self.assertNotIn("WebSearch", prompts[0])
         self.assertEqual(len(self.runtime.chat_summaries[CHANNEL]), config_module.SummaryConfig().max_chars)
         self.assertEqual([entry[0] for entry in self.runtime.chat_history_for(CHANNEL)], [3, 4])
@@ -1222,7 +1192,7 @@ class TokenLogTests(MemoryTestBase):
     async def test_summary_call_logs_usage(self) -> None:
         add_line(self.runtime, 1, 3, "user7", "오래된 줄", 11)
         with self.assertLogs("agent_team", logging.INFO) as captured:
-            await self.run_summary([{"summary": "요약", "persona_events": []}])
+            await self.run_summary([{"summary": "요약"}])
         line = next(line for line in captured.output if "token usage" in line)
         self.assertIn("kind=summary", line)
         self.assertIn("model=claude-haiku-4-5", line)

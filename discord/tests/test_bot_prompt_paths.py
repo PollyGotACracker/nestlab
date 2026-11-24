@@ -46,40 +46,49 @@ def build_prompt(agent, agents: list) -> str:
 
 
 class BotPromptPathTests(unittest.TestCase):
-    # 모든 역할의 역할 지침이 AGENTS.md 본문과 같고 서명이 계산되는지 확인한다.
-    def test_role_rules_are_agents_body(self) -> None:
+    # 요청 프롬프트와 서명이 전역 지침과 SOUL은 쓰고 에이전트 지침은 제외하는지 확인한다.
+    def test_prompt_excludes_agent_instruction_files(self) -> None:
         agents = roster_agents()
         for agent in agents:
             with self.subTest(role=agent.role):
                 prompt = build_prompt(agent, agents)
-                role_dir = PROJECT_ROOT / ".claude" / "agents" / agent.role
-                body = (role_dir / "AGENTS.md").read_text(encoding="utf-8").strip().split("---", 2)[2].strip()
-                self.assertEqual(prompts_module.read_role_rules(role_dir), body)
-                self.assertIn(f"# Role\n\n{body}\n\n---", prompt)
-                self.assertIn("# Global rules", prompt)
+                self.assertNotIn("# Role", prompt)
+                self.assertTrue(prompt.startswith("# Global rules"))
                 self.assertIn("# Persona", prompt)
                 self.assertIn("# Discord chat runtime", prompt)
-                paths = {entry[0] for entry in bot.prompt_source_signature(PROJECT_ROOT, agent.role)}
-                for name in ("AGENTS.global.md", "AGENTS.md", "SOUL.md"):
-                    self.assertTrue(any(Path(p).name == name for p in paths), name)
+                names = {Path(entry[0]).name for entry in bot.prompt_source_signature(PROJECT_ROOT, agent.role)}
+                self.assertIn("SOUL.md", names)
+                self.assertIn("AGENTS.global.md", names)
+                self.assertNotIn("AGENTS.md", names)
 
-    # AGENTS.md나 SOUL.md가 없는 역할 폴더는 기동 검사가 종료하는지 확인한다.
+    # SOUL.md가 없는 역할 폴더는 기동 검사가 종료하고, AGENTS.md 없이도 통과하는지 확인한다.
     def test_check_role_files_exits_on_missing_file(self) -> None:
-        for missing in ("AGENTS.md", "SOUL.md"):
-            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
-                role_dir = Path(tmp) / ".claude" / "agents" / "x"
-                role_dir.mkdir(parents=True)
-                for name in ("AGENTS.md", "SOUL.md"):
-                    if name != missing:
-                        (role_dir / name).write_text("x", encoding="utf-8")
-                with self.assertRaises(SystemExit):
-                    bot.check_role_files(Path(tmp), ["x"])
         with tempfile.TemporaryDirectory() as tmp:
             role_dir = Path(tmp) / ".claude" / "agents" / "x"
             role_dir.mkdir(parents=True)
-            for name in ("AGENTS.md", "SOUL.md"):
-                (role_dir / name).write_text("x", encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                bot.check_role_files(Path(tmp), ["x"])
+            (role_dir / "SOUL.md").write_text("x", encoding="utf-8")
             bot.check_role_files(Path(tmp), ["x"])
+
+    # 내부 ID를 SOUL.md 제목에서 찾는지 확인한다.
+    def test_discover_agents_reads_soul_heading(self) -> None:
+        self.assertEqual(bot.discover_agents(PROJECT_ROOT).get("director"), "rio")
+
+    # SOUL의 영어 이름은 한국어 표시 이름으로 바뀌고 의견 머리말 줄은 빠지는지 확인한다.
+    def test_soul_is_localized(self) -> None:
+        agents = [
+            bot.AgentConfig(role=role, name=name, korean_name=f"한글{name}", token="", tools=[])
+            for role, name in bot.discover_agents(PROJECT_ROOT).items()
+        ]
+        director = next(agent for agent in agents if agent.role == "director")
+        prompt = build_prompt(director, agents)
+        persona = prompt.split("# Persona\n\n", 1)[1].split("\n\n---\n\n", 1)[0]
+        self.assertIn("넌 한글rio이다.", persona)
+        self.assertNotIn("Rio", persona)
+        self.assertNotIn("에이전트 제안", persona)
+        self.assertNotIn("에이전트 의견", persona)
+        self.assertEqual(prompts_module.localize_soul("scenario Nico", agents), "scenario 한글nico")
 
     # 시스템 프롬프트에 공통 원칙이 들어가는지 확인한다.
     def test_system_prompt_includes_global_principles(self) -> None:

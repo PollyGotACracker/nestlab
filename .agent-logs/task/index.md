@@ -10,7 +10,6 @@
 <!-- 작업 생성 시각 기준 DESC 정렬 -->
 
 - [에이전트 API 설계](20261116-060912-agent-api/status.md), 계획
-- [Discord 채팅 캐릭터 말투와 발언 이슈](20261102-220626-chat-persona-issue/status.md), 계획
 
 ## 완료 작업 목록
 

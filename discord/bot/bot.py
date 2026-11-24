@@ -23,7 +23,6 @@ from config import (
     CHAT_STATE_DIR,
     COMMON_RULES_FILE,
     HERE,
-    ROLE_RULES_FILE,
     TURN_PROMPT_PATH,
     WEEKDAY_NAMES,
     AgentConfig,
@@ -74,6 +73,7 @@ from prompts import (
     is_chat_channel,
     is_evidence_entry,
     is_registered_agent_channel,
+    localize_soul,
     parse_chat_controls,
     read_style_rules,
     read_tone_guide,
@@ -97,7 +97,6 @@ from memory import (
     register_saved_attachments,
     render_persona_settings_block,
     render_prompt_memories,
-    render_prompt_persona_events,
     run_memory_startup,
     save_chat_state,
 )
@@ -105,7 +104,7 @@ from summary import run_channel_summary
 from chat_loop import run_chat_conversation, run_chat_scheduler
 
 
-# 공통 규칙(AGENTS.global.md)과 에이전트 파일(.claude/agents)은 저장소 루트의 원본을 읽는다.
+# 공통 규칙(AGENTS.global.md)과 캐릭터 SOUL 파일(.claude/agents/<role>/SOUL.md)은 저장소 루트의 원본을 읽는다.
 RULES_ROOT = AGENT_ROOT.parent
 CONFIG_PATH = AGENT_ROOT / "config.json"
 MENTION = re.compile(r"<@!?(\d+)>")
@@ -568,7 +567,7 @@ class Runtime:
         options = ClaudeAgentOptions(
             system_prompt=(
                 "채팅 채널에서 사용자의 새 메시지가 누구에게 하는 말인지 고른다.\n"
-                "사용자가 이름, 호칭, 멘션으로 부른 캐릭터를 고른다. 문장에 이름이 화제로만 나온 캐릭터는 부른 캐릭터로 보지 않는다.\n"
+                "사용자가 이름, 호칭, 멘션으로 부른 캐릭터를 고른다. 이름이 화제로만 나온 캐릭터는 부른 캐릭터에서 제외한다.\n"
                 "부른 캐릭터가 없고 새 메시지가 특정 캐릭터의 발언을 묻거나 지적하면, 그 발언을 처음 한 캐릭터를 고른다.\n"
                 "부른 캐릭터가 없으면 최근 대화에서 사용자 메시지에 마지막으로 답한 캐릭터를 고른다.\n"
                 "캐릭터의 내부 ID 하나만 출력한다.\n"
@@ -1407,7 +1406,10 @@ class AgentBot(discord.Client):
         style_rules = ""
         if is_chat:
             style_rules = read_style_rules(RULES_ROOT)
-            tone = read_tone_guide(canonical_role_dir(RULES_ROOT, self.agent.role) / "SOUL.md")
+            tone = localize_soul(
+                read_tone_guide(canonical_role_dir(RULES_ROOT, self.agent.role) / "SOUL.md"),
+                self.runtime.config.agents,
+            )
             name = self.agent.korean_name
             speaker_tone = f"{name}의 Tone Guide:\n{tone}"
         turn_template = render_variant(
@@ -1417,9 +1419,6 @@ class AgentBot(discord.Client):
             "$channel_label": channel_label, "$guild_name": channel.guild.name,
             "$now_line": now_line.rstrip(), "$summary": summary, "$history": history,
             "$memory": render_prompt_memories(self.runtime, guild_id, memory_query),
-            "$persona_memory": render_prompt_persona_events(
-                self.runtime, guild_id, self.agent.name, memory_query
-            ),
             "$react_target_label": react_target_label, "$turn_limit": str(turn_limit),
             "$turn_index": str(turn_index), "$turn_instruction": turn_instruction,
             "$continuation_rule": continuation_rule, "$speaker_tone": speaker_tone,
@@ -1609,13 +1608,12 @@ class AgentBot(discord.Client):
         return next_name
 
 
-# 역할 폴더마다 AGENTS.md와 SOUL.md가 있는지 확인하고, 없으면 SystemExit로 종료한다.
+# 역할 폴더마다 SOUL.md가 있는지 확인하고, 없으면 SystemExit로 종료한다.
 def check_role_files(root: Path, roles) -> None:
     for role in roles:
-        role_dir = canonical_role_dir(root, role)
-        for filename in (ROLE_RULES_FILE, "SOUL.md"):
-            if not (role_dir / filename).is_file():
-                raise SystemExit(f"{role_dir / filename}가 없습니다.")
+        path = canonical_role_dir(root, role) / "SOUL.md"
+        if not path.is_file():
+            raise SystemExit(f"{path}가 없습니다.")
 
 
 # 설정과 에이전트 파일을 검증하고, 모든 Discord 봇과 채팅 스케줄러를 함께 실행한다.
@@ -1635,12 +1633,12 @@ async def main() -> None:
     if not CHAT_PROMPT_PATH.is_file():
         raise SystemExit(f"{CHAT_PROMPT_PATH}가 없습니다.")
 
-    # 지침 폴더에서 에이전트 목록을 찾는다.
+    # 에이전트 폴더의 SOUL 파일에서 에이전트 목록을 찾는다.
     known_agents = discover_agents(RULES_ROOT)
     if not known_agents:
         raise SystemExit(f"{RULES_ROOT / '.claude' / 'agents'}에 에이전트 폴더가 없습니다.")
 
-    # 역할마다 지침과 SOUL 파일이 있는지 확인한다.
+    # 역할마다 SOUL 파일이 있는지 확인한다.
     check_role_files(RULES_ROOT, known_agents)
 
     # 설정한 에이전트의 역할과 이름이 유효한지 확인한다.

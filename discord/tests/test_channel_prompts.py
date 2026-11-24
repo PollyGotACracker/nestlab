@@ -159,9 +159,10 @@ class ChatSystemPromptTests(unittest.TestCase):
         for agent in agents:
             with self.subTest(role=agent.role):
                 prompt = build_chat(agent, agents)
-                soul = (PROJECT_ROOT / ".claude" / "agents" / agent.role / "SOUL.md").read_text(
-                    encoding="utf-8"
-                ).strip()
+                soul = prompts_module.localize_soul(
+                    (PROJECT_ROOT / ".claude" / "agents" / agent.role / "SOUL.md").read_text(encoding="utf-8").strip(),
+                    agents,
+                )
                 self.assertTrue(prompt.startswith(f"# Global rules\n\n{common}\n\n---\n\n# Persona\n\n{soul}"))
                 self.assertIn("# Discord chat channel", prompt)
                 self.assertIn(chat_text.split("\n", 3)[2], prompt)
@@ -200,8 +201,7 @@ class CharacterMemoryTests(unittest.TestCase):
         shutil.copy(PROJECT_ROOT / common, root / common)
         role_dir = root / ".claude" / "agents" / "worker"
         role_dir.mkdir(parents=True)
-        for name in (config_module.ROLE_RULES_FILE, "SOUL.md"):
-            shutil.copy(PROJECT_ROOT / ".claude" / "agents" / "worker" / name, role_dir / name)
+        shutil.copy(PROJECT_ROOT / ".claude" / "agents" / "worker" / "SOUL.md", role_dir / "SOUL.md")
         return root
 
     # 프롬프트 서명이 채팅 문서와 기억 파일을 감시하는지 확인한다.
@@ -230,7 +230,9 @@ class CharacterMemoryTests(unittest.TestCase):
         (root / ".claude" / "agents" / "worker" / "MEMORY.md").write_text(
             "- 젤리는 매운 떡볶이를 좋아한다.\n", encoding="utf-8"
         )
-        soul = (root / ".claude" / "agents" / "worker" / "SOUL.md").read_text(encoding="utf-8").strip()
+        soul = prompts_module.localize_soul(
+            (root / ".claude" / "agents" / "worker" / "SOUL.md").read_text(encoding="utf-8").strip(), [agent]
+        )
         block = "# Character memory\n\n- 젤리는 매운 떡볶이를 좋아한다.\n\n---\n\n"
         for kind, prompt in (
             ("request", build_request(agent, [agent], root)), ("chat", build_chat(agent, [agent], root)),
@@ -255,7 +257,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
             chat_last_message={}, chat_last_user_id={}, chat_pending={}, append_chat=Mock(),
             config=SimpleNamespace(
                 chat_model_for=Mock(return_value=("test", "low")), chat=SimpleNamespace(sdk_max_turns=1),
-                chat_topics={}, chat_channels={123} if chat else set(),
+                chat_topics={}, chat_channels={123} if chat else set(), agents=[],
             ),
         )
         client = SimpleNamespace(

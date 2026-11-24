@@ -325,11 +325,11 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 채널마다 동시에 하나의 백그라운드 태스크가 채널 락 밖에서 `summary.model`을 도구 없이 한 번 호출한다.
 - 한 번에 대상 줄 앞쪽에서 최대 `summary.batch_max_lines`줄, `summary.batch_max_chars`자를 넣는다.
 - 입력은 기존 요약문과 대상 줄이며 `<previous_summary>`, `<conversation>` 데이터 블록으로 감싼다.
-  - 줄마다 시각, 화자(`agent:<내부 ID>` 또는 `user:<표시 이름>`), 메시지 ID를 붙인다.
+  - 줄마다 시각, 화자(`<한국어 표시 이름>(캐릭터)` 또는 `<표시 이름>(사용자)`), 메시지 ID를 붙인다.
   - 도구 및 출처 기록 줄은 입력에서 빼고, 같은 범위의 요약이 끝나면 함께 지운다.
-- 출력은 JSON schema `{summary, persona_events[{agent, kind, content, source_message_ids}]}`이다.
+- 출력은 JSON schema `{summary}`이다. 요약 결과는 이전 대화 요약에만 쓴다.
   - 요약문은 `summary.max_chars`자로 자른다.
-- 성공하면 요약문을 저장하고 persona 항목을 검증해 저장한 뒤 대상 줄을 지운다.
+- 성공하면 요약문을 저장한 뒤 대상 줄을 지운다.
 - 실패하면 `summary.max_attempts`번까지 다시 시도하고, 모두 실패하면 요약에 반영하지 않고 대상 줄을 지우며 경고 로그를 남긴다.
 - 턴 프롬프트의 `이전 대화 요약:` 줄에 요약문을 넣고, 요약이 없으면 `(없음)`을 넣는다.
 
@@ -358,10 +358,8 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
     - 동기화 중 삭제된 메시지는 다시 넣지 않는다.
 - 기억 요청(`memory_save`)은 요청 메시지와 대상 메시지(분할 조각 포함)를 원본으로 저장한다.
 - persona 기억은 캐릭터별 및 서버별이다.
-  - 겪은 일과 설정은 채널 요약 호출의 `persona_events`로 추출한다.
-  - 로스터 밖 캐릭터, 요약 묶음 밖 메시지 ID, 출처 없는 항목은 버린다.
-  - 저장 직전에 원본 삭제를 다시 확인한다.
-  - 사용자가 캐릭터에게 정한 설정은 `memory_save`의 scope로도 저장한다.
+  - 사용자가 캐릭터에게 정한 설정은 `memory_save`의 scope로 저장한다.
+  - 이전에 저장된 `persona_event`는 목록 조회와 `MEMORY.md` 반영에만 쓴다.
 - 삭제
   - 원본 메시지 중 하나라도 삭제되면 해당 기억 전체를 지운다. 잊기 명령은 없다.
   - 삭제 처리기는 채널 확인 전에 기억 및 첨부를 지우고 최근 삭제 ID를 기록한다.
@@ -369,7 +367,6 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
   - 시작 시 explicit 및 persona 기억의 원본을 `fetch_message`로 확인해 `NotFound`면 지우고, 그 밖의 오류는 보존하고 로그를 남긴다.
 - 주입
   - 턴 프롬프트 `관련 장기기억:`에 최근 대화 낱말이 맞는 장기기억을 `memory.prompt_max_items`개, `memory.prompt_max_chars`자까지 넣는다.
-  - 턴 프롬프트 `캐릭터 기억:`에 자기 겪은 일을 `memory.persona_prompt_max_items`개, `memory.persona_prompt_max_chars`자까지 넣는다.
   - 자기 설정은 시스템 프롬프트 끝에 최신 순으로 `memory.persona_setting_max_chars`자까지 붙인다.
   - 턴 프롬프트 치환은 알려진 키를 긴 이름부터 한 번에 처리해 기록 및 기억 안의 `$이름`을 다시 치환하지 않는다.
 - 저장소 반영
@@ -404,7 +401,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - assistant 역할에만 `reminders.timezone_offset_hours` 기준 현재 시각 (`현재 시각: YYYY-MM-DD (요일) HH:MM (한국 시간)`). 오프셋이 9가 아니면 `(한국 시간)` 대신 `(UTC+N)`으로 적는다
 - 이전 대화 요약
 - 대화 기록
-- 관련 장기기억과 캐릭터 기억
+- 관련 장기기억
 - 리액션 대상 메시지의 작성자와 본문 앞부분
 - 현재 발언 순서와 최대 발언 수
 - 사용자 경로 첫 턴의 넘기기 지시
@@ -417,7 +414,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 요청 채널(`request_channels`)은 Claude Code preset 뒤에 다음 순서의 작업 프롬프트를 붙인다.
 
 ```text
-# Global rules         ← /AGENTS.md
+# Global rules         ← /AGENTS.global.md
 # Persona              ← /.claude/agents/<role>/SOUL.md
 # Character memory     ← /.claude/agents/<role>/MEMORY.md (있을 때만)
 # Discord chat runtime ← /discord/prompts/RUNTIME.md에 prompts.py의 build_request_system_prompt가 역할 및 도구 정보를 주입한다.
@@ -426,7 +423,7 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 채팅 채널(`chat_channels`)은 Claude Code preset 없이 다음 순서의 채팅 프롬프트 문자열만 쓴다.
 
 ```text
-# Global rules          ← /AGENTS.md
+# Global rules          ← /AGENTS.global.md
 # Persona               ← /.claude/agents/<role>/SOUL.md
 # Character memory      ← /.claude/agents/<role>/MEMORY.md (있을 때만)
 # Discord chat channel  ← /discord/prompts/CHAT.md에 prompts.py의 build_chat_system_prompt가 도구 및 기억 안내를 주입한다.
@@ -441,8 +438,9 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 사실 확인 규칙은 그대로 넣는다.
 `CHAT.md`가 없으면 Bot이 시작하지 않는다.
 
-에이전트 지침(`/.claude/agents/<role>/AGENTS.md`)은 프롬프트에 넣지 않는다.
-캐릭터 이름은 에이전트 지침 frontmatter의 `name`에서 읽는다.
+Global rules는 전역 지침(`AGENTS.global.md`)의 일반 전역 지침과 서식 예시 문서로 만든다. 에이전트 지침(`/.claude/agents/<role>/AGENTS.md`)은 원본에서 제외한다.
+캐릭터 내부 ID는 `SOUL.md`의 첫 `# <이름>` 제목을 소문자로 바꾼 값이다.
+Persona와 채팅 Tone Guide는 넣기 전에 캐릭터 영어 이름을 한국어 표시 이름으로 바꾸고, `에이전트 제안`과 `에이전트 의견` 머리말이 있는 줄을 뺀다.
 
 요청 채널의 `Discord chat runtime`에는 다음 내용이 들어간다.
 
@@ -453,11 +451,11 @@ Discord 담당은 `prompts.py`의 `ROLE_DUTIES`에 정의한다. `.claude/agents
 - 지식 저장소 안내
 - 장기기억 안내(`$memory_block`, 모든 역할 동일)
 - 사실 확인 규칙
-- 말투와 길이 규칙
+- 말투와 길이 규칙, 계획 형식의 사용 조건, 한국어 이름 호칭 규칙
 - 리액션과 다음 화자 제어 규칙
 - 다른 캐릭터의 종 및 MBTI, 담당과 전용 도구 목록
 
-`/AGENTS.md`, 에이전트 지침, 자기 `SOUL.md`, 다른 캐릭터의 `SOUL.md`, `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`, 자기 `MEMORY.md`의 수정 시각이나 크기가 바뀌면 다음 발언에서 해당 에이전트의 시스템 프롬프트를 다시 만든다.
+`AGENTS.global.md`, 서식 예시 문서, 자기 `SOUL.md`, 다른 캐릭터의 `SOUL.md`, `discord/prompts/RUNTIME.md`, `TURN.md`, `CHAT.md`, 자기 `MEMORY.md`의 수정 시각이나 크기가 바뀌면 다음 발언에서 해당 에이전트의 시스템 프롬프트를 다시 만든다.
 `MEMORY.md`가 없으면 오류 없이 없는 파일로 감시한다.
 documenter는 `discord/prompts/ARCHIVE.md`도 변경 감지 대상에 포함하며, 지식 저장소 설정이 있을 때 해당 문서를 지식 안내로 읽는다.
 
@@ -465,7 +463,7 @@ documenter는 `discord/prompts/ARCHIVE.md`도 변경 감지 대상에 포함하�
 Discord는 이 스킬의 자동 로딩에 의존하지 않고 `ARCHIVE.md`와 전용 도구로 원격의 같은 schema 경로에 연결한다.
 절차 본문은 원격 위키 저장소의 `$repo_name/schema/`에만 유지한다.
 
-실행 가능한 에이전트 목록은 `.claude/agents/*/AGENTS.md`의 `name`에서 읽는다. 설정의 `name`이 이 값과 다르면 시작하지 않는다.
+실행 가능한 에이전트 목록은 `.claude/agents/*/SOUL.md`의 첫 제목에서 읽는다. 설정의 `name`이 이 값과 다르면 시작 단계에서 종료한다.
 
 모델과 effort는 `chat.model`, `chat.effort`를 쓰고, `request_channels` 항목에 `model`이나 `effort`가 있으면 그 채널에서는 그 값을 쓴다.
 스레드와 포럼 게시글은 부모 채널의 값을 따른다.

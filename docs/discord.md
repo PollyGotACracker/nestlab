@@ -195,7 +195,7 @@ cp discord/config.example.json discord/config.json
 | 키                        | 기본값             | 의미                                                     |
 | ------------------------- | ------------------ | -------------------------------------------------------- |
 | `summary.raw_hours`       | 2                  | 원문으로 보내는 최근 대화 시간. 더 오래된 줄은 요약 대상 |
-| `summary.model`           | `claude-haiku-4-5` | 요약과 캐릭터 기억 추출에 쓰는 모델                      |
+| `summary.model`           | `claude-haiku-4-5` | 이전 대화 요약에 쓰는 모델                               |
 | `summary.max_chars`       | 2000               | 채널 요약문 최대 글자 수                                 |
 | `summary.batch_min_lines` | 30                 | 요약을 실행하는 최소 대상 줄 수                          |
 | `summary.batch_max_lines` | 150                | 요약 1회에 넣는 최대 줄 수                               |
@@ -208,8 +208,8 @@ cp discord/config.example.json discord/config.json
 | `memory.prompt_max_items`          | 5      | 턴 프롬프트에 자동으로 붙이는 장기기억 개수  |
 | `memory.prompt_max_chars`          | 1500   | 자동으로 붙이는 장기기억 최대 글자 수        |
 | `memory.search_max_results`        | 10     | `memory_search` 최대 결과 수                 |
-| `memory.persona_prompt_max_items`  | 5      | 턴 프롬프트에 붙이는 캐릭터 기억 개수        |
-| `memory.persona_prompt_max_chars`  | 1000   | 캐릭터 기억 최대 글자 수                     |
+| `memory.persona_prompt_max_items`  | 5      | 기존 설정 호환용으로만 남은 값               |
+| `memory.persona_prompt_max_chars`  | 1000   | 기존 설정 호환용으로만 남은 값               |
 | `memory.persona_setting_max_chars` | 1000   | 시스템 프롬프트에 붙이는 캐릭터 설정 글자 수 |
 
 `chat.turn_delay_seconds`는 0 이상, `reminders.timezone_offset_hours`는 -12에서 14 사이, 나머지 숫자는 1 이상이어야 한다.
@@ -228,7 +228,7 @@ cp discord/config.example.json discord/config.json
 | assistant  | 알림 같은 생활형 요청                                                                     |
 
 `name`은 내부 호출 ID이고 `korean_name`은 채팅에서 사용하는 표시 이름이다.
-`name`은 `.claude/agents/<role>/AGENTS.md`의 `name`과 같아야 한다.
+`name`은 `.claude/agents/<role>/SOUL.md`의 첫 `# <이름>` 제목을 소문자로 바꾼 값과 같아야 한다.
 
 `tools`는 모든 에이전트에 공통으로 주는 기본 도구 목록이다.
 도구 이름은 설정의 `agents[].tools` 값을 쓴다. 역할 전용 도구는 코드가 역할에 따라 자동으로 붙인다.
@@ -468,7 +468,7 @@ Discord에서 사용하려면 설정된 원격 위키 저장소의 대상 브랜
   - 사용자가 기억하라고 한 내용
   - 캐릭터 기억: 캐릭터가 대화에서 겪은 일과 사용자가 그 캐릭터에게 정해 준 설정
 - archive 메시지 수정은 기억에 반영한다. 시작할 때 archive forum 전체(보관 스레드 포함)를 한 번 다시 맞춘다.
-- 캐릭터가 겪은 일은 요약 호출이 함께 추출한다. 요약을 포기하면 그 묶음의 추출도 버린다.
+- 캐릭터 설정은 사용자의 `memory_save` 요청으로만 저장한다.
 - 기억은 원본 메시지에 묶여 있다.
 - 기억 삭제는 `기억 삭제 방법` 절을 따른다.
 - 캐릭터에게 기억을 보여 달라고 하면 자기 기억을 보여 주고 채널당 1건의 업로드 대기를 만든다.
