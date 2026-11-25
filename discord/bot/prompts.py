@@ -413,8 +413,8 @@ def read_common_rules(root: Path) -> str:
     return text + "\n\n" + body
 
 
-# 채팅은 `## 서식 규칙` 절(하위 `###` 절 포함)을 시스템 프롬프트 대신 턴 프롬프트 끝에 둔다.
-STYLE_SECTION = re.compile(r"^## 서식 규칙[^\n]*\n.*?(?=^#{1,2} |\Z)", re.MULTILINE | re.DOTALL)
+# 채팅은 `## 문장 규칙` 절(하위 `###` 절 포함)을 시스템 프롬프트 대신 턴 프롬프트 끝에 둔다.
+STYLE_SECTION = re.compile(r"^## 문장 규칙[^\n]*\n.*?(?=^#{1,2} |\Z)", re.MULTILINE | re.DOTALL)
 
 
 # 공통 지침에서 응답 서식 절을 읽어 반환한다. 절이 없으면 빈 문자열이다.

@@ -19,7 +19,7 @@ import discord
 
 DISCORD_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = DISCORD_ROOT.parent
-# 채팅이 턴 프롬프트 끝에 두는 `## 서식 규칙` 절의 제목이다.
+# 채팅이 턴 프롬프트 끝에 두는 `## 문장 규칙` 절의 제목이다.
 sys.path.insert(0, str(DISCORD_ROOT / "bot"))
 bot = importlib.import_module("bot")
 config_module = importlib.import_module("config")
@@ -37,7 +37,7 @@ class FormatExamplesTests(unittest.TestCase):
         body = (PROJECT_ROOT / config_module.FORMAT_EXAMPLES_FILE).read_text(encoding="utf-8").split("---", 2)[2].strip()
         self.assertTrue(prompts_module.read_common_rules(PROJECT_ROOT).endswith(body))
 
-    # 공통 규칙에서 frontmatter와 첫 가로선 아래 프로젝트 전역 지침이 빠지고, 서식 규칙 절이 남는지 확인한다.
+    # 공통 규칙에서 frontmatter와 첫 가로선 아래 프로젝트 전역 지침이 빠지고, 문장 규칙 절이 남는지 확인한다.
     def test_common_rules_exclude_project_section(self) -> None:
         common = prompts_module.read_common_rules(PROJECT_ROOT)
         self.assertIn("# 일반 전역 지침", common)
@@ -47,7 +47,7 @@ class FormatExamplesTests(unittest.TestCase):
             if line.startswith("title:")
         )
         self.assertNotIn(title_line, common)
-        self.assertTrue(prompts_module.read_style_rules(PROJECT_ROOT).startswith("## 서식 규칙"))
+        self.assertTrue(prompts_module.read_style_rules(PROJECT_ROOT).startswith("## 문장 규칙"))
         agents = roster_agents()
         for agent in agents:
             for prompt in (build_chat(agent, agents), build_request(agent, agents)):
@@ -305,7 +305,7 @@ class TurnPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tone)
         self.assertIn(f"젤리의 Tone Guide:\n{tone}\n{style}\n", prompt)
 
-    # 서식 규칙이 채팅 시스템 프롬프트에서 턴 프롬프트로 옮겨졌는지 확인한다.
+    # 문장 규칙이 채팅 시스템 프롬프트에서 턴 프롬프트로 옮겨졌는지 확인한다.
     def test_style_rules_move_from_chat_system_prompt(self) -> None:
         style = bot.read_style_rules(bot.RULES_ROOT)
         agents = roster_agents()

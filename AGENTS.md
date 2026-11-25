@@ -10,31 +10,31 @@ modified: 2026-11-23
 
 매 턴마다 아래 목록에서 현재 작업에 관련된 상세 규칙을 참고한다.
 
-| **규칙명**  | **경로**               | **참고 시점**              |
-| :---------- | :--------------------- | :------------------------- |
-| 실측 규칙   | rules/measure-rules.md | 실측 계획 전               |
-| Git 규칙    | rules/git-rules.md     | git 작업, 작업 제안 전     |
-| 하네스 규칙 | rules/harness-rules.md | 하네스 설계, 제안, 작업 전 |
-| 도구 규칙   | rules/tool-rules.md    | 도구 설계, 제안, 작업 전   |
+| **규칙명**  | **경로**                 | **적용 시점**                     |
+| ----------- | ------------------------ | --------------------------------- |
+| 실측 규칙   | `rules/measure-rules.md` | 실측 계획, 관련 작업 제안         |
+| Git 규칙    | `rules/git-rules.md`     | git 작업, 관련 작업 제안          |
+| 하네스 규칙 | `rules/harness-rules.md` | 하네스 설계, 작업, 관련 작업 제안 |
+| 도구 규칙   | `rules/tool-rules.md`    | 도구 설계, 작업, 관련 작업 제안   |
 
 ## 경로 규칙
 
 아래 목록의 경로는 지정된 명칭으로 언급 및 작성한다.
 
-| **명칭**              | **경로**                        |
-| :-------------------- | :------------------------------ |
-| Claude 사용자 설정    | ~/.claude/settings.json         |
-| Codex 사용자 설정     | ~/.codex/config.toml            |
-| 전역 지침             | AGENTS.global.md                |
-| 에이전트 지침         | .claude/agents/<role>/AGENTS.md |
-| 스킬 원본             | shared/skills/<name>/SKILL.md   |
-| 작업 문서 템플릿 원본 | shared/templates/workflow/      |
-| 설정 원본             | shared/settings/                |
-| 경로 상수 파일        | hooks/common/sub_paths.py       |
-| Hooks 설치 도구       | tools/set_hooks.py              |
-| 스킬 연결 도구        | tools/set_skills.py             |
-| Agents 연결 도구      | tools/set_agents.py             |
-| 지침 검사 도구        | tools/check_doc_rule.py         |
+| **명칭**              | **경로**                          |
+| --------------------- | --------------------------------- |
+| Claude 사용자 설정    | `~/.claude/settings.json`         |
+| Codex 사용자 설정     | `~/.codex/config.toml`            |
+| 전역 지침             | `AGENTS.global.md`                |
+| 에이전트 지침         | `.claude/agents/<role>/AGENTS.md` |
+| 스킬 원본             | `shared/skills/<name>/SKILL.md`   |
+| 작업 문서 템플릿 원본 | `shared/templates/workflow/`      |
+| 설정 원본             | `shared/settings/`                |
+| 경로 상수 파일        | `hooks/common/sub_paths.py`       |
+| Hooks 설치 도구       | `tools/set_hooks.py`              |
+| 스킬 연결 도구        | `tools/set_skills.py`             |
+| Agents 연결 도구      | `tools/set_agents.py`             |
+| 지침 검사 도구        | `tools/check_doc_rule.py`         |
 
 ## 설계 규칙
 
@@ -69,3 +69,10 @@ modified: 2026-11-23
 - 함수 위에는 목적과 입력 및 반환을 3문장 이하 주석으로 쓰고, 반환 상수는 그 위에 묶어 빈 줄로 나눈다.
 - 상수와 정규식의 대상을 알리는 주석은 명사구로 쓰고, 동작과 규칙 설명은 문장으로 쓴다.
 - 복잡한 함수는 작업 단위마다 빈 줄과 설명 주석 1~2문장으로 나누며 주석 표식에는 플러그인 이름을 제거한다.
+- AI hook 설계:
+  - 문제 상황의 직접 차단보다 설계, 지침 개선을 우선으로 고려한다. 차단은 최후의 수단으로 둔다.
+  - 다음 결과를 막아야 하는 경우에만 hook을 추가하거나 확장한다.
+    - 최종 결과물 결함
+    - 같은 목적 작업의 불필요한 번복
+    - 파일의 비가역적 손실
+    - 추가 모델 호출과 토큰 낭비에 따른 비용

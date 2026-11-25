@@ -132,7 +132,7 @@ Discord 채널의 웹훅 봇 목록
 │   ├── prompts/                   # 봇 스크립트에 주입되는 프롬프트
 │   ├── tests/                     # 봇 스크립트 테스트
 │   └── config.example.json        # config.json 예시
-├── docs/                          # 환경별 연결 문서
+├── docs/                          # 외부 공개 문서
 ├── hooks/                         # 훅 스크립트
 ├── rules/                         # 현재 저장소의 상세 규칙 및 작업 명세
 ├── shared/
