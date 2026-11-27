@@ -27,8 +27,6 @@ AGENT_ROOT = HERE.parent
 TURN_PROMPT_PATH = HERE.parent / "prompts" / "TURN.md"
 # 지침 파일 이름. 공통 지침은 저장소 루트, archive 지침은 위키 저장소 루트에 있다.
 COMMON_RULES_FILE = "AGENTS.global.md"
-# 공통 지침의 문장 규칙에서 분리한 예시 문서이다. 공통 지침 뒤에 이어 붙인다.
-FORMAT_EXAMPLES_FILE = "shared/rules/sentence-examples.md"
 ARCHIVE_RULES_FILE = "AGENTS.md"
 DISCORD_LIMIT = 2000
 CHAT_STATE_DIR = HERE / "chat_state"

@@ -21,7 +21,6 @@ from claude_agent_sdk import (
 from config import (
     COMMON_RULES_FILE,
     DISCORD_LIMIT,
-    FORMAT_EXAMPLES_FILE,
     HERE,
     POLL_ANSWERS_MAX,
     POLL_ANSWERS_MIN,
@@ -173,8 +172,6 @@ def prompt_source_signature(
         root / COMMON_RULES_FILE, role_dir / "SOUL.md",
         RUNTIME_PROMPT_PATH, TURN_PROMPT_PATH, CHAT_PROMPT_PATH,
     ]
-    if (root / FORMAT_EXAMPLES_FILE).is_file():
-        paths.append(root / FORMAT_EXAMPLES_FILE)
     paths += [canonical_role_dir(root, other) / "SOUL.md" for other in roster_roles if other != role]
     if role == "documenter":
         paths.append(ARCHIVE_PROMPT_PATH)
@@ -404,10 +401,6 @@ def read_common_rules(root: Path) -> str:
     if text.startswith("---"):
         text = text.split("---", 2)[2].strip()
     text = re.split(r"^---[ \t]*$", text, maxsplit=1, flags=re.MULTILINE)[0].strip()
-    examples = root / FORMAT_EXAMPLES_FILE
-    if not examples.is_file():
-        return text
-    body = examples.read_text(encoding="utf-8").strip()
     if body.startswith("---"):
         body = body.split("---", 2)[2].strip()
     return text + "\n\n" + body

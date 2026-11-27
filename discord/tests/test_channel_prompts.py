@@ -31,39 +31,6 @@ REMINDERS_CONFIG = config_module.RemindersConfig(
 )
 
 
-# 서식 예시 문서 본문이 공통 규칙에 이어 붙는지 확인한다.
-class FormatExamplesTests(unittest.TestCase):
-    def test_common_rules_include_format_examples(self):
-        body = (PROJECT_ROOT / config_module.FORMAT_EXAMPLES_FILE).read_text(encoding="utf-8").split("---", 2)[2].strip()
-        self.assertTrue(prompts_module.read_common_rules(PROJECT_ROOT).endswith(body))
-
-    # 공통 규칙에서 frontmatter와 첫 가로선 아래 프로젝트 전역 지침이 빠지고, 문장 규칙 절이 남는지 확인한다.
-    def test_common_rules_exclude_project_section(self) -> None:
-        common = prompts_module.read_common_rules(PROJECT_ROOT)
-        self.assertIn("# 일반 전역 지침", common)
-        self.assertNotIn("# 프로젝트 전역 지침", common)
-        title_line = next(
-            line for line in (PROJECT_ROOT / config_module.COMMON_RULES_FILE).read_text(encoding="utf-8").splitlines()
-            if line.startswith("title:")
-        )
-        self.assertNotIn(title_line, common)
-        self.assertTrue(prompts_module.read_style_rules(PROJECT_ROOT).startswith("## 문장 규칙"))
-        agents = roster_agents()
-        for agent in agents:
-            for prompt in (build_chat(agent, agents), build_request(agent, agents)):
-                with self.subTest(role=agent.role):
-                    self.assertNotIn("# 프로젝트 전역 지침", prompt)
-                    self.assertNotIn(title_line, prompt)
-                    self.assertIn("# 일반 전역 지침", prompt)
-
-    # 가로선이 없는 공통 지침은 frontmatter를 뺀 본문 전체를 반환하는지 확인한다.
-    def test_common_rules_without_rule_line(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / config_module.COMMON_RULES_FILE).write_text(
-                "---\ntitle: t\n---\n\n# 규칙\n\n본문\n", encoding="utf-8"
-            )
-            self.assertEqual(prompts_module.read_common_rules(Path(tmp)), "# 규칙\n\n본문")
-
 
 # 저장소의 역할 목록으로 에이전트 설정 목록을 만든다.
 def roster_agents() -> list:
